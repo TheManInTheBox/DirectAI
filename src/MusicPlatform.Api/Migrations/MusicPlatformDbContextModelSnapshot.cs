@@ -67,10 +67,49 @@ namespace MusicPlatform.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Album")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AlbumArtist")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AlbumArtworkUri")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Artist")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AudioMode")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("Bitrate")
+                        .HasColumnType("integer");
+
                     b.Property<string>("BlobUri")
                         .IsRequired()
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
+
+                    b.Property<double?>("Bpm")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("BpmTag")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("Channels")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Comment")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Composer")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Conductor")
+                        .HasColumnType("text");
+
+                    b.Property<string>("DiscNumber")
+                        .HasColumnType("text");
 
                     b.Property<TimeSpan>("Duration")
                         .HasColumnType("interval");
@@ -80,10 +119,25 @@ namespace MusicPlatform.Api.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<string>("Genre")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Key")
+                        .HasColumnType("text");
+
+                    b.Property<string>("KeyTag")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Mp3Version")
+                        .HasColumnType("text");
+
                     b.Property<string>("OriginalFileName")
                         .IsRequired()
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
+
+                    b.Property<int?>("SampleRate")
+                        .HasColumnType("integer");
 
                     b.Property<long>("SizeBytes")
                         .HasColumnType("bigint");
@@ -92,10 +146,22 @@ namespace MusicPlatform.Api.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("TimeSignature")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Title")
+                        .HasColumnType("text");
+
+                    b.Property<string>("TrackNumber")
+                        .HasColumnType("text");
+
                     b.Property<DateTime>("UploadedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("UserId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Year")
                         .HasColumnType("text");
 
                     b.HasKey("Id");
@@ -228,14 +294,32 @@ namespace MusicPlatform.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Checkpoints")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CurrentStep")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<Guid>("EntityId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("text");
+
+                    b.Property<string>("IdempotencyKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("LastHeartbeat")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("MaxRetries")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Metadata")
                         .IsRequired()
@@ -245,6 +329,9 @@ namespace MusicPlatform.Api.Migrations
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
+
+                    b.Property<int>("RetryCount")
+                        .HasColumnType("integer");
 
                     b.Property<DateTime>("StartedAt")
                         .HasColumnType("timestamp with time zone");
@@ -257,13 +344,24 @@ namespace MusicPlatform.Api.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("WorkerInstanceId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("EntityId");
 
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("LastHeartbeat");
+
                     b.HasIndex("StartedAt");
 
                     b.HasIndex("Status");
+
+                    b.HasIndex("WorkerInstanceId");
 
                     b.ToTable("Jobs");
                 });
@@ -274,16 +372,62 @@ namespace MusicPlatform.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("AnalysisErrorMessage")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("AnalysisStatus")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("AnalyzedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid>("AudioFileId")
                         .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AudioFileId1")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Beats")
+                        .HasColumnType("text");
 
                     b.Property<string>("BlobUri")
                         .IsRequired()
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
+                    b.Property<double?>("Bpm")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("ChordProgression")
+                        .HasColumnType("text");
+
                     b.Property<float>("DurationSeconds")
                         .HasColumnType("real");
+
+                    b.Property<long>("FileSizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("JamsUri")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("Key")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("NotationData")
+                        .HasColumnType("text");
+
+                    b.Property<double?>("PeakLevel")
+                        .HasColumnType("double precision");
+
+                    b.Property<double?>("RmsLevel")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("Sections")
+                        .HasColumnType("text");
 
                     b.Property<DateTime>("SeparatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -293,13 +437,32 @@ namespace MusicPlatform.Api.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<double?>("SpectralCentroid")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("TimeSignature")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<double?>("TuningFrequency")
+                        .HasColumnType("double precision");
+
                     b.Property<string>("Type")
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<double?>("ZeroCrossingRate")
+                        .HasColumnType("double precision");
+
                     b.HasKey("Id");
 
+                    b.HasIndex("AnalysisStatus");
+
                     b.HasIndex("AudioFileId");
+
+                    b.HasIndex("AudioFileId1");
+
+                    b.HasIndex("Key");
 
                     b.HasIndex("SeparatedAt");
 
@@ -517,6 +680,12 @@ namespace MusicPlatform.Api.Migrations
                         .HasForeignKey("AudioFileId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.HasOne("MusicPlatform.Domain.Models.AudioFile", "AudioFile")
+                        .WithMany()
+                        .HasForeignKey("AudioFileId1");
+
+                    b.Navigation("AudioFile");
                 });
 #pragma warning restore 612, 618
         }

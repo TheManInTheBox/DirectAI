@@ -10,16 +10,140 @@
         <VerticalStackLayout Spacing="20" Padding="20">
             
             <!-- Header -->
-            <Label Text="AI Stem Generation"
+            <Label Text="🎸 Generate Original Music"
                    FontSize="28"
                    FontAttributes="Bold"
                    HorizontalOptions="Center" />
 
-            <Label Text="Select stem types and configure generation parameters"
+            <Label Text="Create new stems using selected references from multiple sources"
                    FontSize="14"
                    TextColor="{StaticResource Gray600}"
                    HorizontalOptions="Center"
                    HorizontalTextAlignment="Center" />
+                   
+            <!-- Workflow Instructions -->
+            <Border StrokeThickness="2"
+                   Stroke="#FFC107"
+                   BackgroundColor="#FFF9C4"
+                   Padding="15"
+                   Margin="0,10">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="10" />
+                </Border.StrokeShape>
+                <VerticalStackLayout Spacing="8">
+                    <Label Text="💡 Multi-Source Generation Workflow"
+                           FontSize="16"
+                           FontAttributes="Bold"
+                           TextColor="#F57F17" />
+                    <Label FontSize="12" TextColor="#795548">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="1️⃣ Select reference stems below (or add more from Audio Detail pages)&#x0a;" />
+                                <Span Text="2️⃣ Configure musical parameters (Key, BPM, style)&#x0a;" />
+                                <Span Text="3️⃣ Choose which new stem types to generate&#x0a;" />
+                                <Span Text="4️⃣ Click Generate to create original music combining all references" />
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
+                </VerticalStackLayout>
+            </Border>
+
+            <!-- Reference Stems Selection -->
+            <Frame BorderColor="{StaticResource Primary}"
+                   CornerRadius="10"
+                   Padding="20"
+                   HasShadow="True">
+                <VerticalStackLayout Spacing="10">
+                    <HorizontalStackLayout Spacing="15" HorizontalOptions="FillAndExpand">
+                        <Label Text="🎵 Reference Stems (Multi-Select)"
+                               FontSize="20"
+                               FontAttributes="Bold"
+                               TextColor="{StaticResource Primary}"
+                               VerticalOptions="Center"
+                               HorizontalOptions="StartAndExpand" />
+                        
+                        <Button Text="Clear All"
+                                Command="{Binding ClearReferenceStemsCommand}"
+                                FontSize="12"
+                                BackgroundColor="{StaticResource Gray400}"
+                                TextColor="White"
+                                CornerRadius="15"
+                                Padding="15,8"
+                                VerticalOptions="Center" />
+                    </HorizontalStackLayout>
+                    
+                    <Label Text="Selected stems from multiple audio files"
+                           FontSize="12"
+                           TextColor="{StaticResource Gray600}"
+                           Margin="0,0,0,10" />
+
+                    <CollectionView ItemsSource="{Binding ReferenceStems}">
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate x:DataType="viewmodels:ReferenceStemOption">
+                                <Border StrokeThickness="1"
+                                       Stroke="{StaticResource Gray200}"
+                                       BackgroundColor="{Binding IsSelected, Converter={StaticResource BoolToColorConverter}, ConverterParameter='#E8F5E9|Transparent'}"
+                                       Padding="10"
+                                       Margin="0,5">
+                                    <Border.StrokeShape>
+                                        <RoundRectangle CornerRadius="8" />
+                                    </Border.StrokeShape>
+                                    <HorizontalStackLayout Spacing="15">
+                                        <CheckBox IsChecked="{Binding IsSelected}" 
+                                                 Color="{StaticResource Primary}" />
+                                        <VerticalStackLayout Spacing="2" VerticalOptions="Center">
+                                            <Label Text="{Binding Name}" 
+                                                   FontSize="16"
+                                                   FontAttributes="Bold" />
+                                            <Label Text="{Binding Info}"
+                                                   FontSize="12"
+                                                   TextColor="{StaticResource Gray600}" />
+                                        </VerticalStackLayout>
+                                    </HorizontalStackLayout>
+                                </Border>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                    </CollectionView>
+                </VerticalStackLayout>
+            </Frame>
+            
+            <!-- Musical Context Summary -->
+            <Border StrokeThickness="2"
+                   Stroke="#4CAF50"
+                   BackgroundColor="#E8F5E9"
+                   Padding="15"
+                   Margin="0,10"
+                   IsVisible="{Binding HasReferenceStems}">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="10" />
+                </Border.StrokeShape>
+                <VerticalStackLayout Spacing="8">
+                    <HorizontalStackLayout Spacing="10">
+                        <Label Text="🎼"
+                               FontSize="24"
+                               VerticalOptions="Center" />
+                        <Label Text="Realistic Generation Mode"
+                               FontSize="16"
+                               FontAttributes="Bold"
+                               TextColor="#2E7D32"
+                               VerticalOptions="Center" />
+                    </HorizontalStackLayout>
+                    
+                    <Label FontSize="12" TextColor="#1B5E20" LineHeight="1.4">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="✓ Musical notation and patterns extracted&#x0a;" />
+                                <Span Text="✓ Chord progressions analyzed&#x0a;" />
+                                <Span Text="✓ Rhythmic structure mapped&#x0a;" />
+                                <Span Text="✓ Spectral features captured&#x0a;" />
+                                <Span Text="✓ Harmonic relationships preserved&#x0a;&#x0a;" />
+                                <Span Text="The AI will create new stems that musically complement your references while maintaining realistic instrumentation and coherent harmonic structure."
+                                      FontAttributes="Italic" />
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
+                </VerticalStackLayout>
+            </Border>
 
             <!-- Stem Selection -->
             <Frame BorderColor="{StaticResource Primary}"
@@ -27,7 +151,7 @@
                    Padding="20"
                    HasShadow="True">
                 <VerticalStackLayout Spacing="10">
-                    <Label Text="🎸 Select Stems to Generate"
+                    <Label Text="🎸 Stems to Generate"
                            FontSize="20"
                            FontAttributes="Bold"
                            TextColor="{StaticResource Primary}" />
@@ -59,6 +183,14 @@
                            FontAttributes="Bold"
                            TextColor="{StaticResource Primary}" />
 
+                    <!-- Musical Key -->
+                    <VerticalStackLayout Spacing="5">
+                        <Label Text="Musical Key:" FontAttributes="Bold" />
+                        <Picker ItemsSource="{Binding AvailableKeys}"
+                               SelectedItem="{Binding TargetKey}"
+                               FontSize="16" />
+                    </VerticalStackLayout>
+
                     <!-- BPM -->
                     <VerticalStackLayout Spacing="5">
                         <Label Text="{Binding TargetBpm, StringFormat='Target BPM: {0:F0}'}" 
@@ -67,6 +199,20 @@
                                Maximum="200" 
                                Value="{Binding TargetBpm}"
                                MinimumTrackColor="{StaticResource Primary}" />
+                    </VerticalStackLayout>
+
+                    <!-- Max Quality Length -->
+                    <VerticalStackLayout Spacing="5">
+                        <Label Text="{Binding MaxQualityLength, StringFormat='Max Quality Length: {0:F0} seconds'}" 
+                               FontAttributes="Bold" />
+                        <Slider Minimum="10" 
+                               Maximum="180" 
+                               Value="{Binding MaxQualityLength}"
+                               MinimumTrackColor="{StaticResource Primary}" />
+                        <Label Text="Higher values produce better quality but take longer to generate"
+                               FontSize="11"
+                               TextColor="{StaticResource Gray600}"
+                               LineBreakMode="WordWrap" />
                     </VerticalStackLayout>
 
                     <!-- Duration -->

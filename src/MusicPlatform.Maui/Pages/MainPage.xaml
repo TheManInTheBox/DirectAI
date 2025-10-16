@@ -20,13 +20,59 @@
                        TextColor="{StaticResource Gray600}"
                        HorizontalOptions="Center" />
             </VerticalStackLayout>
+            
+            <!-- Selected Stems Indicator (Shopping Cart) -->
+            <Border StrokeThickness="2"
+                   Stroke="{StaticResource Primary}"
+                   BackgroundColor="#E3F2FD"
+                   Padding="20"
+                   Margin="0,10"
+                   IsVisible="{Binding HasGlobalSelectedStems}">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="15" />
+                </Border.StrokeShape>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="15">
+                    <Label Grid.Column="0"
+                           Text="🛒"
+                           FontSize="32"
+                           VerticalOptions="Center" />
+                    
+                    <VerticalStackLayout Grid.Column="1" Spacing="5" VerticalOptions="Center">
+                        <Label Text="{Binding GlobalSelectedStemsCount, StringFormat='{0} Stem(s) Selected for Generation'}"
+                               FontSize="18"
+                               FontAttributes="Bold"
+                               TextColor="{StaticResource Primary}" />
+                        <Label Text="Select stems from different audio files, then generate original music"
+                               FontSize="12"
+                               TextColor="{StaticResource Gray600}" />
+                    </VerticalStackLayout>
+                    
+                    <Button Grid.Column="2"
+                           Text="Generate Now 🎸"
+                           Command="{Binding NavigateToGenerationCommand}"
+                           BackgroundColor="{StaticResource Primary}"
+                           TextColor="White"
+                           CornerRadius="20"
+                           Padding="20,10"
+                           FontSize="14"
+                           FontAttributes="Bold"
+                           VerticalOptions="Center" />
+                </Grid>
+            </Border>
 
             <!-- Drag and Drop Upload Zone -->
-            <Frame BorderColor="{StaticResource Primary}"
+            <Frame x:Name="DropZone"
+                   BorderColor="{StaticResource Primary}"
                    CornerRadius="15"
                    Padding="40"
                    HasShadow="True"
                    BackgroundColor="{StaticResource PrimaryLight}">
+                <Frame.GestureRecognizers>
+                    <DropGestureRecognizer AllowDrop="True"
+                                          Drop="OnDrop"
+                                          DragOver="OnDragOver"
+                                          DragLeave="OnDragLeave" />
+                </Frame.GestureRecognizers>
                 <VerticalStackLayout Spacing="15">
                     <Label Text="📂"
                            FontSize="60"
@@ -82,6 +128,13 @@
                            VerticalOptions="Center"
                            HorizontalOptions="StartAndExpand" />
                     
+                    <!-- DEBUG: Show count -->
+                    <Label Text="{Binding SourceMaterialLibrary.Count, StringFormat='({0} items)'}"
+                           FontSize="14"
+                           VerticalOptions="Center"
+                           TextColor="Red"
+                           FontAttributes="Bold" />
+                    
                     <Button Text="☑"
                             Command="{Binding ToggleSelectionModeCommand}"
                             FontSize="20"
@@ -100,6 +153,16 @@
                             CornerRadius="20"
                             Padding="0"
                             BackgroundColor="{StaticResource Secondary}" />
+                    
+                    <Button Text="📋"
+                            Command="{Binding NavigateToJobsCommand}"
+                            FontSize="20"
+                            WidthRequest="40"
+                            HeightRequest="40"
+                            CornerRadius="20"
+                            Padding="0"
+                            BackgroundColor="{StaticResource Primary}"
+                            ToolTipProperties.Text="View Background Jobs" />
                 </HorizontalStackLayout>
 
                 <!-- Selection Mode Controls -->
@@ -148,86 +211,112 @@
                                       ItemsLayout="HorizontalList">
                             <CollectionView.ItemTemplate>
                                 <DataTemplate x:DataType="viewmodels:SourceMaterialItem">
-                                    <Frame BorderColor="{StaticResource Primary}"
-                                           CornerRadius="15"
-                                           Padding="20"
-                                           Margin="5"
-                                           WidthRequest="300"
+                                    <Frame BorderColor="Transparent"
+                                           CornerRadius="20"
+                                           Padding="0"
+                                           Margin="10,5"
+                                           WidthRequest="320"
                                            HasShadow="True"
+                                           IsClippedToBounds="True"
                                            BackgroundColor="White">
-                                        <VerticalStackLayout Spacing="10">
-                                            <!-- Selection Checkbox -->
-                                            <CheckBox IsChecked="{Binding IsSelected}"
-                                                     IsVisible="{Binding Source={RelativeSource AncestorType={x:Type viewmodels:MainViewModel}}, Path=IsSelectionMode}"
-                                                     IsEnabled="{Binding IsAnalyzed}"
-                                                     HorizontalOptions="End"
-                                                     Color="{StaticResource Primary}" />
+                                        <Frame.GestureRecognizers>
+                                            <TapGestureRecognizer 
+                                                Command="{Binding Source={RelativeSource AncestorType={x:Type viewmodels:MainViewModel}}, Path=ViewDetailsCommand}"
+                                                CommandParameter="{Binding .}" />
+                                        </Frame.GestureRecognizers>
+                                        
+                                        <Grid HeightRequest="280" WidthRequest="320">
+                                            <!-- Album Artwork Background -->
+                                            <Image Source="{Binding AlbumArtworkUri, Converter={StaticResource HttpImageSourceConverter}}"
+                                                   Aspect="AspectFill"
+                                                   HeightRequest="280"
+                                                   WidthRequest="320"
+                                                   IsVisible="{Binding HasAlbumArtwork}" />
                                             
-                                            <!-- File Icon -->
-                                            <Label Text="🎵"
-                                                   FontSize="40"
-                                                   HorizontalOptions="Center" />
+                                            <!-- Fallback gradient background for files without artwork -->
+                                            <BoxView IsVisible="{Binding HasAlbumArtwork, Converter={StaticResource InvertedBoolConverter}}">
+                                                <BoxView.Background>
+                                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                                        <GradientStop Color="#667eea" Offset="0.0" />
+                                                        <GradientStop Color="#764ba2" Offset="1.0" />
+                                                    </LinearGradientBrush>
+                                                </BoxView.Background>
+                                            </BoxView>
                                             
-                                            <!-- File Name -->
-                                            <Label Text="{Binding FileName}"
-                                                   FontSize="16"
-                                                   FontAttributes="Bold"
-                                                   LineBreakMode="TailTruncation"
-                                                   HorizontalOptions="Center"
-                                                   HorizontalTextAlignment="Center" />
+                                            <!-- Gradient Overlay for readability -->
+                                            <BoxView>
+                                                <BoxView.Background>
+                                                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                        <GradientStop Color="#00000000" Offset="0.0" />
+                                                        <GradientStop Color="#AA000000" Offset="0.5" />
+                                                        <GradientStop Color="#DD000000" Offset="1.0" />
+                                                    </LinearGradientBrush>
+                                                </BoxView.Background>
+                                            </BoxView>
                                             
-                                            <!-- Info -->
-                                            <Label Text="{Binding DisplayInfo}"
-                                                   FontSize="12"
-                                                   TextColor="{StaticResource Gray600}"
-                                                   HorizontalOptions="Center"
-                                                   HorizontalTextAlignment="Center" />
-
-                                            <!-- Status Badge -->
-                                            <Frame BorderColor="{StaticResource Success}"
-                                                   BackgroundColor="{StaticResource SuccessLight}"
-                                                   CornerRadius="10"
-                                                   Padding="10,5"
-                                                   IsVisible="{Binding IsAnalyzed}"
-                                                   HorizontalOptions="Center">
-                                                <Label Text="✓ Analyzed"
-                                                       FontSize="11"
-                                                       FontAttributes="Bold"
-                                                       TextColor="{StaticResource Success}" />
-                                            </Frame>
-
-                                            <!-- Status Message -->
-                                            <Label Text="{Binding StatusMessage}"
-                                                   FontSize="11"
-                                                   TextColor="{StaticResource Primary}"
-                                                   LineBreakMode="WordWrap"
-                                                   IsVisible="{Binding StatusMessage, Converter={StaticResource IsNotNullOrEmptyConverter}}"
-                                                   HorizontalTextAlignment="Center" />
-
-                                            <!-- Actions -->
-                                            <VerticalStackLayout Spacing="5">
-                                                <Button Text="🔬 Analyze"
-                                                       Command="{Binding Source={RelativeSource AncestorType={x:Type viewmodels:MainViewModel}}, Path=AnalyzeItemCommand}"
-                                                       CommandParameter="{Binding .}"
-                                                       IsVisible="{Binding IsAnalyzed, Converter={StaticResource InvertedBoolConverter}}"
-                                                       BackgroundColor="{StaticResource Secondary}"
-                                                       TextColor="White"
-                                                       FontSize="12"
-                                                       CornerRadius="10"
-                                                       HeightRequest="35" />
+                                            <!-- Content -->
+                                            <Grid RowDefinitions="Auto,*,Auto" Padding="20">
+                                                <!-- Top Row: Checkbox and Status Badge -->
+                                                <HorizontalStackLayout Grid.Row="0" 
+                                                                     HorizontalOptions="FillAndExpand"
+                                                                     VerticalOptions="Start">
+                                                    <!-- Selection Checkbox -->
+                                                    <CheckBox IsChecked="{Binding IsSelected}"
+                                                             IsVisible="{Binding Source={RelativeSource AncestorType={x:Type viewmodels:MainViewModel}}, Path=IsSelectionMode}"
+                                                             IsEnabled="{Binding IsAnalyzed}"
+                                                             Color="White"
+                                                             HorizontalOptions="Start" />
+                                                    
+                                                    <!-- Status Badge -->
+                                                    <Border BackgroundColor="#22FFFFFF"
+                                                           StrokeThickness="1"
+                                                           Stroke="#44FFFFFF"
+                                                           Padding="12,6"
+                                                           IsVisible="{Binding IsAnalyzed}"
+                                                           HorizontalOptions="End">
+                                                        <Border.StrokeShape>
+                                                            <RoundRectangle CornerRadius="12" />
+                                                        </Border.StrokeShape>
+                                                        <Label Text="✓ Analyzed"
+                                                               FontSize="11"
+                                                               FontAttributes="Bold"
+                                                               TextColor="White" />
+                                                    </Border>
+                                                </HorizontalStackLayout>
                                                 
-                                                <Button Text="🎸 Generate Stems"
-                                                       Command="{Binding Source={RelativeSource AncestorType={x:Type viewmodels:MainViewModel}}, Path=GenerateFromItemCommand}"
-                                                       CommandParameter="{Binding .}"
-                                                       IsVisible="{Binding IsAnalyzed}"
-                                                       BackgroundColor="{StaticResource Primary}"
-                                                       TextColor="White"
-                                                       FontSize="12"
-                                                       FontAttributes="Bold"
-                                                       CornerRadius="10"
-                                                       HeightRequest="35" />
-                                            </VerticalStackLayout>
-                                        </VerticalStackLayout>
+                                                <!-- Middle Row: Icon -->
+                                                <VerticalStackLayout Grid.Row="1" 
+                                                                   VerticalOptions="Center"
+                                                                   HorizontalOptions="Center"
+                                                                   Spacing="0">
+                                                    <Label Text="🎵"
+                                                           FontSize="64"
+                                                           HorizontalOptions="Center"
+                                                           Opacity="0.9" />
+                                                </VerticalStackLayout>
+                                                
+                                                <!-- Bottom Row: File Info -->
+                                                <VerticalStackLayout Grid.Row="2" 
+                                                                   Spacing="8"
+                                                                   VerticalOptions="End">
+                                                    <!-- File Name -->
+                                                    <Label Text="{Binding FileName}"
+                                                           FontSize="18"
+                                                           FontAttributes="Bold"
+                                                           LineBreakMode="TailTruncation"
+                                                           MaxLines="2"
+                                                           TextColor="White"
+                                                           HorizontalTextAlignment="Start" />
+                                                    
+                                                    <!-- File Info -->
+                                                    <Label Text="{Binding DisplayInfo}"
+                                                           FontSize="13"
+                                                           TextColor="#DDDDDD"
+                                                           LineBreakMode="TailTruncation"
+                                                           HorizontalTextAlignment="Start" />
+                                                </VerticalStackLayout>
+                                            </Grid>
+                                        </Grid>
                                     </Frame>
                                 </DataTemplate>
                             </CollectionView.ItemTemplate>

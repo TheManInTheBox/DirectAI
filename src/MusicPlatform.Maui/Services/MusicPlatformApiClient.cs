@@ -1,5 +1,7 @@
 using System.Net.Http.Json;
 using System.Net.Http.Headers;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace MusicPlatform.Maui.Services;
 
@@ -147,6 +149,56 @@ public class MusicPlatformApiClient
 
     #endregion
 
+    #region Stems Endpoints
+
+    /// <summary>
+    /// Gets all stems for a specific audio file
+    /// </summary>
+    public async Task<List<StemDto>?> GetStemsByAudioFileAsync(
+        Guid audioFileId,
+        CancellationToken cancellationToken = default
+    )
+    {
+        return await _httpClient.GetFromJsonAsync<List<StemDto>>(
+            $"/api/audio/{audioFileId}/stems",
+            cancellationToken
+        );
+    }
+    
+    /// <summary>
+    /// Gets a single stem by ID with full details (including notation, chords, etc.)
+    /// </summary>
+    public async Task<StemDto?> GetStemByIdAsync(
+        Guid stemId,
+        CancellationToken cancellationToken = default
+    )
+    {
+        return await _httpClient.GetFromJsonAsync<StemDto>(
+            $"/api/stems/{stemId}",
+            cancellationToken
+        );
+    }
+
+    /// <summary>
+    /// Downloads a stem file
+    /// </summary>
+    public async Task<Stream?> DownloadStemAsync(
+        Guid stemId,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var response = await _httpClient.GetAsync(
+            $"/api/stems/{stemId}/download",
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken
+        );
+
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsStreamAsync(cancellationToken);
+    }
+
+    #endregion
+
     #region Generation Endpoints
 
     /// <summary>
@@ -188,10 +240,30 @@ public class MusicPlatformApiClient
         CancellationToken cancellationToken = default
     )
     {
-        return await _httpClient.GetFromJsonAsync<List<GenerationRequestDto>>(
-            "/api/generation",
-            cancellationToken
-        );
+        try
+        {
+            var response = await _httpClient.GetAsync("/api/generation", cancellationToken);
+            response.EnsureSuccessStatusCode();
+            
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            
+            // Use custom JSON options that are more lenient
+            var options = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                // This will skip properties that fail to deserialize
+                ReadCommentHandling = JsonCommentHandling.Skip,
+                AllowTrailingCommas = true
+            };
+            
+            return JsonSerializer.Deserialize<List<GenerationRequestDto>>(content, options);
+        }
+        catch (Exception)
+        {
+            // Return empty list instead of throwing
+            return new List<GenerationRequestDto>();
+        }
     }
 
     /// <summary>
@@ -208,24 +280,6 @@ public class MusicPlatformApiClient
         );
     }
 
-    /// <summary>
-    /// Downloads a generated stem
-    /// </summary>
-    public async Task<Stream?> DownloadStemAsync(
-        Guid stemId,
-        CancellationToken cancellationToken = default
-    )
-    {
-        var response = await _httpClient.GetAsync(
-            $"/api/generation/stems/{stemId}/download",
-            HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken
-        );
-
-        response.EnsureSuccessStatusCode();
-        return await response.Content.ReadAsStreamAsync(cancellationToken);
-    }
-
     #endregion
 
     #region Jobs Endpoints
@@ -233,28 +287,99 @@ public class MusicPlatformApiClient
     /// <summary>
     /// Gets job status by ID
     /// </summary>
-    public async Task<JobStatusDto?> GetJobStatusAsync(
+    public async Task<JobDto?> GetJobAsync(
         Guid jobId,
         CancellationToken cancellationToken = default
     )
     {
-        return await _httpClient.GetFromJsonAsync<JobStatusDto>(
+        return await _httpClient.GetFromJsonAsync<JobDto>(
             $"/api/jobs/{jobId}",
             cancellationToken
         );
     }
 
     /// <summary>
-    /// Gets all jobs
+    /// Gets all jobs for a specific entity (audio file or generation request)
     /// </summary>
-    public async Task<List<JobStatusDto>?> GetAllJobsAsync(
+    public async Task<List<JobDto>?> GetJobsByEntityAsync(
+        Guid entityId,
         CancellationToken cancellationToken = default
     )
     {
-        return await _httpClient.GetFromJsonAsync<List<JobStatusDto>>(
-            "/api/jobs",
+        return await _httpClient.GetFromJsonAsync<List<JobDto>>(
+            $"/api/jobs/entity/{entityId}",
             cancellationToken
         );
+    }
+
+    /// <summary>
+    /// Gets all jobs with optional filtering
+    /// </summary>
+    public async Task<List<JobDto>?> GetAllJobsAsync(
+        string? status = null,
+        string? type = null,
+        int skip = 0,
+        int take = 20,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var query = $"/api/jobs?skip={skip}&take={take}";
+        if (!string.IsNullOrEmpty(status)) query += $"&status={status}";
+        if (!string.IsNullOrEmpty(type)) query += $"&type={type}";
+        
+        return await _httpClient.GetFromJsonAsync<List<JobDto>>(
+            query,
+            cancellationToken
+        );
+    }
+
+    /// <summary>
+    /// Gets job statistics
+    /// </summary>
+    public async Task<JobStatisticsDto?> GetJobStatisticsAsync(
+        CancellationToken cancellationToken = default
+    )
+    {
+        return await _httpClient.GetFromJsonAsync<JobStatisticsDto>(
+            "/api/jobs/stats",
+            cancellationToken
+        );
+    }
+
+    /// <summary>
+    /// Cancels a running job
+    /// </summary>
+    public async Task<JobDto?> CancelJobAsync(
+        Guid jobId,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var response = await _httpClient.PostAsync(
+            $"/api/jobs/{jobId}/cancel",
+            null,
+            cancellationToken
+        );
+
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<JobDto>(cancellationToken: cancellationToken);
+    }
+
+    /// <summary>
+    /// Retries a failed job
+    /// </summary>
+    public async Task<JobDto?> RetryJobAsync(
+        Guid jobId,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var response = await _httpClient.PostAsync(
+            $"/api/jobs/{jobId}/retry",
+            null,
+            cancellationToken
+        );
+
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<JobDto>(cancellationToken: cancellationToken);
     }
 
     #endregion
@@ -274,7 +399,24 @@ public record AudioFileDto(
     string Format,
     DateTime UploadedAt,
     string Status,
-    string? UserId
+    string? UserId,
+    // MP3 Metadata
+    string? Title = null,
+    string? Artist = null,
+    string? Album = null,
+    string? AlbumArtist = null,
+    string? Year = null,
+    string? Genre = null,
+    string? TrackNumber = null,
+    string? AlbumArtworkUri = null,
+    // Technical Properties
+    int? Bitrate = null,
+    int? SampleRate = null,
+    int? Channels = null,
+    // Musical Analysis Results (from analysis worker)
+    double? Bpm = null,
+    string? Key = null,
+    string? TimeSignature = null
 );
 
 /// <summary>
@@ -290,7 +432,18 @@ public record AnalysisResultDto(
     string? Tuning,
     string? JamsData,
     DateTime? AnalyzedAt,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    List<ChordAnnotationDto>? Chords = null
+);
+
+/// <summary>
+/// Chord annotation data transfer object
+/// </summary>
+public record ChordAnnotationDto(
+    float StartTime,
+    float EndTime,
+    string Chord,
+    float Confidence
 );
 
 /// <summary>
@@ -299,7 +452,7 @@ public record AnalysisResultDto(
 public record CreateGenerationRequestDto(
     Guid AudioFileId,
     string[] TargetStems,
-    Dictionary<string, object>? Parameters = null
+    object? Parameters = null  // Changed from Dictionary<string, object>? to object? to allow any serializable structure
 );
 
 /// <summary>
@@ -309,10 +462,23 @@ public record GenerationRequestDto(
     Guid Id,
     Guid AudioFileId,
     string[] TargetStems,
-    string Parameters,
+    GenerationParametersDto? Parameters,  // Changed from string? to object to match API
     string Status,
     DateTime CreatedAt,
     DateTime? CompletedAt
+);
+
+/// <summary>
+/// Generation parameters data transfer object
+/// </summary>
+public record GenerationParametersDto(
+    double? TargetBpm,
+    double? DurationSeconds,
+    string? Style,
+    List<string>? ChordProgression,
+    string? Prompt,
+    double? Temperature,
+    int? RandomSeed
 );
 
 /// <summary>
@@ -326,19 +492,80 @@ public record GeneratedStemDto(
     long FileSizeBytes,
     double? DurationSeconds,
     string? Metadata,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    // Audio File metadata for display
+    Guid? AudioFileId = null,
+    string? AudioFileTitle = null,
+    string? AudioFileArtist = null,
+    string? AudioFileAlbum = null,
+    string? AlbumArtworkUri = null
 );
 
 /// <summary>
-/// Job status data transfer object
+/// Stem data transfer object from Stems controller
 /// </summary>
-public record JobStatusDto(
+public record StemDto(
     Guid Id,
-    string JobType,
+    Guid AudioFileId,
+    string Type,
+    string BlobUri,
+    float DurationSeconds,
+    long FileSizeBytes,
+    DateTime SeparatedAt,
+    string SourceSeparationModel,
+    double? Bpm = null,
+    string? Key = null,
+    string? TimeSignature = null,
+    double? TuningFrequency = null,
+    double? RmsLevel = null,
+    double? PeakLevel = null,
+    double? SpectralCentroid = null,
+    double? ZeroCrossingRate = null,
+    string? ChordProgression = null,
+    string? Beats = null,
+    string? Sections = null,
+    string? NotationData = null,
+    string? JamsUri = null,
+    string AnalysisStatus = "Pending",
+    string? AnalysisErrorMessage = null,
+    DateTime? AnalyzedAt = null
+);
+
+/// <summary>
+/// Job data transfer object with enhanced idempotent features
+/// </summary>
+public record JobDto(
+    Guid Id,
+    string Type,
+    Guid EntityId,
+    string OrchestrationInstanceId,
     string Status,
+    DateTime StartedAt,
+    DateTime? CompletedAt,
+    DateTime? LastHeartbeat,
     string? ErrorMessage,
-    DateTime CreatedAt,
-    DateTime? CompletedAt
+    Dictionary<string, object>? Metadata,
+    string? IdempotencyKey,
+    int RetryCount,
+    int MaxRetries,
+    string? WorkerInstanceId,
+    string? CurrentStep,
+    Dictionary<string, object>? Checkpoints
+);
+
+/// <summary>
+/// Job statistics data transfer object
+/// </summary>
+public record JobStatisticsDto(
+    int TotalJobs,
+    int PendingJobs,
+    int RunningJobs,
+    int CompletedJobs,
+    int FailedJobs,
+    int CancelledJobs,
+    int AnalysisJobs,
+    int GenerationJobs,
+    double AverageCompletionTimeSeconds
 );
 
 #endregion

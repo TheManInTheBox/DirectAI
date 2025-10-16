@@ -15,6 +15,7 @@ public class AnalysisViewModel : INotifyPropertyChanged
     private string _statusMessage = "Loading analysis...";
     private bool _isLoading = true;
     private AnalysisResultDto? _analysisResult;
+    private AudioFileDto? _audioFile;
     private string? _audioFileId;
 
     public AnalysisViewModel(MusicPlatformApiClient apiClient)
@@ -68,6 +69,32 @@ public class AnalysisViewModel : INotifyPropertyChanged
     public string? Key => AnalysisResult?.Key;
     public string? TimeSignature => AnalysisResult?.TimeSignature;
     public string? Tuning => AnalysisResult?.Tuning;
+    
+    // Audio file metadata for display
+    public AudioFileDto? AudioFile
+    {
+        get => _audioFile;
+        set
+        {
+            if (SetProperty(ref _audioFile, value))
+            {
+                OnPropertyChanged(nameof(AlbumArtworkUri));
+                OnPropertyChanged(nameof(DisplayTitle));
+                OnPropertyChanged(nameof(DisplayArtist));
+                OnPropertyChanged(nameof(DisplayAlbum));
+                OnPropertyChanged(nameof(HasAlbumArtwork));
+                OnPropertyChanged(nameof(HasMetadata));
+            }
+        }
+    }
+    
+    public string? AlbumArtworkUri => AudioFile?.AlbumArtworkUri;
+    public string DisplayTitle => AudioFile?.Title ?? AudioFile?.OriginalFileName ?? "Unknown Track";
+    public string DisplayArtist => AudioFile?.Artist ?? "Unknown Artist";
+    public string DisplayAlbum => AudioFile?.Album ?? string.Empty;
+    public bool HasAlbumArtwork => !string.IsNullOrWhiteSpace(AudioFile?.AlbumArtworkUri);
+    public bool HasMetadata => !string.IsNullOrWhiteSpace(AudioFile?.Title) || 
+                               !string.IsNullOrWhiteSpace(AudioFile?.Artist);
 
     public bool HasSections => Sections.Any();
     public bool HasChords => Chords.Any();
@@ -157,7 +184,14 @@ public class AnalysisViewModel : INotifyPropertyChanged
                 return;
             }
 
-            var result = await _apiClient.GetAnalysisAsync(id);
+            // Load both audio file metadata and analysis result
+            var audioFileTask = _apiClient.GetAudioFileAsync(id);
+            var analysisTask = _apiClient.GetAnalysisAsync(id);
+
+            await Task.WhenAll(audioFileTask, analysisTask);
+
+            AudioFile = await audioFileTask;
+            var result = await analysisTask;
 
             if (result == null)
             {

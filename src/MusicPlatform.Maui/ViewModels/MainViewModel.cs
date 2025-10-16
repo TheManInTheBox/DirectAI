@@ -18,6 +18,9 @@ public class MainViewModel : INotifyPropertyChanged
     private bool _isLoadingGeneratedLibrary = false;
     private bool _isSelectionMode = false;
     private int _selectedItemsCount = 0;
+    
+    // Global collection for selected stems from multiple sources
+    public static ObservableCollection<SelectedStemInfo> GlobalSelectedStems { get; } = new();
 
     public MainViewModel(MusicPlatformApiClient apiClient)
     {
@@ -38,6 +41,28 @@ public class MainViewModel : INotifyPropertyChanged
         SelectAllCommand = new Command(() => SelectAll());
         DeselectAllCommand = new Command(() => DeselectAll());
         GenerateFromSelectedCommand = new Command(async () => await GenerateFromSelectedAsync(), () => SelectedItemsCount > 0);
+        NavigateToJobsCommand = new Command(async () => await NavigateToJobsAsync());
+        ViewDetailsCommand = new Command<SourceMaterialItem>(async (item) => await ViewDetailsAsync(item));
+        NavigateToGenerationCommand = new Command(async () =>
+        {
+            try
+            {
+                await NavigateToGenerationAsync();
+            }
+            catch (Exception ex)
+            {
+                await Application.Current?.MainPage?.DisplayAlert("Error", 
+                    $"Failed to navigate: {ex.Message}\n\nStack: {ex.StackTrace}", 
+                    "OK");
+            }
+        });
+        
+        // Subscribe to global collection changes to update UI
+        GlobalSelectedStems.CollectionChanged += (s, e) => 
+        {
+            OnPropertyChanged(nameof(GlobalSelectedStemsCount));
+            OnPropertyChanged(nameof(HasGlobalSelectedStems));
+        };
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -53,6 +78,9 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand SelectAllCommand { get; }
     public ICommand DeselectAllCommand { get; }
     public ICommand GenerateFromSelectedCommand { get; }
+    public ICommand NavigateToJobsCommand { get; }
+    public ICommand ViewDetailsCommand { get; }
+    public ICommand NavigateToGenerationCommand { get; }
 
     public ObservableCollection<SourceMaterialItem> SourceMaterialLibrary { get; }
     public ObservableCollection<GeneratedMusicItem> GeneratedMusicLibrary { get; }
@@ -96,11 +124,23 @@ public class MainViewModel : INotifyPropertyChanged
             ((Command)GenerateFromSelectedCommand).ChangeCanExecute();
         }
     }
+    
+    // Global stem selection properties for multi-source workflow
+    public int GlobalSelectedStemsCount => GlobalSelectedStems.Count;
+    public bool HasGlobalSelectedStems => GlobalSelectedStems.Any();
 
     public async Task InitializeAsync()
     {
         await LoadSourceLibraryAsync();
         await LoadGeneratedLibraryAsync();
+    }
+
+    /// <summary>
+    /// Public method for handling dropped files from drag and drop
+    /// </summary>
+    public async Task HandleDroppedFilesAsync(IEnumerable<string> filePaths)
+    {
+        await UploadFilesAsync(filePaths);
     }
 
     private async Task UploadFilesAsync(IEnumerable<string> filePaths)
@@ -137,8 +177,10 @@ public class MainViewModel : INotifyPropertyChanged
                 }
             }
 
-            UploadStatus = $"✓ Successfully uploaded {uploadedCount} file(s)!";
+            UploadStatus = $"✓ Successfully uploaded {uploadedCount} file(s)! Processing analysis...";
             await Task.Delay(2000);
+            UploadStatus = "📊 Files are being analyzed. They'll appear in Source Library once processing completes (1-2 min).";
+            await Task.Delay(3000);
             UploadStatus = string.Empty;
             
             // Refresh source library
@@ -197,20 +239,31 @@ public class MainViewModel : INotifyPropertyChanged
 
             var audioFiles = await _apiClient.GetAllAudioFilesAsync();
             
+            Console.WriteLine($"🔍 DEBUG: Loaded {audioFiles?.Count ?? 0} audio files from API");
+            
             if (audioFiles == null) return;
 
             foreach (var file in audioFiles.OrderByDescending(f => f.UploadedAt))
             {
+                Console.WriteLine($"🔍 DEBUG: Processing file: {file.Title}");
+                Console.WriteLine($"🔍 DEBUG: AlbumArtworkUri: {file.AlbumArtworkUri}");
+                
                 // Get analysis for this file
                 var analysis = await _apiClient.GetAnalysisAsync(file.Id);
                 
+                // Add original audio file
                 var item = new SourceMaterialItem(file, analysis, _apiClient);
                 item.PropertyChanged += OnSourceItemPropertyChanged;
                 SourceMaterialLibrary.Add(item);
+                
+                Console.WriteLine($"🔍 DEBUG: Added audio file item. HasAlbumArtwork: {item.HasAlbumArtwork}");
             }
+            
+            Console.WriteLine($"🔍 DEBUG: Total items in SourceMaterialLibrary: {SourceMaterialLibrary.Count}");
         }
         catch (Exception ex)
         {
+            Console.WriteLine($"❌ ERROR loading source library: {ex.Message}");
             UploadStatus = $"Error loading source library: {ex.Message}";
         }
         finally
@@ -236,14 +289,22 @@ public class MainViewModel : INotifyPropertyChanged
 
             foreach (var request in completedRequests)
             {
-                var stems = await _apiClient.GetGeneratedStemsAsync(request.Id);
-                
-                if (stems != null)
+                try
                 {
-                    foreach (var stem in stems)
+                    var stems = await _apiClient.GetGeneratedStemsAsync(request.Id);
+                    
+                    if (stems != null)
                     {
-                        GeneratedMusicLibrary.Add(new GeneratedMusicItem(stem, request, _apiClient));
+                        foreach (var stem in stems)
+                        {
+                            GeneratedMusicLibrary.Add(new GeneratedMusicItem(stem, request, _apiClient));
+                        }
                     }
+                }
+                catch (Exception stemEx)
+                {
+                    // Log but continue loading other requests
+                    System.Diagnostics.Debug.WriteLine($"Error loading stems for request {request.Id}: {stemEx.Message}");
                 }
             }
         }
@@ -263,13 +324,76 @@ public class MainViewModel : INotifyPropertyChanged
 
         try
         {
-            item.StatusMessage = "Requesting analysis...";
+            item.StatusMessage = "🔬 Requesting analysis...";
             await _apiClient.RequestAnalysisAsync(item.AudioFileId);
-            item.StatusMessage = "Analysis requested. Refresh library in 30-60 seconds.";
+            
+            // Poll for progress
+            item.StatusMessage = "⏳ Analyzing: Downloading audio...";
+            await Task.Delay(2000);
+            
+            item.StatusMessage = "🎵 Analyzing: Separating stems (1-2 min)...";
+            
+            // Poll every 10 seconds for 3 minutes max
+            var maxAttempts = 18; // 3 minutes
+            var attempt = 0;
+            var completed = false;
+            
+            while (attempt < maxAttempts && !completed)
+            {
+                await Task.Delay(10000); // Wait 10 seconds
+                attempt++;
+                
+                try
+                {
+                    // Check if analysis is complete by fetching the file again
+                    var audioFiles = await _apiClient.GetAllAudioFilesAsync();
+                    var updatedFile = audioFiles?.FirstOrDefault(f => f.Id == item.AudioFileId);
+                    
+                    if (updatedFile?.Status == "Analyzed")
+                    {
+                        completed = true;
+                        item.StatusMessage = "✅ Analysis complete! Click refresh to see results.";
+                        await Task.Delay(3000);
+                        item.StatusMessage = string.Empty;
+                        
+                        // Auto-refresh library
+                        await LoadSourceLibraryAsync();
+                        return;
+                    }
+                    
+                    // Update progress message based on elapsed time
+                    var elapsedSeconds = attempt * 10;
+                    if (elapsedSeconds < 60)
+                    {
+                        item.StatusMessage = "🎵 Analyzing: Separating stems...";
+                    }
+                    else if (elapsedSeconds < 120)
+                    {
+                        item.StatusMessage = "🔍 Analyzing: Extracting features (BPM, key, chords)...";
+                    }
+                    else
+                    {
+                        item.StatusMessage = "📊 Analyzing: Finalizing results...";
+                    }
+                }
+                catch
+                {
+                    // Continue polling even if status check fails
+                }
+            }
+            
+            if (!completed)
+            {
+                item.StatusMessage = "⏱️ Analysis taking longer than expected. Check back soon.";
+                await Task.Delay(5000);
+                item.StatusMessage = string.Empty;
+            }
         }
         catch (Exception ex)
         {
-            item.StatusMessage = $"Error: {ex.Message}";
+            item.StatusMessage = $"❌ Error: {ex.Message}";
+            await Task.Delay(5000);
+            item.StatusMessage = string.Empty;
         }
     }
 
@@ -451,6 +575,36 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    private async Task NavigateToJobsAsync()
+    {
+        await Shell.Current.GoToAsync("//JobsPage");
+    }
+    
+    private async Task NavigateToGenerationAsync()
+    {
+        // Navigate directly to generation page with globally selected stems
+        await Shell.Current.GoToAsync("generation");
+    }
+
+    private async Task ViewDetailsAsync(SourceMaterialItem item)
+    {
+        try
+        {
+            // Navigate to the detail page with the audio file ID
+            var navigationParameter = new Dictionary<string, object>
+            {
+                { "AudioFileId", item.AudioFileId.ToString() }
+            };
+            
+            await Shell.Current.GoToAsync("AudioFileDetailPage", navigationParameter);
+        }
+        catch (Exception ex)
+        {
+            // Navigation error - could show an alert here if needed
+            System.Diagnostics.Debug.WriteLine($"Navigation error: {ex.Message}");
+        }
+    }
+
     protected bool SetProperty<T>(ref T storage, T value, [CallerMemberName] string? propertyName = null)
     {
         if (EqualityComparer<T>.Default.Equals(storage, value))
@@ -470,36 +624,82 @@ public class MainViewModel : INotifyPropertyChanged
 #region Item Models
 
 /// <summary>
-/// Source material library item (uploaded and analyzed audio)
+/// Source material library item (uploaded and analyzed audio, or separated stem)
 /// </summary>
 public class SourceMaterialItem : INotifyPropertyChanged
 {
     private readonly AudioFileDto _audioFile;
     private readonly AnalysisResultDto? _analysis;
+    private readonly StemDto? _stem;
     private readonly MusicPlatformApiClient _apiClient;
     private string _statusMessage = string.Empty;
     private bool _isSelected = false;
 
+    // Constructor for original audio file
     public SourceMaterialItem(AudioFileDto audioFile, AnalysisResultDto? analysis, MusicPlatformApiClient apiClient)
     {
         _audioFile = audioFile;
         _analysis = analysis;
+        _stem = null;
+        _apiClient = apiClient;
+    }
+    
+    // Constructor for stem
+    public SourceMaterialItem(AudioFileDto audioFile, AnalysisResultDto? analysis, StemDto stem, MusicPlatformApiClient apiClient)
+    {
+        _audioFile = audioFile;
+        _analysis = analysis;
+        _stem = stem;
         _apiClient = apiClient;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public Guid AudioFileId => _audioFile.Id;
-    public string FileName => _audioFile.OriginalFileName;
-    public string FileSizeFormatted => FormatFileSize(_audioFile.SizeBytes);
-    public string UploadedAt => _audioFile.UploadedAt.ToString("g");
+    public Guid? StemId => _stem?.Id;
+    public bool IsStem => _stem != null;
+    public string StemType => _stem?.Type ?? string.Empty;
+    public string? NotationData => _stem?.NotationData;
     
-    public bool IsAnalyzed => _analysis?.Status == "Completed";
-    public string AnalysisStatus => _analysis?.Status ?? "Not Analyzed";
-    public double? Bpm => _analysis?.Bpm;
+    public string FileName => IsStem 
+        ? $"{_audioFile.OriginalFileName} - {_stem!.Type}"
+        : _audioFile.OriginalFileName;
+        
+    public string FileSizeFormatted => IsStem
+        ? FormatFileSize(_stem!.FileSizeBytes)
+        : FormatFileSize(_audioFile.SizeBytes);
+        
+    public string UploadedAt => IsStem
+        ? (_stem!.AnalyzedAt?.ToString("g") ?? "Unknown")
+        : _audioFile.UploadedAt.ToString("g");
+    
+    public bool IsAnalyzed => IsStem 
+        ? _stem!.AnalysisStatus == "Completed"
+        : _analysis?.Status == "Completed";
+        
+    public string AnalysisStatus => IsStem
+        ? _stem!.AnalysisStatus
+        : (_analysis?.Status ?? "Not Analyzed");
+        
+    public double? Bpm => IsStem
+        ? _stem!.Bpm
+        : _analysis?.Bpm;
+        
     public string BpmFormatted => Bpm.HasValue ? $"{Bpm.Value:F1} BPM" : "Unknown";
-    public string Key => _analysis?.Key ?? "Unknown";
-    public string TimeSignature => _analysis?.TimeSignature ?? "Unknown";
+    
+    public string Key => IsStem
+        ? _stem!.Key ?? "Unknown"
+        : (_analysis?.Key ?? "Unknown");
+        
+    public string TimeSignature => IsStem
+        ? _stem!.TimeSignature ?? "Unknown"
+        : (_analysis?.TimeSignature ?? "Unknown");
+        
+    public bool HasNotation => IsStem && !string.IsNullOrEmpty(_stem!.NotationData);
+    
+    // Album artwork for card background
+    public string? AlbumArtworkUri => _audioFile.AlbumArtworkUri;
+    public bool HasAlbumArtwork => !string.IsNullOrWhiteSpace(_audioFile.AlbumArtworkUri);
 
     public bool IsSelected
     {
@@ -521,9 +721,25 @@ public class SourceMaterialItem : INotifyPropertyChanged
         }
     }
 
-    public string DisplayInfo => IsAnalyzed 
-        ? $"{BpmFormatted} • {Key} • {TimeSignature}"
-        : $"{FileSizeFormatted} • {AnalysisStatus}";
+    public string DisplayInfo
+    {
+        get
+        {
+            if (!IsAnalyzed)
+                return $"{FileSizeFormatted} • {AnalysisStatus}";
+                
+            var info = $"{BpmFormatted} • {Key} • {TimeSignature}";
+            
+            if (IsStem)
+            {
+                info = $"🎵 {_stem!.Type} • {info}";
+                if (HasNotation)
+                    info += " • 📝 Notation";
+            }
+            
+            return info;
+        }
+    }
 
     private static string FormatFileSize(long bytes)
     {
@@ -651,6 +867,17 @@ public class GeneratedMusicItem : INotifyPropertyChanged
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
+}
+
+/// <summary>
+/// Information about a selected stem for generation
+/// </summary>
+public class SelectedStemInfo
+{
+    public Guid StemId { get; set; }
+    public string AudioFileName { get; set; } = string.Empty;
+    public string StemType { get; set; } = string.Empty;
+    public string DisplayName => $"{AudioFileName} - {StemType}";
 }
 
 #endregion

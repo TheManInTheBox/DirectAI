@@ -17,7 +17,10 @@
             <converters:IsNotNullConverter x:Key="IsNotNullConverter" />
             <converters:PercentToProgressConverter x:Key="PercentToProgressConverter" />
             <converters:IsZeroConverter x:Key="IsZeroConverter" />
+            <converters:IsGreaterThanZeroConverter x:Key="IsGreaterThanZeroConverter" />
             <converters:BoolToColorConverter x:Key="BoolToColorConverter" />
+            <converters:StringEqualsConverter x:Key="StringEqualsConverter" />
+            <converters:HttpImageSourceConverter x:Key="HttpImageSourceConverter" />
             
             <!-- Additional Colors -->
             <Color x:Key="Success">#28a745</Color>

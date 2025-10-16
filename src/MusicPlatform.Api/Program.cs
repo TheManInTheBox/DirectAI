@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Azure.Storage.Blobs;
 using Azure.Identity;
+using MusicPlatform.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -43,19 +44,22 @@ else
 builder.Services.AddHttpClient("AnalysisWorker", client =>
 {
     client.BaseAddress = new Uri(builder.Configuration["Workers:AnalysisWorkerUrl"]);
-    client.Timeout = TimeSpan.FromMinutes(5);
+    client.Timeout = TimeSpan.FromMinutes(15); // Increased for Demucs separation + MIR analysis
 });
 builder.Services.AddHttpClient("GenerationWorker", client =>
 {
     client.BaseAddress = new Uri(builder.Configuration["Workers:GenerationWorkerUrl"]);
-    client.Timeout = TimeSpan.FromMinutes(5);
+    client.Timeout = TimeSpan.FromMinutes(15); // Increased for generation processing
 });
 
 // 4. Orchestration Service (In-Memory for local, Durable Functions for Azure)
 var orchestrationType = builder.Configuration["Orchestration:Type"];
 // TODO: Implement orchestration service registration based on type
 
-// 5. Controllers and OpenAPI
+// 5. Application Services
+builder.Services.AddScoped<IdempotentJobService>();
+
+// 6. Controllers and OpenAPI
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {

@@ -11,4 +11,9 @@
         ContentTemplate="{DataTemplate pages:MainPage}"
         Route="MainPage" />
 
+    <ShellContent
+        Title="Background Jobs"
+        ContentTemplate="{DataTemplate pages:JobsPage}"
+        Route="JobsPage" />
+
 </Shell>

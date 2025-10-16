@@ -7,9 +7,57 @@
              Title="Analysis Results">
 
     <ScrollView>
-        <VerticalStackLayout Spacing="20" Padding="20">
+        <Grid>
+            <!-- Album artwork background with overlay -->
+            <Image Source="{Binding AlbumArtworkUri}"
+                   Aspect="AspectFill"
+                   IsVisible="{Binding HasAlbumArtwork}"
+                   Opacity="0.15"
+                   VerticalOptions="Start"
+                   HeightRequest="400" />
             
-            <!-- Header -->
+            <VerticalStackLayout Spacing="20" Padding="20">
+            
+            <!-- Header with Track Info -->
+            <Frame BorderColor="{StaticResource Primary}"
+                   CornerRadius="15"
+                   Padding="20"
+                   HasShadow="True"
+                   IsVisible="{Binding HasMetadata}">
+                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="15">
+                    <!-- Album artwork thumbnail -->
+                    <Frame Grid.Column="0"
+                           CornerRadius="10"
+                           Padding="0"
+                           HeightRequest="80"
+                           WidthRequest="80"
+                           IsClippedToBounds="True"
+                           HasShadow="False"
+                           IsVisible="{Binding HasAlbumArtwork}">
+                        <Image Source="{Binding AlbumArtworkUri}"
+                               Aspect="AspectFill" />
+                    </Frame>
+                    
+                    <!-- Track metadata -->
+                    <VerticalStackLayout Grid.Column="1" Spacing="5" VerticalOptions="Center">
+                        <Label Text="{Binding DisplayTitle}"
+                               FontSize="18"
+                               FontAttributes="Bold"
+                               LineBreakMode="TailTruncation" />
+                        <Label Text="{Binding DisplayArtist}"
+                               FontSize="14"
+                               TextColor="{StaticResource Gray600}"
+                               LineBreakMode="TailTruncation" />
+                        <Label Text="{Binding DisplayAlbum}"
+                               FontSize="12"
+                               TextColor="{StaticResource Gray500}"
+                               LineBreakMode="TailTruncation"
+                               IsVisible="{Binding DisplayAlbum, Converter={StaticResource IsNotNullOrEmptyConverter}}" />
+                    </VerticalStackLayout>
+                </Grid>
+            </Frame>
+            
+            <!-- Musical Analysis Title -->
             <Label Text="Musical Analysis"
                    FontSize="28"
                    FontAttributes="Bold"
@@ -159,6 +207,7 @@
                     Margin="0,20,0,0" />
 
         </VerticalStackLayout>
+        </Grid>
     </ScrollView>
 
 </ContentPage>

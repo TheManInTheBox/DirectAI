@@ -2,6 +2,7 @@
 using MusicPlatform.Maui.Services;
 using MusicPlatform.Maui.Pages;
 using MusicPlatform.Maui.ViewModels;
+using MusicPlatform.Maui.Converters;
 
 namespace MusicPlatform.Maui;
 
@@ -33,12 +34,20 @@ public static class MauiProgram
 			client.Timeout = TimeSpan.FromSeconds(apiSettings.TimeoutSeconds);
 		});
 
+		// Register HTTP client for image downloading
+		builder.Services.AddHttpClient<ImageCacheService>(client =>
+		{
+			client.Timeout = TimeSpan.FromSeconds(30);
+		});
+
 		// Register ViewModels
 		builder.Services.AddTransient<MainViewModel>();
 		builder.Services.AddTransient<UploadViewModel>();
 		builder.Services.AddTransient<AnalysisViewModel>();
 		builder.Services.AddTransient<GenerationViewModel>();
 		builder.Services.AddTransient<StemsViewModel>();
+		builder.Services.AddTransient<JobsViewModel>();
+		builder.Services.AddTransient<AudioFileDetailViewModel>();
 
 		// Register Pages
 		builder.Services.AddTransient<MainPage>();
@@ -46,6 +55,11 @@ public static class MauiProgram
 		builder.Services.AddTransient<AnalysisPage>();
 		builder.Services.AddTransient<GenerationPage>();
 		builder.Services.AddTransient<StemsPage>();
+		builder.Services.AddTransient<JobsPage>();
+		builder.Services.AddTransient<AudioFileDetailPage>();
+
+		// Converters
+		builder.Services.AddSingleton<IsNotNullOrEmptyConverter>();
 
 		return builder.Build();
 	}

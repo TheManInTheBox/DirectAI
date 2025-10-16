@@ -13,6 +13,23 @@ public partial class GenerationPage : ContentPage
         BindingContext = _viewModel;
     }
 
+    protected override async void OnAppearing()
+    {
+        base.OnAppearing();
+        
+        // Initialize with global stems when page appears
+        try
+        {
+            await _viewModel.InitializeAsync();
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlert("Error", 
+                $"Failed to initialize generation page: {ex.Message}\n\nStack: {ex.StackTrace}", 
+                "OK");
+        }
+    }
+
     public async Task InitializeWithAudioFileAsync(string audioFileId)
     {
         await _viewModel.InitializeAsync(audioFileId);

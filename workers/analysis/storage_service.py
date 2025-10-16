@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 import asyncio
 
-from azure.storage.blob import BlobServiceClient
+from azure.storage.blob import BlobServiceClient, ContentSettings
 from azure.identity import DefaultAzureCredential
 import aiofiles
 
@@ -118,7 +118,7 @@ class StorageService:
                     blob_client.upload_blob,
                     data,
                     overwrite=True,
-                    content_settings={'content_type': 'audio/wav'}
+                    content_settings=ContentSettings(content_type='audio/wav')
                 )
             
             # Get blob URL
@@ -129,6 +129,51 @@ class StorageService:
             
         except Exception as e:
             logger.error(f"Error uploading stem: {str(e)}", exc_info=True)
+            raise
+    
+    async def upload_album_artwork(
+        self,
+        audio_file_id: str,
+        artwork_data: bytes,
+        mime_type: str = "image/jpeg"
+    ) -> str:
+        """Upload album artwork to blob storage"""
+        try:
+            if not self.blob_service_client:
+                raise RuntimeError("Blob storage client not configured")
+            
+            # Determine file extension from MIME type
+            extension = mime_type.split('/')[-1] if '/' in mime_type else 'jpg'
+            if extension == 'jpeg':
+                extension = 'jpg'
+            
+            # Generate blob name: {audio_file_id}/artwork.{extension}
+            blob_name = f"{audio_file_id}/artwork.{extension}"
+            
+            logger.info(f"Uploading album artwork: {blob_name} ({len(artwork_data)} bytes)")
+            
+            # Get blob client
+            blob_client = self.blob_service_client.get_blob_client(
+                container=self.container_name,
+                blob=blob_name
+            )
+            
+            # Upload artwork data
+            await asyncio.to_thread(
+                blob_client.upload_blob,
+                artwork_data,
+                overwrite=True,
+                content_settings=ContentSettings(content_type=mime_type)
+            )
+            
+            # Get blob URL
+            blob_url = blob_client.url
+            logger.info(f"Uploaded album artwork to {blob_url}")
+            
+            return blob_url
+            
+        except Exception as e:
+            logger.error(f"Error uploading album artwork: {str(e)}", exc_info=True)
             raise
     
     async def upload_jams(
@@ -158,7 +203,7 @@ class StorageService:
                     blob_client.upload_blob,
                     data,
                     overwrite=True,
-                    content_settings={'content_type': 'application/json'}
+                    content_settings=ContentSettings(content_type='application/json')
                 )
             
             # Get blob URL

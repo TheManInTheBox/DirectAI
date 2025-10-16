@@ -40,59 +40,109 @@
                     <DataTemplate x:DataType="viewmodels:StemItemViewModel">
                         <Frame BorderColor="{StaticResource Primary}"
                                CornerRadius="10"
-                               Padding="15"
+                               Padding="0"
                                Margin="0,10"
-                               HasShadow="True">
-                            <Grid RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="*,Auto">
+                               HasShadow="True"
+                               HeightRequest="200">
+                            
+                            <!-- Background with album artwork -->
+                            <Grid>
+                                <!-- Album artwork background with overlay -->
+                                <Image Source="{Binding AlbumArtworkUri}"
+                                       Aspect="AspectFill"
+                                       IsVisible="{Binding HasAlbumArtwork}"
+                                       Opacity="0.3" />
                                 
-                                <!-- Stem Type -->
-                                <Label Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2"
-                                       Text="{Binding StemType}"
-                                       FontSize="20"
-                                       FontAttributes="Bold"
-                                       TextColor="{StaticResource Primary}" />
+                                <!-- Semi-transparent overlay -->
+                                <BoxView Color="Black"
+                                        Opacity="0.4"
+                                        IsVisible="{Binding HasAlbumArtwork}" />
+                                
+                                <!-- Content -->
+                                <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto" 
+                                      ColumnDefinitions="*,Auto"
+                                      Padding="15">
+                                    
+                                    <!-- Stem Type Badge -->
+                                    <Frame Grid.Row="0" Grid.Column="0"
+                                           BackgroundColor="{StaticResource Primary}"
+                                           CornerRadius="15"
+                                           Padding="12,6"
+                                           HorizontalOptions="Start"
+                                           HasShadow="False">
+                                        <Label Text="{Binding StemType}"
+                                               FontSize="18"
+                                               FontAttributes="Bold"
+                                               TextColor="White" />
+                                    </Frame>
 
-                                <!-- Info -->
-                                <Grid Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
-                                      ColumnDefinitions="Auto,*,Auto,*"
-                                      RowDefinitions="Auto,Auto"
-                                      ColumnSpacing="10" RowSpacing="5"
-                                      Margin="0,10,0,0">
-                                    
-                                    <Label Grid.Row="0" Grid.Column="0" Text="📏 Size:" FontAttributes="Bold" FontSize="12" />
-                                    <Label Grid.Row="0" Grid.Column="1" Text="{Binding FileSizeFormatted}" FontSize="12" />
-                                    
-                                    <Label Grid.Row="0" Grid.Column="2" Text="⏱️ Duration:" FontAttributes="Bold" FontSize="12" />
-                                    <Label Grid.Row="0" Grid.Column="3" Text="{Binding Duration}" FontSize="12" />
-                                    
-                                    <Label Grid.Row="1" Grid.Column="0" Text="📅 Created:" FontAttributes="Bold" FontSize="12" />
-                                    <Label Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Text="{Binding CreatedAt}" FontSize="12" />
+                                    <!-- Track Info (if available) -->
+                                    <VerticalStackLayout Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                                                        Spacing="4"
+                                                        Margin="0,10,0,0"
+                                                        IsVisible="{Binding HasMetadata}">
+                                        <Label Text="{Binding DisplayTitle}"
+                                               FontSize="18"
+                                               FontAttributes="Bold"
+                                               TextColor="White" />
+                                        <Label Text="{Binding DisplayArtist}"
+                                               FontSize="14"
+                                               TextColor="White"
+                                               Opacity="0.9" />
+                                        <Label Text="{Binding DisplayAlbum}"
+                                               FontSize="12"
+                                               TextColor="White"
+                                               Opacity="0.7"
+                                               IsVisible="{Binding DisplayAlbum, Converter={StaticResource IsNotNullOrEmptyConverter}}" />
+                                    </VerticalStackLayout>
+
+                                    <!-- Technical Info -->
+                                    <Grid Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
+                                          ColumnDefinitions="Auto,*,Auto,*"
+                                          RowDefinitions="Auto"
+                                          ColumnSpacing="10" RowSpacing="5"
+                                          Margin="0,10,0,0">
+                                        
+                                        <Label Grid.Row="0" Grid.Column="0" Text="📏" FontSize="12" />
+                                        <Label Grid.Row="0" Grid.Column="1" 
+                                               Text="{Binding FileSizeFormatted}" 
+                                               FontSize="12"
+                                               TextColor="White" />
+                                        
+                                        <Label Grid.Row="0" Grid.Column="2" Text="⏱️" FontSize="12" />
+                                        <Label Grid.Row="0" Grid.Column="3" 
+                                               Text="{Binding Duration}" 
+                                               FontSize="12"
+                                               TextColor="White" />
+                                    </Grid>
+
+                                    <!-- Download Button -->
+                                    <Button Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2"
+                                           Text="⬇️ Download Stem"
+                                           Command="{Binding DownloadCommand}"
+                                           IsEnabled="{Binding IsDownloading, Converter={StaticResource InvertedBoolConverter}}"
+                                           BackgroundColor="{StaticResource Primary}"
+                                           TextColor="White"
+                                           CornerRadius="20"
+                                           Margin="0,10,0,0" />
+
+                                    <!-- Download Status -->
+                                    <HorizontalStackLayout Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2"
+                                                          Spacing="10"
+                                                          Margin="0,5,0,0"
+                                                          IsVisible="{Binding StatusMessage, Converter={StaticResource IsNotNullOrEmptyConverter}}">
+                                        <ActivityIndicator IsRunning="{Binding IsDownloading}"
+                                                          IsVisible="{Binding IsDownloading}"
+                                                          Color="White"
+                                                          WidthRequest="16"
+                                                          HeightRequest="16" />
+                                        <Label Text="{Binding StatusMessage}"
+                                              FontSize="12"
+                                              TextColor="White"
+                                              VerticalOptions="Center" />
+                                    </HorizontalStackLayout>
+
                                 </Grid>
-
-                                <!-- Download Button -->
-                                <Button Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
-                                       Text="Download Stem"
-                                       Command="{Binding DownloadCommand}"
-                                       IsEnabled="{Binding IsDownloading, Converter={StaticResource InvertedBoolConverter}}"
-                                       BackgroundColor="{StaticResource Primary}"
-                                       TextColor="White"
-                                       Margin="0,10,0,0" />
-
-                                <!-- Download Status -->
-                                <HorizontalStackLayout Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2"
-                                                      Spacing="10"
-                                                      Margin="0,10,0,0"
-                                                      IsVisible="{Binding StatusMessage, Converter={StaticResource IsNotNullOrEmptyConverter}}">
-                                    <ActivityIndicator IsRunning="{Binding IsDownloading}"
-                                                      IsVisible="{Binding IsDownloading}"
-                                                      Color="{StaticResource Primary}"
-                                                      WidthRequest="20"
-                                                      HeightRequest="20" />
-                                    <Label Text="{Binding StatusMessage}"
-                                          FontSize="12"
-                                          VerticalOptions="Center" />
-                                </HorizontalStackLayout>
-
                             </Grid>
                         </Frame>
                     </DataTemplate>

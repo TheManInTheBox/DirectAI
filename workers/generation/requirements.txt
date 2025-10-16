@@ -24,8 +24,9 @@ transformers==4.36.2
 diffusers==0.25.0
 accelerate==0.25.0
 
-# MusicGen (Meta AI)
-# Temporarily disabled due to PyAV compilation issues
+# MusicGen (Meta AI) - TEMPORARILY DISABLED due to PyAV/FFmpeg compatibility issues
+# audiocraft==1.3.0 requires av==11.0.0 which won't compile against FFmpeg 6.x
+# TODO: Re-enable when conda environment or pre-built wheels are available
 # audiocraft==1.3.0
 
 # Audio manipulation

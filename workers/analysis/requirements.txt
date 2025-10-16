@@ -25,6 +25,14 @@ librosa==0.10.1
 soundfile==0.12.1
 scipy==1.11.4
 
+# MP3 metadata extraction
+mutagen==1.47.0
+
+# Music transcription and notation
+music21==9.1.0
+pretty_midi==0.2.10
+mir_eval==0.7
+
 # JAMS format support
 jams==0.3.4
 

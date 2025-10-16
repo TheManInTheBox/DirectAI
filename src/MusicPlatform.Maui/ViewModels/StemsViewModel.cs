@@ -145,6 +145,15 @@ public class StemItemViewModel : INotifyPropertyChanged
         ? $"{_stem.DurationSeconds.Value:F1}s" 
         : "Unknown";
     public string CreatedAt => _stem.CreatedAt.ToString("g");
+    
+    // Metadata properties for display
+    public string? AlbumArtworkUri => _stem.AlbumArtworkUri;
+    public string DisplayTitle => _stem.AudioFileTitle ?? "Unknown Track";
+    public string DisplayArtist => _stem.AudioFileArtist ?? "Unknown Artist";
+    public string DisplayAlbum => _stem.AudioFileAlbum ?? string.Empty;
+    public bool HasAlbumArtwork => !string.IsNullOrWhiteSpace(_stem.AlbumArtworkUri);
+    public bool HasMetadata => !string.IsNullOrWhiteSpace(_stem.AudioFileTitle) || 
+                               !string.IsNullOrWhiteSpace(_stem.AudioFileArtist);
 
     public bool IsDownloading
     {

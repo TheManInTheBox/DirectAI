@@ -101,6 +101,16 @@ public class JobsController : ControllerBase
     [ProducesResponseType(typeof(JobStatistics), StatusCodes.Status200OK)]
     public async Task<ActionResult<JobStatistics>> GetJobStatistics()
     {
+        // Get completed jobs for average calculation
+        var completedJobs = await _dbContext.Jobs
+            .Where(j => j.Status == JobStatus.Completed && j.CompletedAt != null)
+            .Select(j => new { j.StartedAt, j.CompletedAt })
+            .ToListAsync();
+
+        var averageSeconds = completedJobs.Any() 
+            ? completedJobs.Average(j => (j.CompletedAt!.Value - j.StartedAt).TotalSeconds)
+            : 0;
+
         var stats = new JobStatistics
         {
             TotalJobs = await _dbContext.Jobs.CountAsync(),
@@ -113,11 +123,7 @@ public class JobsController : ControllerBase
             AnalysisJobs = await _dbContext.Jobs.CountAsync(j => j.Type == JobType.Analysis),
             GenerationJobs = await _dbContext.Jobs.CountAsync(j => j.Type == JobType.Generation),
             
-            AverageCompletionTimeSeconds = await _dbContext.Jobs
-                .Where(j => j.Status == JobStatus.Completed && j.CompletedAt != null)
-                .Select(j => (j.CompletedAt!.Value - j.StartedAt).TotalSeconds)
-                .DefaultIfEmpty(0)
-                .AverageAsync()
+            AverageCompletionTimeSeconds = averageSeconds
         };
 
         return Ok(stats);

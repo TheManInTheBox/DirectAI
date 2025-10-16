@@ -1,4 +1,4 @@
-# Use Python 3.11 slim image as base
+# Use Python 3.11 slim image (bullseye has older FFmpeg compatible with PyAV 11.0)
 FROM python:3.11-slim
 
 # Set working directory
@@ -33,9 +33,8 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 # Install build dependencies first (ensures compatibility with C extensions)
 RUN pip install --no-cache-dir Cython>=0.29.0 numpy==1.24.3
 
-# Install a specific PyAV version with pre-built wheels (10.x series is more stable)
-# This avoids compilation issues with newer FFmpeg in Debian Trixie
-RUN pip install --no-cache-dir av==10.0.0 || pip install --no-cache-dir av==9.2.0 || echo "PyAV pre-install skipped"
+# Don't pre-install PyAV - let audiocraft handle its own dependencies
+# Comment out PyAV pre-install to avoid version conflicts
 
 # Copy requirements and install remaining Python dependencies
 COPY requirements.txt .

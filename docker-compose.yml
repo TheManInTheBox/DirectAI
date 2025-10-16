@@ -81,6 +81,7 @@ services:
       - AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
       - BLOB_CONTAINER_NAME=audio-files
       - DEMUCS_MODEL=htdemucs
+      - API_BASE_URL=http://music-api:8080
     ports:
       - "8001:8080"
     depends_on:
@@ -89,6 +90,14 @@ services:
       - music-network
     volumes:
       - analysis_temp:/tmp
+    deploy:
+      resources:
+        limits:
+          cpus: '0'        # No CPU limit (use all available)
+          memory: 8G       # Increase memory limit to 8GB
+        reservations:
+          cpus: '4.0'      # Reserve 4 CPU cores
+          memory: 4G       # Reserve 4GB memory
 
   # Generation Worker (Python)
   generation-worker:

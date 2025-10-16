@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using MusicPlatform.Domain.Models;
 using MusicPlatform.Infrastructure.Data;
+using MusicPlatform.Api.Services;
 
 namespace MusicPlatform.Api.Controllers;
 
@@ -15,15 +16,21 @@ public class GenerationController : ControllerBase
     private readonly MusicPlatformDbContext _dbContext;
     private readonly ILogger<GenerationController> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IdempotentJobService _jobService;
+    private readonly IServiceProvider _serviceProvider;
 
     public GenerationController(
         MusicPlatformDbContext dbContext,
         ILogger<GenerationController> logger,
-        IHttpClientFactory httpClientFactory)
+        IHttpClientFactory httpClientFactory,
+        IdempotentJobService jobService,
+        IServiceProvider serviceProvider)
     {
         _dbContext = dbContext;
         _logger = logger;
         _httpClientFactory = httpClientFactory;
+        _jobService = jobService;
+        _serviceProvider = serviceProvider;
     }
 
     /// <summary>
@@ -79,8 +86,26 @@ public class GenerationController : ControllerBase
         _logger.LogInformation("Generation request created: {RequestId} for audio file {AudioFileId}", 
             generationRequest.Id, request.AudioFileId);
 
-        // TODO: Trigger generation workflow
-        // await TriggerGenerationAsync(generationRequest.Id);
+        // Create job for generation workflow
+        var metadata = new Dictionary<string, object>
+        {
+            { "AudioFileName", audioFile.OriginalFileName },
+            { "TargetStems", string.Join(",", request.TargetStems.Select(s => s.ToString())) },
+            { "GenerationRequestId", generationRequest.Id.ToString() }
+        };
+
+        var job = await _jobService.CreateOrGetIdempotentJobAsync(
+            JobType.Generation,
+            generationRequest.Id,
+            metadata);
+
+        // Trigger generation workflow asynchronously
+        if (job.Status == JobStatus.Pending || job.Status == JobStatus.Retrying)
+        {
+            _ = Task.Run(async () => await TriggerGenerationAsync(generationRequest.Id, job.Id));
+            _logger.LogInformation("Generation job {JobId} triggered for request {RequestId}", 
+                job.Id, generationRequest.Id);
+        }
 
         return CreatedAtAction(nameof(GetGenerationRequest), 
             new { id = generationRequest.Id }, generationRequest);
@@ -244,24 +269,117 @@ public class GenerationController : ControllerBase
     /// <summary>
     /// Trigger generation workflow (internal use).
     /// </summary>
-    private async Task TriggerGenerationAsync(Guid generationRequestId)
+    private async Task TriggerGenerationAsync(Guid generationRequestId, Guid jobId)
     {
+        // Create a new scope to avoid DbContext disposal issues
+        using var scope = _serviceProvider.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<MusicPlatformDbContext>();
+        
         try
         {
+            _logger.LogInformation("Triggering generation worker for request {RequestId}, job {JobId}", 
+                generationRequestId, jobId);
+
+            // Get the generation request
+            var request = await dbContext.GenerationRequests
+                .FirstOrDefaultAsync(r => r.Id == generationRequestId);
+
+            if (request == null)
+            {
+                _logger.LogError("Generation request {RequestId} not found", generationRequestId);
+                return;
+            }
+
+            // Update job status to Running
+            var job = await dbContext.Jobs.FindAsync(jobId);
+            if (job != null)
+            {
+                var runningJob = job with
+                {
+                    Status = JobStatus.Running,
+                    CurrentStep = "triggering_worker",
+                    LastHeartbeat = DateTime.UtcNow
+                };
+                dbContext.Entry(job).CurrentValues.SetValues(runningJob);
+                await dbContext.SaveChangesAsync();
+            }
+
+            // Call generation worker API
             var httpClient = _httpClientFactory.CreateClient("GenerationWorker");
-            var response = await httpClient.PostAsJsonAsync("/generate", 
-                new { generationRequestId });
+            
+            var payload = new
+            {
+                generation_request_id = generationRequestId.ToString(),
+                job_id = jobId.ToString(),
+                audio_file_id = request.AudioFileId.ToString(),
+                target_stems = request.TargetStems.Select(s => s.ToString().ToLower()).ToList(),
+                parameters = new
+                {
+                    target_bpm = request.Parameters?.TargetBpm,
+                    duration_seconds = request.Parameters?.DurationSeconds,
+                    style = request.Parameters?.Style,
+                    chord_progression = request.Parameters?.ChordProgression,
+                    prompt = request.Parameters?.Prompt,
+                    temperature = request.Parameters?.Temperature,
+                    random_seed = request.Parameters?.RandomSeed
+                }
+            };
+
+            var response = await httpClient.PostAsJsonAsync("/generate", payload);
             
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("Failed to trigger generation for {RequestId}: {StatusCode}", 
-                    generationRequestId, response.StatusCode);
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogWarning("Failed to trigger generation for {RequestId}: {StatusCode} - {Error}", 
+                    generationRequestId, response.StatusCode, errorContent);
+                
+                // Mark job as failed
+                if (job != null)
+                {
+                    var failedJob = job with
+                    {
+                        Status = JobStatus.Failed,
+                        ErrorMessage = $"Worker returned {response.StatusCode}: {errorContent}",
+                        CompletedAt = DateTime.UtcNow
+                    };
+                    dbContext.Entry(job).CurrentValues.SetValues(failedJob);
+                    await dbContext.SaveChangesAsync();
+                }
+                
+                // Update generation request status
+                var failedRequest = request with
+                {
+                    Status = GenerationStatus.Failed,
+                    CompletedAt = DateTime.UtcNow,
+                    ErrorMessage = $"Worker trigger failed: {response.StatusCode}"
+                };
+                dbContext.Entry(request).CurrentValues.SetValues(failedRequest);
+                await dbContext.SaveChangesAsync();
+            }
+            else
+            {
+                _logger.LogInformation("Successfully triggered generation worker for request {RequestId}", 
+                    generationRequestId);
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error triggering generation for {RequestId}", 
                 generationRequestId);
+            
+            // Update job status to failed
+            var job = await dbContext.Jobs.FindAsync(jobId);
+            if (job != null)
+            {
+                var failedJob = job with
+                {
+                    Status = JobStatus.Failed,
+                    ErrorMessage = $"Exception during trigger: {ex.Message}",
+                    CompletedAt = DateTime.UtcNow
+                };
+                dbContext.Entry(job).CurrentValues.SetValues(failedJob);
+                await dbContext.SaveChangesAsync();
+            }
         }
     }
 }

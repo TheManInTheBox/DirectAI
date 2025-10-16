@@ -25,9 +25,8 @@ class GenerationService:
         # Model availability flags
         self.has_stable_audio = False
         self.has_musicgen = False
-        self.mock_mode = False
         
-        # Initialize AI models
+        # Initialize AI models (real models required - no mock mode)
         self._initialize_models()
     
     def _initialize_models(self):
@@ -60,16 +59,16 @@ class GenerationService:
                 logger.info("MusicGen loaded successfully")
             except ImportError as e:
                 logger.warning(f"audiocraft not installed: {e}")
-                logger.info("MusicGen will not be available - using mock generation")
+                logger.warning("MusicGen unavailable. Install with: pip install audiocraft==1.3.0")
                 self.has_musicgen = False
             except Exception as e:
                 logger.warning(f"Failed to load MusicGen: {e}")
                 self.has_musicgen = False
             
-            # For MVP testing, allow running without models (mock mode)
+            # Check if we have at least one model available
             if not self.has_stable_audio and not self.has_musicgen:
-                logger.warning("No AI models available - will generate placeholder audio for MVP testing")
-                self.mock_mode = True
+                logger.warning("No AI models available! Generation requests will use fallback methods.")
+                logger.warning("Install audiocraft for MusicGen: pip install audiocraft==1.3.0")
                 
         except Exception as e:
             logger.error(f"Error initializing models: {e}")
@@ -96,18 +95,15 @@ class GenerationService:
             output_dir.mkdir(parents=True, exist_ok=True)
             output_path = output_dir / f"{stem_type}.wav"
             
-            # Use available AI models
+            # Use available AI models (real generation only)
             if self.has_musicgen:
                 # Use MusicGen for generation
                 audio = await self._generate_with_musicgen(stem_type, parameters)
             elif self.has_stable_audio:
                 # Use Stable Audio Open for generation
                 audio = await self._generate_with_stable_audio(stem_type, parameters)
-            elif self.mock_mode:
-                # Generate placeholder audio for MVP testing
-                audio = await self._generate_mock(stem_type, parameters)
             else:
-                raise RuntimeError("No generation models available")
+                raise RuntimeError("No AI generation models available. Please install MusicGen (audiocraft) or Stable Audio.")
             
             # Save audio to file
             sf.write(output_path, audio, self.sample_rate)
@@ -210,46 +206,3 @@ class GenerationService:
                 prompt = f"{tempo_desc} {prompt}"
         
         return prompt
-    
-    async def _generate_mock(
-        self,
-        stem_type: str,
-        parameters: Dict[str, Any]
-    ) -> np.ndarray:
-        """
-        Generate mock/placeholder audio for MVP testing without AI models
-        Creates a simple sine wave at appropriate frequency for stem type
-        """
-        logger.info(f"Generating MOCK audio for: {stem_type}")
-        
-        duration = parameters.get("duration_seconds", 10.0)
-        target_bpm = parameters.get("target_bpm", 120)
-        
-        # Frequencies for different instruments
-        base_freqs = {
-            "drums": 80,      # Low thump
-            "bass": 60,       # Bass frequency
-            "guitar": 200,    # Mid-range
-            "vocals": 300,    # Voice range
-            "piano": 250,     # Piano middle C area
-            "synth": 400      # Higher synth
-        }
-        
-        base_freq = base_freqs.get(stem_type, 200)
-        
-        # Generate simple sine wave with rhythm
-        samples = int(duration * self.sample_rate)
-        t = np.linspace(0, duration, samples)
-        
-        # Add some rhythmic pulse based on BPM
-        beat_freq = target_bpm / 60.0
-        envelope = 0.5 + 0.5 * np.sin(2 * np.pi * beat_freq * t)
-        
-        # Generate tone
-        audio = 0.3 * envelope * np.sin(2 * np.pi * base_freq * t)
-        
-        # Make stereo
-        audio_stereo = np.column_stack([audio, audio])
-        
-        logger.info(f"Generated mock audio: {duration}s at {self.sample_rate}Hz")
-        return audio_stereo.astype(np.float32)

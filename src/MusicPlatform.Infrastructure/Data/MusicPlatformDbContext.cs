@@ -134,17 +134,33 @@ public class MusicPlatformDbContext : DbContext
             entity.Property(e => e.Type).HasConversion<string>().IsRequired();
             entity.Property(e => e.Status).HasConversion<string>().IsRequired();
             entity.Property(e => e.OrchestrationInstanceId).HasMaxLength(200);
+            entity.Property(e => e.IdempotencyKey).HasMaxLength(64); // SHA256 hex length
+            entity.Property(e => e.WorkerInstanceId).HasMaxLength(200);
+            entity.Property(e => e.CurrentStep).HasMaxLength(100);
             
-            // Store Dictionary as JSON
+            // Store Dictionary properties as JSON
             entity.Property(e => e.Metadata)
                 .HasConversion(
                     v => System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
-                    v => System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(v, (System.Text.Json.JsonSerializerOptions?)null) ?? new Dictionary<string, object>()
+                    v => string.IsNullOrWhiteSpace(v) 
+                        ? new Dictionary<string, object>() 
+                        : System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(v, (System.Text.Json.JsonSerializerOptions?)null) ?? new Dictionary<string, object>()
+                );
+            
+            entity.Property(e => e.Checkpoints)
+                .HasConversion(
+                    v => System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
+                    v => string.IsNullOrWhiteSpace(v) 
+                        ? new Dictionary<string, object>() 
+                        : System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(v, (System.Text.Json.JsonSerializerOptions?)null) ?? new Dictionary<string, object>()
                 );
             
             entity.HasIndex(e => e.EntityId);
             entity.HasIndex(e => e.Status);
             entity.HasIndex(e => e.StartedAt);
+            entity.HasIndex(e => e.IdempotencyKey).IsUnique();
+            entity.HasIndex(e => e.LastHeartbeat);
+            entity.HasIndex(e => e.WorkerInstanceId);
         });
 
         // Stem configuration
@@ -154,6 +170,18 @@ public class MusicPlatformDbContext : DbContext
             entity.Property(e => e.Type).HasConversion<string>().IsRequired();
             entity.Property(e => e.BlobUri).IsRequired().HasMaxLength(2000);
             entity.Property(e => e.SourceSeparationModel).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.AnalysisStatus).HasConversion<string>().IsRequired();
+            
+            // Musical metadata
+            entity.Property(e => e.Key).HasMaxLength(20);
+            entity.Property(e => e.TimeSignature).HasMaxLength(10);
+            
+            // JSON stored fields for complex data
+            entity.Property(e => e.ChordProgression).HasColumnType("text");
+            entity.Property(e => e.Beats).HasColumnType("text");
+            entity.Property(e => e.Sections).HasColumnType("text");
+            entity.Property(e => e.JamsUri).HasMaxLength(2000);
+            entity.Property(e => e.AnalysisErrorMessage).HasMaxLength(1000);
             
             // Many-to-One relationship with AudioFile
             entity.HasOne<AudioFile>()
@@ -164,6 +192,8 @@ public class MusicPlatformDbContext : DbContext
             entity.HasIndex(e => e.AudioFileId);
             entity.HasIndex(e => e.Type);
             entity.HasIndex(e => e.SeparatedAt);
+            entity.HasIndex(e => e.AnalysisStatus);
+            entity.HasIndex(e => e.Key);
         });
     }
 }
