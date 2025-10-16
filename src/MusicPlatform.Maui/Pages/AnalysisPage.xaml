@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:viewmodels="clr-namespace:MusicPlatform.Maui.ViewModels"
+             x:Class="MusicPlatform.Maui.Pages.AnalysisPage"
+             x:DataType="viewmodels:AnalysisViewModel"
+             Title="Analysis Results">
+
+    <ScrollView>
+        <VerticalStackLayout Spacing="20" Padding="20">
+            
+            <!-- Header -->
+            <Label Text="Musical Analysis"
+                   FontSize="28"
+                   FontAttributes="Bold"
+                   HorizontalOptions="Center" />
+
+            <!-- Loading Indicator -->
+            <ActivityIndicator IsRunning="{Binding IsLoading}"
+                              IsVisible="{Binding IsLoading}"
+                              Color="{StaticResource Primary}"
+                              HeightRequest="40" />
+
+            <!-- Status Message -->
+            <Frame BorderColor="{StaticResource Gray200}"
+                   CornerRadius="10"
+                   Padding="15"
+                   IsVisible="{Binding StatusMessage, Converter={StaticResource IsNotNullOrEmptyConverter}}">
+                <Label Text="{Binding StatusMessage}"
+                       FontSize="14"
+                       HorizontalTextAlignment="Center" />
+            </Frame>
+
+            <!-- Refresh Button -->
+            <Button Text="Refresh Analysis"
+                    Command="{Binding RefreshCommand}"
+                    IsVisible="{Binding IsAnalysisPending}"
+                    BackgroundColor="{StaticResource Secondary}"
+                    TextColor="White" />
+
+            <!-- Basic Analysis Results -->
+            <Frame BorderColor="{StaticResource Primary}"
+                   CornerRadius="10"
+                   Padding="20"
+                   IsVisible="{Binding IsAnalysisComplete}"
+                   HasShadow="True">
+                <VerticalStackLayout Spacing="15">
+                    <Label Text="Overview"
+                           FontSize="20"
+                           FontAttributes="Bold"
+                           TextColor="{StaticResource Primary}" />
+
+                    <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto" 
+                          ColumnSpacing="15" RowSpacing="10">
+                        
+                        <Label Grid.Row="0" Grid.Column="0" Text="🎵 Tempo:" FontAttributes="Bold" FontSize="16" />
+                        <Label Grid.Row="0" Grid.Column="1" Text="{Binding Bpm}" FontSize="16" />
+                        
+                        <Label Grid.Row="1" Grid.Column="0" Text="🎹 Key:" FontAttributes="Bold" FontSize="16" />
+                        <Label Grid.Row="1" Grid.Column="1" Text="{Binding Key}" FontSize="16" />
+                        
+                        <Label Grid.Row="2" Grid.Column="0" Text="🎼 Time Signature:" FontAttributes="Bold" FontSize="16" />
+                        <Label Grid.Row="2" Grid.Column="1" Text="{Binding TimeSignature}" FontSize="16" />
+                        
+                        <Label Grid.Row="3" Grid.Column="0" Text="🎚️ Tuning:" FontAttributes="Bold" FontSize="16" />
+                        <Label Grid.Row="3" Grid.Column="1" Text="{Binding Tuning}" FontSize="16" />
+                    </Grid>
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- Song Sections -->
+            <Frame BorderColor="{StaticResource Primary}"
+                   CornerRadius="10"
+                   Padding="20"
+                   IsVisible="{Binding HasSections}"
+                   HasShadow="True">
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="🎶 Song Structure"
+                           FontSize="20"
+                           FontAttributes="Bold"
+                           TextColor="{StaticResource Primary}" />
+
+                    <CollectionView ItemsSource="{Binding Sections}">
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate x:DataType="viewmodels:SectionInfo">
+                                <Frame BorderColor="{StaticResource Gray200}"
+                                       CornerRadius="5"
+                                       Padding="10"
+                                       Margin="0,5">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <Label Grid.Column="0" 
+                                               Text="{Binding Label}" 
+                                               FontAttributes="Bold"
+                                               FontSize="14" />
+                                        <Label Grid.Column="1" 
+                                               Text="{Binding TimeRange}" 
+                                               FontSize="12"
+                                               TextColor="{StaticResource Gray600}" />
+                                    </Grid>
+                                </Frame>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                    </CollectionView>
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- Chord Progression -->
+            <Frame BorderColor="{StaticResource Primary}"
+                   CornerRadius="10"
+                   Padding="20"
+                   IsVisible="{Binding HasChords}"
+                   HasShadow="True">
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="🎸 Chord Progression"
+                           FontSize="20"
+                           FontAttributes="Bold"
+                           TextColor="{StaticResource Primary}" />
+
+                    <ScrollView Orientation="Horizontal" HeightRequest="80">
+                        <HorizontalStackLayout Spacing="10">
+                            <CollectionView ItemsSource="{Binding Chords}"
+                                          ItemsLayout="HorizontalList">
+                                <CollectionView.ItemTemplate>
+                                    <DataTemplate x:DataType="viewmodels:ChordInfo">
+                                        <Frame BorderColor="{StaticResource Primary}"
+                                               BackgroundColor="{StaticResource PrimaryLight}"
+                                               CornerRadius="10"
+                                               Padding="15,10"
+                                               Margin="5">
+                                            <VerticalStackLayout Spacing="5">
+                                                <Label Text="{Binding Chord}" 
+                                                       FontAttributes="Bold"
+                                                       FontSize="18"
+                                                       HorizontalOptions="Center" />
+                                                <Label Text="{Binding TimeRange}" 
+                                                       FontSize="10"
+                                                       TextColor="{StaticResource Gray600}"
+                                                       HorizontalOptions="Center" />
+                                            </VerticalStackLayout>
+                                        </Frame>
+                                    </DataTemplate>
+                                </CollectionView.ItemTemplate>
+                            </CollectionView>
+                        </HorizontalStackLayout>
+                    </ScrollView>
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- Generate Stems Button -->
+            <Button Text="Generate AI Stems"
+                    Command="{Binding GenerateStemsCommand}"
+                    IsEnabled="{Binding IsAnalysisComplete}"
+                    BackgroundColor="{StaticResource Primary}"
+                    TextColor="White"
+                    FontSize="18"
+                    FontAttributes="Bold"
+                    CornerRadius="25"
+                    HeightRequest="50"
+                    Margin="0,20,0,0" />
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

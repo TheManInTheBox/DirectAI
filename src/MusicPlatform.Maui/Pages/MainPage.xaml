@@ -1,0 +1,374 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:viewmodels="clr-namespace:MusicPlatform.Maui.ViewModels"
+             x:Class="MusicPlatform.Maui.Pages.MainPage"
+             x:DataType="viewmodels:MainViewModel"
+             Title="Music Platform">
+
+    <ScrollView>
+        <VerticalStackLayout Spacing="30" Padding="20">
+            
+            <!-- App Header -->
+            <VerticalStackLayout Spacing="5">
+                <Label Text="🎵 DirectML Music Platform"
+                       FontSize="32"
+                       FontAttributes="Bold"
+                       HorizontalOptions="Center" />
+                <Label Text="AI-Powered Music Analysis and Generation"
+                       FontSize="14"
+                       TextColor="{StaticResource Gray600}"
+                       HorizontalOptions="Center" />
+            </VerticalStackLayout>
+
+            <!-- Drag and Drop Upload Zone -->
+            <Frame BorderColor="{StaticResource Primary}"
+                   CornerRadius="15"
+                   Padding="40"
+                   HasShadow="True"
+                   BackgroundColor="{StaticResource PrimaryLight}">
+                <VerticalStackLayout Spacing="15">
+                    <Label Text="📂"
+                           FontSize="60"
+                           HorizontalOptions="Center" />
+                    
+                    <Label Text="Drop MP3 Files Here"
+                           FontSize="24"
+                           FontAttributes="Bold"
+                           HorizontalOptions="Center"
+                           TextColor="{StaticResource Primary}" />
+                    
+                    <Label Text="or click to browse"
+                           FontSize="14"
+                           TextColor="{StaticResource Gray600}"
+                           HorizontalOptions="Center" />
+
+                    <Button Text="Select Files"
+                            Command="{Binding SelectFilesCommand}"
+                            IsEnabled="{Binding IsUploading, Converter={StaticResource InvertedBoolConverter}}"
+                            BackgroundColor="{StaticResource Primary}"
+                            TextColor="White"
+                            CornerRadius="20"
+                            Padding="30,15"
+                            HorizontalOptions="Center" />
+
+                    <!-- Upload Progress -->
+                    <VerticalStackLayout Spacing="10" IsVisible="{Binding IsUploading}">
+                        <ActivityIndicator IsRunning="{Binding IsUploading}"
+                                         Color="{StaticResource Primary}"
+                                         HeightRequest="30" />
+                        <Label Text="{Binding UploadStatus}"
+                               FontSize="12"
+                               HorizontalOptions="Center"
+                               HorizontalTextAlignment="Center" />
+                    </VerticalStackLayout>
+
+                    <!-- Upload Status -->
+                    <Label Text="{Binding UploadStatus}"
+                           IsVisible="{Binding UploadStatus, Converter={StaticResource IsNotNullOrEmptyConverter}}"
+                           FontSize="14"
+                           HorizontalOptions="Center"
+                           HorizontalTextAlignment="Center"
+                           TextColor="{StaticResource Success}" />
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- Source Material Library -->
+            <VerticalStackLayout Spacing="10">
+                <HorizontalStackLayout Spacing="10" HorizontalOptions="FillAndExpand">
+                    <Label Text="📁 Source Material Library"
+                           FontSize="22"
+                           FontAttributes="Bold"
+                           VerticalOptions="Center"
+                           HorizontalOptions="StartAndExpand" />
+                    
+                    <Button Text="☑"
+                            Command="{Binding ToggleSelectionModeCommand}"
+                            FontSize="20"
+                            WidthRequest="40"
+                            HeightRequest="40"
+                            CornerRadius="20"
+                            Padding="0"
+                            BackgroundColor="{Binding IsSelectionMode, Converter={StaticResource BoolToColorConverter}}"
+                            ToolTipProperties.Text="Toggle Selection Mode" />
+                    
+                    <Button Text="⟳"
+                            Command="{Binding RefreshSourceLibraryCommand}"
+                            FontSize="20"
+                            WidthRequest="40"
+                            HeightRequest="40"
+                            CornerRadius="20"
+                            Padding="0"
+                            BackgroundColor="{StaticResource Secondary}" />
+                </HorizontalStackLayout>
+
+                <!-- Selection Mode Controls -->
+                <HorizontalStackLayout Spacing="10" IsVisible="{Binding IsSelectionMode}">
+                    <Button Text="Select All"
+                            Command="{Binding SelectAllCommand}"
+                            FontSize="12"
+                            Padding="15,8"
+                            CornerRadius="15"
+                            BackgroundColor="{StaticResource Primary}" />
+                    
+                    <Button Text="Deselect All"
+                            Command="{Binding DeselectAllCommand}"
+                            FontSize="12"
+                            Padding="15,8"
+                            CornerRadius="15"
+                            BackgroundColor="{StaticResource Secondary}" />
+                    
+                    <Label Text="{Binding SelectedItemsCount, StringFormat='{0} selected'}"
+                           FontSize="14"
+                           VerticalOptions="Center"
+                           Margin="10,0,0,0"
+                           TextColor="{StaticResource Primary}"
+                           FontAttributes="Bold" />
+                    
+                    <Button Text="🎸 Generate from Selected"
+                            Command="{Binding GenerateFromSelectedCommand}"
+                            FontSize="14"
+                            FontAttributes="Bold"
+                            Padding="20,10"
+                            CornerRadius="15"
+                            BackgroundColor="{StaticResource Success}"
+                            TextColor="White"
+                            HorizontalOptions="EndAndExpand" />
+                </HorizontalStackLayout>
+
+                <ActivityIndicator IsRunning="{Binding IsLoadingSourceLibrary}"
+                                 IsVisible="{Binding IsLoadingSourceLibrary}"
+                                 Color="{StaticResource Primary}"
+                                 HeightRequest="30" />
+
+                <!-- Carousel of Source Materials -->
+                <ScrollView Orientation="Horizontal" HeightRequest="250">
+                    <HorizontalStackLayout Spacing="15" Padding="5">
+                        <CollectionView ItemsSource="{Binding SourceMaterialLibrary}"
+                                      ItemsLayout="HorizontalList">
+                            <CollectionView.ItemTemplate>
+                                <DataTemplate x:DataType="viewmodels:SourceMaterialItem">
+                                    <Frame BorderColor="{StaticResource Primary}"
+                                           CornerRadius="15"
+                                           Padding="20"
+                                           Margin="5"
+                                           WidthRequest="300"
+                                           HasShadow="True"
+                                           BackgroundColor="White">
+                                        <VerticalStackLayout Spacing="10">
+                                            <!-- Selection Checkbox -->
+                                            <CheckBox IsChecked="{Binding IsSelected}"
+                                                     IsVisible="{Binding Source={RelativeSource AncestorType={x:Type viewmodels:MainViewModel}}, Path=IsSelectionMode}"
+                                                     IsEnabled="{Binding IsAnalyzed}"
+                                                     HorizontalOptions="End"
+                                                     Color="{StaticResource Primary}" />
+                                            
+                                            <!-- File Icon -->
+                                            <Label Text="🎵"
+                                                   FontSize="40"
+                                                   HorizontalOptions="Center" />
+                                            
+                                            <!-- File Name -->
+                                            <Label Text="{Binding FileName}"
+                                                   FontSize="16"
+                                                   FontAttributes="Bold"
+                                                   LineBreakMode="TailTruncation"
+                                                   HorizontalOptions="Center"
+                                                   HorizontalTextAlignment="Center" />
+                                            
+                                            <!-- Info -->
+                                            <Label Text="{Binding DisplayInfo}"
+                                                   FontSize="12"
+                                                   TextColor="{StaticResource Gray600}"
+                                                   HorizontalOptions="Center"
+                                                   HorizontalTextAlignment="Center" />
+
+                                            <!-- Status Badge -->
+                                            <Frame BorderColor="{StaticResource Success}"
+                                                   BackgroundColor="{StaticResource SuccessLight}"
+                                                   CornerRadius="10"
+                                                   Padding="10,5"
+                                                   IsVisible="{Binding IsAnalyzed}"
+                                                   HorizontalOptions="Center">
+                                                <Label Text="✓ Analyzed"
+                                                       FontSize="11"
+                                                       FontAttributes="Bold"
+                                                       TextColor="{StaticResource Success}" />
+                                            </Frame>
+
+                                            <!-- Status Message -->
+                                            <Label Text="{Binding StatusMessage}"
+                                                   FontSize="11"
+                                                   TextColor="{StaticResource Primary}"
+                                                   LineBreakMode="WordWrap"
+                                                   IsVisible="{Binding StatusMessage, Converter={StaticResource IsNotNullOrEmptyConverter}}"
+                                                   HorizontalTextAlignment="Center" />
+
+                                            <!-- Actions -->
+                                            <VerticalStackLayout Spacing="5">
+                                                <Button Text="🔬 Analyze"
+                                                       Command="{Binding Source={RelativeSource AncestorType={x:Type viewmodels:MainViewModel}}, Path=AnalyzeItemCommand}"
+                                                       CommandParameter="{Binding .}"
+                                                       IsVisible="{Binding IsAnalyzed, Converter={StaticResource InvertedBoolConverter}}"
+                                                       BackgroundColor="{StaticResource Secondary}"
+                                                       TextColor="White"
+                                                       FontSize="12"
+                                                       CornerRadius="10"
+                                                       HeightRequest="35" />
+                                                
+                                                <Button Text="🎸 Generate Stems"
+                                                       Command="{Binding Source={RelativeSource AncestorType={x:Type viewmodels:MainViewModel}}, Path=GenerateFromItemCommand}"
+                                                       CommandParameter="{Binding .}"
+                                                       IsVisible="{Binding IsAnalyzed}"
+                                                       BackgroundColor="{StaticResource Primary}"
+                                                       TextColor="White"
+                                                       FontSize="12"
+                                                       FontAttributes="Bold"
+                                                       CornerRadius="10"
+                                                       HeightRequest="35" />
+                                            </VerticalStackLayout>
+                                        </VerticalStackLayout>
+                                    </Frame>
+                                </DataTemplate>
+                            </CollectionView.ItemTemplate>
+                        </CollectionView>
+                    </HorizontalStackLayout>
+                </ScrollView>
+
+                <!-- Empty State -->
+                <Frame BorderColor="{StaticResource Gray200}"
+                       CornerRadius="10"
+                       Padding="30"
+                       IsVisible="{Binding SourceMaterialLibrary.Count, Converter={StaticResource IsZeroConverter}}"
+                       BackgroundColor="{StaticResource Gray100}">
+                    <VerticalStackLayout Spacing="10">
+                        <Label Text="No source materials yet"
+                               FontSize="16"
+                               FontAttributes="Bold"
+                               HorizontalOptions="Center"
+                               TextColor="{StaticResource Gray600}" />
+                        <Label Text="Upload MP3 files above to get started"
+                               FontSize="14"
+                               HorizontalOptions="Center"
+                               TextColor="{StaticResource Gray600}" />
+                    </VerticalStackLayout>
+                </Frame>
+            </VerticalStackLayout>
+
+            <!-- Generated Music Library -->
+            <VerticalStackLayout Spacing="10">
+                <HorizontalStackLayout Spacing="10" HorizontalOptions="FillAndExpand">
+                    <Label Text="✨ Generated Music Library"
+                           FontSize="22"
+                           FontAttributes="Bold"
+                           VerticalOptions="Center"
+                           HorizontalOptions="StartAndExpand" />
+                    
+                    <Button Text="⟳"
+                            Command="{Binding RefreshGeneratedLibraryCommand}"
+                            FontSize="20"
+                            WidthRequest="40"
+                            HeightRequest="40"
+                            CornerRadius="20"
+                            Padding="0"
+                            BackgroundColor="{StaticResource Secondary}" />
+                </HorizontalStackLayout>
+
+                <ActivityIndicator IsRunning="{Binding IsLoadingGeneratedLibrary}"
+                                 IsVisible="{Binding IsLoadingGeneratedLibrary}"
+                                 Color="{StaticResource Primary}"
+                                 HeightRequest="30" />
+
+                <!-- Carousel of Generated Music -->
+                <ScrollView Orientation="Horizontal" HeightRequest="220">
+                    <HorizontalStackLayout Spacing="15" Padding="5">
+                        <CollectionView ItemsSource="{Binding GeneratedMusicLibrary}"
+                                      ItemsLayout="HorizontalList">
+                            <CollectionView.ItemTemplate>
+                                <DataTemplate x:DataType="viewmodels:GeneratedMusicItem">
+                                    <Frame BorderColor="{StaticResource Success}"
+                                           CornerRadius="15"
+                                           Padding="20"
+                                           Margin="5"
+                                           WidthRequest="280"
+                                           HasShadow="True"
+                                           BackgroundColor="{StaticResource SuccessLight}">
+                                        <VerticalStackLayout Spacing="10">
+                                            <!-- Stem Icon -->
+                                            <Label Text="🎸"
+                                                   FontSize="40"
+                                                   HorizontalOptions="Center" />
+                                            
+                                            <!-- Stem Type -->
+                                            <Label Text="{Binding StemType}"
+                                                   FontSize="18"
+                                                   FontAttributes="Bold"
+                                                   HorizontalOptions="Center"
+                                                   TextColor="{StaticResource Success}" />
+                                            
+                                            <!-- Info -->
+                                            <Label Text="{Binding DisplayInfo}"
+                                                   FontSize="11"
+                                                   TextColor="{StaticResource Gray600}"
+                                                   HorizontalOptions="Center"
+                                                   HorizontalTextAlignment="Center"
+                                                   LineBreakMode="WordWrap" />
+
+                                            <!-- Download Button -->
+                                            <Button Text="⬇ Download"
+                                                   Command="{Binding Source={RelativeSource AncestorType={x:Type viewmodels:MainViewModel}}, Path=DownloadStemCommand}"
+                                                   CommandParameter="{Binding .}"
+                                                   IsEnabled="{Binding IsDownloading, Converter={StaticResource InvertedBoolConverter}}"
+                                                   BackgroundColor="{StaticResource Success}"
+                                                   TextColor="White"
+                                                   FontSize="14"
+                                                   FontAttributes="Bold"
+                                                   CornerRadius="10"
+                                                   HeightRequest="40" />
+
+                                            <!-- Download Status -->
+                                            <HorizontalStackLayout Spacing="5" 
+                                                                 IsVisible="{Binding StatusMessage, Converter={StaticResource IsNotNullOrEmptyConverter}}"
+                                                                 HorizontalOptions="Center">
+                                                <ActivityIndicator IsRunning="{Binding IsDownloading}"
+                                                                 IsVisible="{Binding IsDownloading}"
+                                                                 WidthRequest="15"
+                                                                 HeightRequest="15"
+                                                                 Color="{StaticResource Success}" />
+                                                <Label Text="{Binding StatusMessage}"
+                                                      FontSize="11"
+                                                      VerticalOptions="Center" />
+                                            </HorizontalStackLayout>
+                                        </VerticalStackLayout>
+                                    </Frame>
+                                </DataTemplate>
+                            </CollectionView.ItemTemplate>
+                        </CollectionView>
+                    </HorizontalStackLayout>
+                </ScrollView>
+
+                <!-- Empty State -->
+                <Frame BorderColor="{StaticResource Gray200}"
+                       CornerRadius="10"
+                       Padding="30"
+                       IsVisible="{Binding GeneratedMusicLibrary.Count, Converter={StaticResource IsZeroConverter}}"
+                       BackgroundColor="{StaticResource Gray100}">
+                    <VerticalStackLayout Spacing="10">
+                        <Label Text="No generated music yet"
+                               FontSize="16"
+                               FontAttributes="Bold"
+                               HorizontalOptions="Center"
+                               TextColor="{StaticResource Gray600}" />
+                        <Label Text="Analyze source materials and generate stems to see them here"
+                               FontSize="14"
+                               HorizontalOptions="Center"
+                               HorizontalTextAlignment="Center"
+                               TextColor="{StaticResource Gray600}" />
+                    </VerticalStackLayout>
+                </Frame>
+            </VerticalStackLayout>
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

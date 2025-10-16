@@ -1,0 +1,284 @@
+# .NET / C# / Visual Studio
+## Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+## Visual Studio cache/options
+.vs/
+.vscode/
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+## User-specific files
+*.userprefs
+
+## Build Results of an ATL Project
+[Dd]ebugPS/
+[Rr]eleasePS/
+dlldata.c
+
+## .NET Core
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+## StyleCop
+StyleCopReport.xml
+
+## Files built by Visual Studio
+*_i.c
+*_p.c
+*_h.h
+*.ilk
+*.meta
+*.obj
+*.iobj
+*.pch
+*.pdb
+*.ipdb
+*.pgc
+*.pgd
+*.rsp
+*.sbr
+*.tlb
+*.tli
+*.tlh
+*.tmp
+*.tmp_proj
+*_wpftmp.csproj
+*.log
+*.tlog
+*.vspscc
+*.vssscc
+.builds
+*.pidb
+*.svclog
+*.scc
+
+## NuGet Packages
+*.nupkg
+*.snupkg
+**/packages/*
+!**/packages/build/
+*.nuget.props
+*.nuget.targets
+
+## MAUI Specific
+**/[Pp]latforms/**/[Bb]in/
+**/[Pp]latforms/**/[Oo]bj/
+**/*.app
+**/*.ipa
+**/*.apk
+**/*.aab
+**/*.dSYM.zip
+**/*.dSYM
+
+## Python
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+## Virtual Environment
+venv/
+ENV/
+env/
+.venv
+
+## Python Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+## Jupyter Notebook
+.ipynb_checkpoints
+
+## PyCharm
+.idea/
+
+## Python environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+## Docker
+.dockerignore
+docker-compose.override.yml
+
+## Azure
+*.azurewebsites.net
+*.publishsettings
+azureProfile.json
+
+## Local development files
+*.local
+*.development
+
+## Database
+*.db
+*.sqlite
+*.sqlite3
+
+## Logs and temporary files
+*.log
+*.tmp
+*.temp
+logs/
+temp/
+
+## OS specific
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+## IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+## Test results
+TestResults/
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+
+## ReSharper
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+
+## JustCode
+.JustCode
+
+## TeamCity
+_TeamCity*
+
+## DotCover
+*.dotCover
+
+## NCrunch
+_NCrunch_*
+.*crunch*.local.xml
+nCrunchTemp_*
+
+## MightyMoose
+*.mm.*
+AutoTest.Net/
+
+## Web workbench
+.sass-cache/
+
+## Installshield
+[Ee]xpress/
+DocProject/buildhelp/
+DocProject/Help/*.HxT
+DocProject/Help/*.HxC
+DocProject/Help/*.hhc
+DocProject/Help/*.hhk
+DocProject/Help/*.hhp
+DocProject/Help/Html2
+DocProject/Help/html
+
+## Click-Once directory
+publish/
+
+## Publish Web Output
+*.[Pp]ublish.xml
+*.azurePubxml
+*.pubxml
+*.publishproj
+
+## Microsoft Azure Web App publish settings
+PublishScripts/
+
+## Node.js (if any frontend tooling)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+## Bower
+bower_components/
+
+## AI Model files (large files)
+*.h5
+*.pkl
+*.pth
+*.onnx
+*.pb
+models/
+checkpoints/
+
+## Audio files (testing - uncomment if you don't want to track test audio)
+# *.mp3
+# *.wav
+# *.flac
+
+## Sensitive information
+appsettings.Production.json
+appsettings.Secrets.json
+secrets.json
+*.pfx
+*.key
+
+## Local configuration overrides
+appsettings.*.json
+!appsettings.json
+!appsettings.Development.json
+
+## User-specific downloaded content
+downloads/
+uploads/
+
+## Copilot
+.github/copilot/

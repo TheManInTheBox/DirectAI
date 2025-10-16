@@ -1,0 +1,33 @@
+# Build dependencies (must be installed first)
+Cython>=0.29.0
+numpy==1.24.3
+
+# FastAPI and server dependencies
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+pydantic==2.5.3
+httpx==0.26.0
+
+# Azure Storage for blob access
+azure-storage-blob==12.19.0
+azure-identity==1.15.0
+
+# Audio processing and source separation
+demucs==4.0.1
+torch==2.1.0
+torchaudio==2.1.0
+
+# Music Information Retrieval (MIR)
+essentia==2.1b6.dev1110
+madmom==0.16.1
+librosa==0.10.1
+soundfile==0.12.1
+scipy==1.11.4
+
+# JAMS format support
+jams==0.3.4
+
+# Utilities
+python-dotenv==1.0.0
+aiofiles==23.2.1

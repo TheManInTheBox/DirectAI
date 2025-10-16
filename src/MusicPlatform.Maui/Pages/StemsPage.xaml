@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:viewmodels="clr-namespace:MusicPlatform.Maui.ViewModels"
+             x:Class="MusicPlatform.Maui.Pages.StemsPage"
+             x:DataType="viewmodels:StemsViewModel"
+             Title="Generated Stems">
+
+    <Grid RowDefinitions="Auto,*">
+        
+        <!-- Header -->
+        <VerticalStackLayout Grid.Row="0" Spacing="10" Padding="20">
+            <Label Text="Generated Stems"
+                   FontSize="28"
+                   FontAttributes="Bold"
+                   HorizontalOptions="Center" />
+
+            <Button Text="Refresh"
+                    Command="{Binding RefreshCommand}"
+                    HorizontalOptions="Center"
+                    WidthRequest="150" />
+
+            <ActivityIndicator IsRunning="{Binding IsLoading}"
+                              IsVisible="{Binding IsLoading}"
+                              Color="{StaticResource Primary}"
+                              HeightRequest="40" />
+
+            <Label Text="{Binding StatusMessage}"
+                   FontSize="14"
+                   HorizontalOptions="Center"
+                   HorizontalTextAlignment="Center"
+                   IsVisible="{Binding StatusMessage, Converter={StaticResource IsNotNullOrEmptyConverter}}" />
+        </VerticalStackLayout>
+
+        <!-- Stems List -->
+        <ScrollView Grid.Row="1">
+            <CollectionView ItemsSource="{Binding Stems}"
+                           Margin="20,0">
+                <CollectionView.ItemTemplate>
+                    <DataTemplate x:DataType="viewmodels:StemItemViewModel">
+                        <Frame BorderColor="{StaticResource Primary}"
+                               CornerRadius="10"
+                               Padding="15"
+                               Margin="0,10"
+                               HasShadow="True">
+                            <Grid RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="*,Auto">
+                                
+                                <!-- Stem Type -->
+                                <Label Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2"
+                                       Text="{Binding StemType}"
+                                       FontSize="20"
+                                       FontAttributes="Bold"
+                                       TextColor="{StaticResource Primary}" />
+
+                                <!-- Info -->
+                                <Grid Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                                      ColumnDefinitions="Auto,*,Auto,*"
+                                      RowDefinitions="Auto,Auto"
+                                      ColumnSpacing="10" RowSpacing="5"
+                                      Margin="0,10,0,0">
+                                    
+                                    <Label Grid.Row="0" Grid.Column="0" Text="📏 Size:" FontAttributes="Bold" FontSize="12" />
+                                    <Label Grid.Row="0" Grid.Column="1" Text="{Binding FileSizeFormatted}" FontSize="12" />
+                                    
+                                    <Label Grid.Row="0" Grid.Column="2" Text="⏱️ Duration:" FontAttributes="Bold" FontSize="12" />
+                                    <Label Grid.Row="0" Grid.Column="3" Text="{Binding Duration}" FontSize="12" />
+                                    
+                                    <Label Grid.Row="1" Grid.Column="0" Text="📅 Created:" FontAttributes="Bold" FontSize="12" />
+                                    <Label Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Text="{Binding CreatedAt}" FontSize="12" />
+                                </Grid>
+
+                                <!-- Download Button -->
+                                <Button Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
+                                       Text="Download Stem"
+                                       Command="{Binding DownloadCommand}"
+                                       IsEnabled="{Binding IsDownloading, Converter={StaticResource InvertedBoolConverter}}"
+                                       BackgroundColor="{StaticResource Primary}"
+                                       TextColor="White"
+                                       Margin="0,10,0,0" />
+
+                                <!-- Download Status -->
+                                <HorizontalStackLayout Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2"
+                                                      Spacing="10"
+                                                      Margin="0,10,0,0"
+                                                      IsVisible="{Binding StatusMessage, Converter={StaticResource IsNotNullOrEmptyConverter}}">
+                                    <ActivityIndicator IsRunning="{Binding IsDownloading}"
+                                                      IsVisible="{Binding IsDownloading}"
+                                                      Color="{StaticResource Primary}"
+                                                      WidthRequest="20"
+                                                      HeightRequest="20" />
+                                    <Label Text="{Binding StatusMessage}"
+                                          FontSize="12"
+                                          VerticalOptions="Center" />
+                                </HorizontalStackLayout>
+
+                            </Grid>
+                        </Frame>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+
+                <!-- Empty State -->
+                <CollectionView.EmptyView>
+                    <ContentView>
+                        <VerticalStackLayout Spacing="10" Padding="20" VerticalOptions="Center">
+                            <Label Text="🎵"
+                                   FontSize="60"
+                                   HorizontalOptions="Center" />
+                            <Label Text="No stems generated yet"
+                                   FontSize="18"
+                                   FontAttributes="Bold"
+                                   HorizontalOptions="Center" />
+                            <Label Text="Upload an audio file and generate some AI stems!"
+                                   FontSize="14"
+                                   TextColor="{StaticResource Gray600}"
+                                   HorizontalOptions="Center"
+                                   HorizontalTextAlignment="Center" />
+                        </VerticalStackLayout>
+                    </ContentView>
+                </CollectionView.EmptyView>
+            </CollectionView>
+        </ScrollView>
+
+    </Grid>
+
+</ContentPage>

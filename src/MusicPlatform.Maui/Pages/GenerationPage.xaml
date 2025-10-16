@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:viewmodels="clr-namespace:MusicPlatform.Maui.ViewModels"
+             x:Class="MusicPlatform.Maui.Pages.GenerationPage"
+             x:DataType="viewmodels:GenerationViewModel"
+             Title="Generate Stems">
+
+    <ScrollView>
+        <VerticalStackLayout Spacing="20" Padding="20">
+            
+            <!-- Header -->
+            <Label Text="AI Stem Generation"
+                   FontSize="28"
+                   FontAttributes="Bold"
+                   HorizontalOptions="Center" />
+
+            <Label Text="Select stem types and configure generation parameters"
+                   FontSize="14"
+                   TextColor="{StaticResource Gray600}"
+                   HorizontalOptions="Center"
+                   HorizontalTextAlignment="Center" />
+
+            <!-- Stem Selection -->
+            <Frame BorderColor="{StaticResource Primary}"
+                   CornerRadius="10"
+                   Padding="20"
+                   HasShadow="True">
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="🎸 Select Stems to Generate"
+                           FontSize="20"
+                           FontAttributes="Bold"
+                           TextColor="{StaticResource Primary}" />
+
+                    <CollectionView ItemsSource="{Binding AvailableStems}">
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate x:DataType="viewmodels:StemOption">
+                                <HorizontalStackLayout Spacing="10" Padding="5">
+                                    <CheckBox IsChecked="{Binding IsSelected}" 
+                                             Color="{StaticResource Primary}" />
+                                    <Label Text="{Binding Name}" 
+                                           FontSize="16"
+                                           VerticalOptions="Center" />
+                                </HorizontalStackLayout>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                    </CollectionView>
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- Parameters -->
+            <Frame BorderColor="{StaticResource Primary}"
+                   CornerRadius="10"
+                   Padding="20"
+                   HasShadow="True">
+                <VerticalStackLayout Spacing="15">
+                    <Label Text="⚙️ Generation Parameters"
+                           FontSize="20"
+                           FontAttributes="Bold"
+                           TextColor="{StaticResource Primary}" />
+
+                    <!-- BPM -->
+                    <VerticalStackLayout Spacing="5">
+                        <Label Text="{Binding TargetBpm, StringFormat='Target BPM: {0:F0}'}" 
+                               FontAttributes="Bold" />
+                        <Slider Minimum="60" 
+                               Maximum="200" 
+                               Value="{Binding TargetBpm}"
+                               MinimumTrackColor="{StaticResource Primary}" />
+                    </VerticalStackLayout>
+
+                    <!-- Duration -->
+                    <VerticalStackLayout Spacing="5">
+                        <Label Text="{Binding DurationSeconds, StringFormat='Duration: {0:F0} seconds'}" 
+                               FontAttributes="Bold" />
+                        <Slider Minimum="5" 
+                               Maximum="30" 
+                               Value="{Binding DurationSeconds}"
+                               MinimumTrackColor="{StaticResource Primary}" />
+                    </VerticalStackLayout>
+
+                    <!-- Style -->
+                    <VerticalStackLayout Spacing="5">
+                        <Label Text="Style:" FontAttributes="Bold" />
+                        <Picker ItemsSource="{Binding AvailableStyles}"
+                               SelectedItem="{Binding Style}"
+                               FontSize="16" />
+                    </VerticalStackLayout>
+
+                    <!-- Prompt -->
+                    <VerticalStackLayout Spacing="5">
+                        <Label Text="Prompt (optional):" FontAttributes="Bold" />
+                        <Editor Text="{Binding Prompt}"
+                               Placeholder="Describe the musical style or mood..."
+                               HeightRequest="80"
+                               FontSize="14" />
+                    </VerticalStackLayout>
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- Generate Button -->
+            <Button Text="Generate AI Stems"
+                    Command="{Binding GenerateCommand}"
+                    IsEnabled="{Binding CanGenerate}"
+                    BackgroundColor="{StaticResource Primary}"
+                    TextColor="White"
+                    FontSize="18"
+                    FontAttributes="Bold"
+                    CornerRadius="25"
+                    HeightRequest="50" />
+
+            <!-- Loading Indicator -->
+            <ActivityIndicator IsRunning="{Binding IsGenerating}"
+                              IsVisible="{Binding IsGenerating}"
+                              Color="{StaticResource Primary}"
+                              HeightRequest="40" />
+
+            <!-- Status Message -->
+            <Frame BorderColor="{StaticResource Gray200}"
+                   CornerRadius="10"
+                   Padding="15"
+                   IsVisible="{Binding StatusMessage, Converter={StaticResource IsNotNullOrEmptyConverter}}">
+                <Label Text="{Binding StatusMessage}"
+                       FontSize="14"
+                       LineBreakMode="WordWrap" />
+            </Frame>
+
+            <!-- Generation Result -->
+            <Frame BorderColor="{StaticResource Success}"
+                   CornerRadius="10"
+                   Padding="20"
+                   IsVisible="{Binding GenerationRequest, Converter={StaticResource IsNotNullConverter}}"
+                   BackgroundColor="{StaticResource SuccessLight}">
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="✓ Generation Request Created"
+                           FontSize="18"
+                           FontAttributes="Bold"
+                           TextColor="{StaticResource Success}" />
+                    
+                    <Label Text="The AI is now generating your stems. This typically takes 1-3 minutes per stem."
+                           FontSize="14"
+                           LineBreakMode="WordWrap" />
+
+                    <Button Text="View Generated Stems"
+                            Command="{Binding ViewStemsCommand}"
+                            BackgroundColor="{StaticResource Primary}"
+                            TextColor="White"
+                            Margin="0,10,0,0" />
+                </VerticalStackLayout>
+            </Frame>
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

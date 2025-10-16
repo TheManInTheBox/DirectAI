@@ -1,0 +1,140 @@
+# Docker Compose Configuration for Local Development
+# Music Analysis & Generation Platform
+# 
+# Services:
+# - api: .NET 8.0 Web API
+# - db: PostgreSQL database
+# - analysis-worker: Python worker for audio analysis
+# - generation-worker: Python worker for stem generation
+# - azurite: Azure Storage emulator
+# - pgadmin: Database management UI
+
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:16-alpine
+    container_name: music-db
+    environment:
+      POSTGRES_DB: musicplatform
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: DevPassword123!
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - music-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Azure Storage Emulator (Azurite)
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite
+    container_name: music-storage
+    command: "azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0"
+    ports:
+      - "10000:10000"  # Blob service
+      - "10001:10001"  # Queue service
+      - "10002:10002"  # Table service
+    volumes:
+      - azurite_data:/data
+    networks:
+      - music-network
+
+  # .NET Web API
+  api:
+    build:
+      context: .
+      dockerfile: src/MusicPlatform.Api/Dockerfile
+    container_name: music-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__DefaultConnection=Host=db;Port=5432;Database=musicplatform;Username=postgres;Password=DevPassword123!
+      - BlobStorage__ConnectionString=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
+      - Workers__AnalysisWorkerUrl=http://analysis-worker:8080
+      - Workers__GenerationWorkerUrl=http://generation-worker:8080
+    ports:
+      - "5000:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      azurite:
+        condition: service_started
+    networks:
+      - music-network
+    volumes:
+      - ./temp:/app/temp
+
+  # Analysis Worker (Python)
+  analysis-worker:
+    build:
+      context: ./workers/analysis
+      dockerfile: Dockerfile
+    container_name: music-analysis-worker
+    environment:
+      - AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
+      - BLOB_CONTAINER_NAME=audio-files
+      - DEMUCS_MODEL=htdemucs
+    ports:
+      - "8001:8080"
+    depends_on:
+      - azurite
+    networks:
+      - music-network
+    volumes:
+      - analysis_temp:/tmp
+
+  # Generation Worker (Python)
+  generation-worker:
+    build:
+      context: ./workers/generation
+      dockerfile: Dockerfile
+    container_name: music-generation-worker
+    environment:
+      - AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
+      - BLOB_CONTAINER_NAME=audio-files
+      - USE_GPU=false
+    ports:
+      - "8002:8080"
+    depends_on:
+      - azurite
+    networks:
+      - music-network
+    volumes:
+      - generation_temp:/tmp
+      - musicgen_cache:/root/.cache
+
+  # PgAdmin (Database UI)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: music-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@music.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_LISTEN_PORT: 80
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+    networks:
+      - music-network
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+networks:
+  music-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  azurite_data:
+  pgadmin_data:
+  analysis_temp:
+  generation_temp:
+  musicgen_cache:  # Cache for MusicGen models (~1.5GB)
