@@ -113,6 +113,103 @@ public class AudioController : ControllerBase
     }
 
     /// <summary>
+    /// Get training data status - shows which audio files are ready for AI training.
+    /// </summary>
+    /// <returns>List of audio files with their training readiness status</returns>
+    [HttpGet]
+    [Route("api/training")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    public async Task<ActionResult> GetTrainingDataStatus()
+    {
+        try
+        {
+            // Get all audio files that have completed analysis
+            var completedAnalysisJobEntityIds = await _dbContext.Jobs
+                .Where(j => j.Type == JobType.Analysis && j.Status == JobStatus.Completed)
+                .Select(j => j.EntityId)
+                .ToListAsync();
+
+            var audioFilesWithAnalysis = await _dbContext.AudioFiles
+                .Where(a => completedAnalysisJobEntityIds.Contains(a.Id))
+                .ToListAsync();
+
+            var trainingDataSummary = new List<object>();
+
+            foreach (var audioFile in audioFilesWithAnalysis)
+            {
+                // Get analysis results
+                var analysisResult = await _dbContext.AnalysisResults
+                    .Include(a => a.Chords)
+                    .Include(a => a.Sections)
+                    .Include(a => a.Beats)
+                    .FirstOrDefaultAsync(a => a.AudioFileId == audioFile.Id);
+
+                // Get stems
+                var stems = await _dbContext.Stems
+                    .Where(s => s.AudioFileId == audioFile.Id)
+                    .GroupBy(s => s.Type)
+                    .Select(g => g.OrderByDescending(s => s.SeparatedAt).First())
+                    .ToListAsync();
+
+                // Check training readiness
+                var isTrainingReady = analysisResult != null && 
+                                    stems.Count >= 3 && // At least 3 stems available
+                                    !string.IsNullOrEmpty(analysisResult.MusicalKey) &&
+                                    analysisResult.Bpm > 0;
+
+                trainingDataSummary.Add(new
+                {
+                    AudioFileId = audioFile.Id,
+                    FileName = audioFile.OriginalFileName,
+                    Title = audioFile.Title ?? "Unknown",
+                    Artist = audioFile.Artist ?? "Unknown",
+                    Duration = audioFile.Duration.TotalSeconds,
+                    
+                    // Training readiness indicators
+                    IsTrainingReady = isTrainingReady,
+                    HasAnalysisResults = analysisResult != null,
+                    HasMusicTheoryFeatures = analysisResult != null && 
+                                           analysisResult.Bpm > 0,
+                    
+                    // Music features for training
+                    BPM = analysisResult?.Bpm,
+                    Key = analysisResult != null ? $"{analysisResult.MusicalKey} {analysisResult.Mode}" : null,
+                    TimeSignature = audioFile.TimeSignature,
+                    
+                    // Data counts
+                    StemsCount = stems.Count,
+                    StemTypes = stems.Select(s => s.Type.ToString()).ToList(),
+                    BeatsCount = analysisResult?.Beats?.Count ?? 0,
+                    ChordsCount = analysisResult?.Chords?.Count ?? 0,
+                    SectionsCount = analysisResult?.Sections?.Count ?? 0,
+                    
+                    // Timestamps
+                    UploadedAt = audioFile.UploadedAt,
+                    AnalyzedAt = analysisResult?.AnalyzedAt,
+                    PreparedForTraining = audioFile.Comment?.Contains("Training data prepared") == true
+                });
+            }
+
+            var summary = new
+            {
+                TotalAudioFiles = audioFilesWithAnalysis.Count,
+                TrainingReadyCount = trainingDataSummary.Count(t => (bool)t.GetType().GetProperty("IsTrainingReady")?.GetValue(t)),
+                TotalStemsAvailable = trainingDataSummary.Sum(t => (int)t.GetType().GetProperty("StemsCount")?.GetValue(t)),
+                TotalBeats = trainingDataSummary.Sum(t => (int)t.GetType().GetProperty("BeatsCount")?.GetValue(t)),
+                TotalChords = trainingDataSummary.Sum(t => (int)t.GetType().GetProperty("ChordsCount")?.GetValue(t)),
+                AudioFiles = trainingDataSummary
+            };
+
+            return Ok(summary);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting training data status");
+            return StatusCode(500, new { error = "Failed to get training data status", details = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Get audio file metadata by ID.
     /// </summary>
     /// <param name="id">Audio file ID</param>
@@ -164,102 +261,6 @@ public class AudioController : ControllerBase
         var transformedFiles = audioFiles.Select(f => TransformUrlsForClient(f)).ToList();
 
         return Ok(transformedFiles);
-    }
-
-    /// <summary>
-    /// Get training data status - shows which audio files are ready for AI training.
-    /// </summary>
-    /// <returns>List of audio files with their training readiness status</returns>
-    [HttpGet("training")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    public async Task<ActionResult> GetTrainingDataStatus()
-    {
-        try
-        {
-            // Get all audio files that have completed analysis
-            var completedAnalysisJobEntityIds = await _dbContext.Jobs
-                .Where(j => j.Type == JobType.Analysis && j.Status == JobStatus.Completed)
-                .Select(j => j.EntityId)
-                .ToListAsync();
-
-            var audioFilesWithAnalysis = await _dbContext.AudioFiles
-                .Where(a => completedAnalysisJobEntityIds.Contains(a.Id))
-                .ToListAsync();
-
-            var trainingDataSummary = new List<object>();
-
-            foreach (var audioFile in audioFilesWithAnalysis)
-            {
-                // Get analysis results
-                var analysisResult = await _dbContext.AnalysisResults
-                    .Include(a => a.Chords)
-                    .Include(a => a.Sections)
-                    .Include(a => a.Beats)
-                    .FirstOrDefaultAsync(a => a.AudioFileId == audioFile.Id);
-
-                // Get stems
-                var stems = await _dbContext.Stems
-                    .Where(s => s.AudioFileId == audioFile.Id)
-                    .GroupBy(s => s.Type)
-                    .Select(g => g.OrderByDescending(s => s.SeparatedAt).First())
-                    .ToListAsync();
-
-                // Check training readiness
-                var isTrainingReady = analysisResult != null && 
-                                    stems.Count >= 3 && // At least 3 stems available
-                                    !string.IsNullOrEmpty(analysisResult.Key) &&
-                                    analysisResult.Bpm.HasValue;
-
-                trainingDataSummary.Add(new
-                {
-                    AudioFileId = audioFile.Id,
-                    FileName = audioFile.OriginalFileName,
-                    Title = audioFile.Title ?? "Unknown",
-                    Artist = audioFile.Artist ?? "Unknown",
-                    Duration = audioFile.Duration.TotalSeconds,
-                    
-                    // Training readiness indicators
-                    IsTrainingReady = isTrainingReady,
-                    HasAnalysisResults = analysisResult != null,
-                    HasMusicTheoryFeatures = analysisResult != null && 
-                                           !string.IsNullOrEmpty(analysisResult.HarmonicAnalysis),
-                    
-                    // Music features for training
-                    BPM = analysisResult?.Bpm,
-                    Key = analysisResult?.Key,
-                    TimeSignature = audioFile.TimeSignature,
-                    
-                    // Data counts
-                    StemsCount = stems.Count,
-                    StemTypes = stems.Select(s => s.Type.ToString()).ToList(),
-                    BeatsCount = analysisResult?.Beats?.Count ?? 0,
-                    ChordsCount = analysisResult?.Chords?.Count ?? 0,
-                    SectionsCount = analysisResult?.Sections?.Count ?? 0,
-                    
-                    // Timestamps
-                    UploadedAt = audioFile.UploadedAt,
-                    AnalyzedAt = analysisResult?.AnalyzedAt,
-                    PreparedForTraining = audioFile.Comment?.Contains("Training data prepared") == true
-                });
-            }
-
-            var summary = new
-            {
-                TotalAudioFiles = audioFilesWithAnalysis.Count,
-                TrainingReadyCount = trainingDataSummary.Count(t => (bool)t.GetType().GetProperty("IsTrainingReady")?.GetValue(t)),
-                TotalStemsAvailable = trainingDataSummary.Sum(t => (int)t.GetType().GetProperty("StemsCount")?.GetValue(t)),
-                TotalBeats = trainingDataSummary.Sum(t => (int)t.GetType().GetProperty("BeatsCount")?.GetValue(t)),
-                TotalChords = trainingDataSummary.Sum(t => (int)t.GetType().GetProperty("ChordsCount")?.GetValue(t)),
-                AudioFiles = trainingDataSummary
-            };
-
-            return Ok(summary);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting training data status");
-            return StatusCode(500, new { error = "Failed to get training data status", details = ex.Message });
-        }
     }
 
     /// <summary>
@@ -405,6 +406,107 @@ public class AudioController : ControllerBase
                     audioFileId = id, 
                     jobId = job.Id 
                 });
+        }
+    }
+
+    /// <summary>
+    /// Save complete analysis results from the analysis worker
+    /// </summary>
+    /// <param name="id">Audio file ID</param>
+    /// <param name="results">Complete analysis results</param>
+    /// <returns>Success response</returns>
+    [HttpPost("{id}/analysis-results")]
+    [ProducesResponseType(StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> SaveAnalysisResults(Guid id, [FromBody] AnalysisResultsRequest results)
+    {
+        _logger.LogInformation("Saving analysis results for audio file {AudioFileId}", id);
+
+        // Verify audio file exists
+        var audioFile = await _dbContext.AudioFiles.FindAsync(id);
+        if (audioFile == null)
+        {
+            return NotFound($"Audio file {id} not found");
+        }
+
+        try
+        {
+            // Check if analysis results already exist
+            var existingResults = await _dbContext.AnalysisResults
+                .FirstOrDefaultAsync(a => a.AudioFileId == id);
+
+            if (existingResults != null)
+            {
+                _logger.LogInformation("Analysis results already exist for {AudioFileId}, updating...", id);
+                // Update existing results
+                existingResults = existingResults with
+                {
+                    Bpm = results.Bpm,
+                    MusicalKey = results.Key ?? string.Empty,
+                    Mode = results.Mode ?? string.Empty,
+                    Tuning = results.TuningFrequency ?? 440.0f,
+                    AnalyzedAt = DateTime.UtcNow
+                };
+                _dbContext.AnalysisResults.Update(existingResults);
+            }
+            else
+            {
+                // Create new analysis result with all annotations
+                var analysisResult = new AnalysisResult
+                {
+                    Id = Guid.NewGuid(),
+                    AudioFileId = id,
+                    Bpm = results.Bpm,
+                    MusicalKey = results.Key ?? string.Empty,
+                    Mode = results.Mode ?? string.Empty,
+                    Tuning = results.TuningFrequency ?? 440.0f,
+                    AnalyzedAt = DateTime.UtcNow,
+                    
+                    // Add chord annotations as owned entities
+                    Chords = results.Chords?.Select(chord => new ChordAnnotation
+                    {
+                        Id = Guid.NewGuid(),
+                        StartTime = chord.StartTime,
+                        EndTime = chord.EndTime,
+                        Chord = chord.Chord ?? string.Empty,
+                        Confidence = chord.Confidence
+                    }).ToList() ?? new List<ChordAnnotation>(),
+
+                    // Add beat annotations as owned entities
+                    Beats = results.Beats?.Select(beat => new BeatAnnotation
+                    {
+                        Id = Guid.NewGuid(),
+                        Time = beat.Time,
+                        Position = beat.Position,
+                        IsDownbeat = beat.IsDownbeat
+                    }).ToList() ?? new List<BeatAnnotation>(),
+
+                    // Add section annotations as owned entities
+                    Sections = results.Sections?.Select(section => new Section
+                    {
+                        Id = Guid.NewGuid(),
+                        StartTime = section.StartTime,
+                        EndTime = section.EndTime,
+                        Label = section.Label ?? string.Empty,
+                        Confidence = section.Confidence
+                    }).ToList() ?? new List<Section>()
+                };
+
+                _dbContext.AnalysisResults.Add(analysisResult);
+            }
+
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("Successfully saved analysis results for audio file {AudioFileId}: BPM={Bpm}, Key={Key} {Mode}", 
+                id, results.Bpm, results.Key, results.Mode);
+
+            return StatusCode(201, new { message = "Analysis results saved successfully", audioFileId = id });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving analysis results for audio file {AudioFileId}", id);
+            return StatusCode(500, new { message = "Error saving analysis results", error = ex.Message });
         }
     }
 
@@ -850,6 +952,28 @@ public class AudioController : ControllerBase
     }
 
     /// <summary>
+    /// Manually trigger training data preparation for testing
+    /// </summary>
+    [HttpPost("test-training/{id}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> TestTrainingData(Guid id)
+    {
+        _logger.LogInformation("Testing training data preparation for {AudioFileId}", id);
+        
+        try
+        {
+            await PrepareTrainingDataAsync(id);
+            return Ok(new { message = "Training data preparation completed", audioFileId = id });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in test training data preparation");
+            return StatusCode(500, new { message = "Error occurred", error = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Automatically prepare training data when MP3 analysis completes successfully.
     /// This integrates the training pipeline with the ingestion pipeline.
     /// </summary>
@@ -901,7 +1025,7 @@ public class AudioController : ControllerBase
                 
                 // Music theory features
                 BPM = analysisResult.Bpm,
-                Key = analysisResult.Key,
+                Key = $"{analysisResult.MusicalKey} {analysisResult.Mode}",
                 TimeSignature = audioFile.TimeSignature,
                 
                 // Musical structure
@@ -913,15 +1037,15 @@ public class AudioController : ControllerBase
                 StemsAvailable = stems.Select(s => new {
                     Type = s.Type.ToString(),
                     BlobUri = s.BlobUri.Replace("http://azurite:10000", "http://localhost:10000"),
-                    SizeBytes = s.SizeBytes,
-                    Duration = s.Duration?.TotalSeconds
+                    SizeBytes = s.FileSizeBytes,
+                    Duration = s.DurationSeconds
                 }).ToList(),
                 
                 // Analysis metadata
                 AnalyzedAt = analysisResult.AnalyzedAt,
-                HasHarmonicAnalysis = !string.IsNullOrEmpty(analysisResult.HarmonicAnalysis),
-                HasRhythmicAnalysis = !string.IsNullOrEmpty(analysisResult.RhythmicAnalysis),
-                HasGenreAnalysis = !string.IsNullOrEmpty(analysisResult.GenreAnalysis),
+                HasHarmonicAnalysis = analysisResult.Chords?.Count > 0,
+                HasRhythmicAnalysis = analysisResult.Beats?.Count > 0,
+                HasGenreAnalysis = !string.IsNullOrEmpty(analysisResult.MusicalKey),
                 
                 // Blob URIs for access
                 OriginalBlobUri = audioFile.BlobUri.Replace("http://azurite:10000", "http://localhost:10000"),
@@ -996,4 +1120,46 @@ public record UpdateAudioMetadataRequest(
     double? Bpm = null,
     string? Key = null,
     string? TimeSignature = null
+);
+
+/// <summary>
+/// Request body for saving complete analysis results from the analysis worker
+/// </summary>
+public record AnalysisResultsRequest(
+    float Bpm,
+    string? Key = null,
+    string? Mode = null,
+    float? TuningFrequency = null,
+    List<ChordAnnotationRequest>? Chords = null,
+    List<BeatAnnotationRequest>? Beats = null,
+    List<SectionAnnotationRequest>? Sections = null
+);
+
+/// <summary>
+/// Chord annotation data from analysis worker
+/// </summary>
+public record ChordAnnotationRequest(
+    float StartTime,
+    float EndTime,
+    string? Chord = null,
+    float Confidence = 0.0f
+);
+
+/// <summary>
+/// Beat annotation data from analysis worker
+/// </summary>
+public record BeatAnnotationRequest(
+    float Time,
+    int Position = 1,
+    bool IsDownbeat = false
+);
+
+/// <summary>
+/// Section annotation data from analysis worker
+/// </summary>
+public record SectionAnnotationRequest(
+    float StartTime,
+    float EndTime,
+    string? Label = null,
+    float Confidence = 0.0f
 );

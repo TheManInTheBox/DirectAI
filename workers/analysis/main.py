@@ -181,6 +181,55 @@ async def process_analysis(
         analysis_service.save_jams(jams_data, jams_path)
         logger.info(f"JAMS annotation saved: {jams_path}")
         
+        # Step 5.5: Save analysis results to database via API
+        logger.info("Saving analysis results to database...")
+        analysis_results_payload = {
+            "bpm": analysis_results.get("bpm", 0.0),
+            "key": analysis_results.get("key", "").split()[0] if analysis_results.get("key") else "",  # Extract just the key letter
+            "mode": analysis_results.get("key", "").split()[1] if len(analysis_results.get("key", "").split()) > 1 else "major",  # Extract mode
+            "tuningFrequency": analysis_results.get("tuning_frequency", 440.0),
+            "chords": [
+                {
+                    "startTime": chord.get("start_time", 0.0),
+                    "endTime": chord.get("end_time", 0.0),
+                    "chord": chord.get("chord", "N"),
+                    "confidence": chord.get("confidence", 0.0)
+                }
+                for chord in analysis_results.get("chords", [])
+            ],
+            "beats": [
+                {
+                    "time": beat.get("time", 0.0),
+                    "position": beat.get("position", 1),
+                    "isDownbeat": beat.get("is_downbeat", False)
+                }
+                for beat in analysis_results.get("beats", [])
+            ],
+            "sections": [
+                {
+                    "startTime": section.get("start_time", 0.0),
+                    "endTime": section.get("end_time", 0.0),
+                    "label": section.get("label", "unknown"),
+                    "confidence": section.get("confidence", 0.0)
+                }
+                for section in analysis_results.get("sections", [])
+            ]
+        }
+        
+        try:
+            api_base_url = os.getenv("API_BASE_URL", "http://music-api:8080")
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"{api_base_url}/api/audio/{audio_file_id}/analysis-results",
+                    json=analysis_results_payload
+                )
+                if response.status_code == 201:
+                    logger.info(f"Successfully saved analysis results to database: BPM={analysis_results.get('bpm')}, Key={analysis_results.get('key')}")
+                else:
+                    logger.warning(f"Failed to save analysis results: {response.status_code} - {response.text}")
+        except Exception as api_error:
+            logger.error(f"Error saving analysis results to database: {api_error}")
+        
         # Step 6: Upload stems and JAMS to blob storage
         logger.info("Uploading stems and JAMS to blob storage...")
         uploaded_stems = []

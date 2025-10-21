@@ -21,6 +21,10 @@ RUN pip install --no-cache-dir Cython>=0.29.0 numpy==1.24.3
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Install Audio Flamingo models (use a specific branch for stability)
+# Note: Using the audio_flamingo_2 branch which has the best balance of features and stability
+RUN pip install --no-cache-dir git+https://github.com/NVIDIA/audio-flamingo.git@audio_flamingo_2
+
 # Copy application code
 COPY . .
 

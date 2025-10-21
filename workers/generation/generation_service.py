@@ -25,6 +25,7 @@ class GenerationService:
         # Model availability flags
         self.has_stable_audio = False
         self.has_musicgen = False
+        self.has_bark = False
         
         # Initialize AI models (real models required - no mock mode)
         self._initialize_models()
@@ -50,25 +51,26 @@ class GenerationService:
             except Exception as e:
                 logger.warning(f"Failed to load Stable Audio Open: {e}")
             
-            # Try to load MusicGen
+            # Try to load Bark
             try:
-                logger.info("Loading MusicGen model...")
-                from audiocraft.models import MusicGen
-                self.musicgen_model = MusicGen.get_pretrained("facebook/musicgen-small", device=device)
-                self.has_musicgen = True
-                logger.info("MusicGen loaded successfully")
+                logger.info("Loading Bark model...")
+                from bark import preload_models
+                preload_models()
+                self.has_bark = True
+                logger.info("Bark loaded successfully")
             except ImportError as e:
-                logger.warning(f"audiocraft not installed: {e}")
-                logger.warning("MusicGen unavailable. Install with: pip install audiocraft==1.3.0")
-                self.has_musicgen = False
+                logger.warning(f"Bark not installed: {e}")
+                logger.warning("Bark unavailable. Install with: pip install git+https://github.com/suno-ai/bark.git")
+                self.has_bark = False
             except Exception as e:
-                logger.warning(f"Failed to load MusicGen: {e}")
-                self.has_musicgen = False
+                logger.warning(f"Failed to load Bark: {e}")
+                self.has_bark = False
             
             # Check if we have at least one model available
-            if not self.has_stable_audio and not self.has_musicgen:
+            if not self.has_stable_audio and not self.has_musicgen and not self.has_bark:
                 logger.warning("No AI models available! Generation requests will use fallback methods.")
                 logger.warning("Install audiocraft for MusicGen: pip install audiocraft==1.3.0")
+                logger.warning("Install Bark: pip install git+https://github.com/suno-ai/bark.git")
                 
         except Exception as e:
             logger.error(f"Error initializing models: {e}")
@@ -96,7 +98,10 @@ class GenerationService:
             output_path = output_dir / f"{stem_type}.wav"
             
             # Use available AI models (real generation only)
-            if self.has_musicgen:
+            if self.has_bark:
+                # Use Bark for generation
+                audio = await self._generate_with_bark(stem_type, parameters)
+            elif self.has_musicgen:
                 # Use MusicGen for generation
                 audio = await self._generate_with_musicgen(stem_type, parameters)
             elif self.has_stable_audio:
@@ -114,6 +119,40 @@ class GenerationService:
         except Exception as e:
             logger.error(f"Error generating stem {stem_type}: {str(e)}", exc_info=True)
             return None
+
+    async def _generate_with_bark(
+        self,
+        stem_type: str,
+        parameters: Dict[str, Any]
+    ) -> np.ndarray:
+        """
+        Generate audio using Suno's Bark model
+        """
+        logger.info(f"Generating with Bark: {stem_type}")
+        
+        try:
+            from bark import generate_audio, SAMPLE_RATE
+            # Build prompt from parameters
+            prompt = self._build_prompt(stem_type, parameters)
+            
+            logger.info(f"Bark prompt: {prompt}")
+            
+            # Generate audio
+            # Note: This is run in a thread pool to avoid blocking
+            audio = await asyncio.to_thread(
+                generate_audio,
+                prompt
+            )
+            
+            # Resample if necessary
+            if SAMPLE_RATE != self.sample_rate:
+                audio = librosa.resample(audio, orig_sr=SAMPLE_RATE, target_sr=self.sample_rate)
+
+            return audio.astype(np.float32)
+            
+        except Exception as e:
+            logger.error(f"Bark generation failed: {e}")
+            raise RuntimeError(f"Bark generation failed: {e}")
     
     async def _generate_with_musicgen(
         self,

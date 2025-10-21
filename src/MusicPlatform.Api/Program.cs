@@ -54,7 +54,7 @@ builder.Services.AddHttpClient("GenerationWorker", client =>
 
 // 4. Orchestration Service (In-Memory for local, Durable Functions for Azure)
 var orchestrationType = builder.Configuration["Orchestration:Type"];
-// TODO: Implement orchestration service registration based on type
+builder.Services.AddHostedService<JobOrchestrationService>();
 
 // 5. Application Services
 builder.Services.AddScoped<IdempotentJobService>();

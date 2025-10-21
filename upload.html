@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DirectAI Music Platform - Upload</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .upload-section {
+            border: 2px dashed #007acc;
+            padding: 40px;
+            text-align: center;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+        }
+        .upload-section:hover {
+            background-color: #f8f9fa;
+        }
+        .upload-section.dragover {
+            background-color: #e3f2fd;
+            border-color: #1976d2;
+        }
+        input[type="file"] {
+            display: none;
+        }
+        .upload-label {
+            cursor: pointer;
+            color: #007acc;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        .upload-label:hover {
+            color: #005a9e;
+        }
+        button {
+            background-color: #007acc;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background-color: #005a9e;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .progress {
+            width: 100%;
+            height: 20px;
+            background-color: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 20px 0;
+            display: none;
+        }
+        .progress-bar {
+            height: 100%;
+            background-color: #007acc;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .file-info {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .pipeline-status {
+            margin-top: 30px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #007acc;
+        }
+        .pipeline-step {
+            display: flex;
+            align-items: center;
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .pipeline-step.pending {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        .pipeline-step.processing {
+            background-color: #d1ecf1;
+            color: #0c5460;
+        }
+        .pipeline-step.completed {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .pipeline-step.failed {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .step-icon {
+            margin-right: 10px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎵 DirectAI Music Platform</h1>
+        <p style="text-align: center; color: #666; margin-bottom: 30px;">
+            Upload MP3 files for AI-powered music analysis, stem separation, and training data preparation
+        </p>
+
+        <div class="upload-section" id="uploadSection">
+            <label for="fileInput" class="upload-label">
+                📁 Click to select MP3 file or drag and drop here
+            </label>
+            <input type="file" id="fileInput" accept=".mp3,audio/mpeg" />
+            <p style="color: #666; margin-top: 10px;">Maximum file size: 100MB</p>
+        </div>
+
+        <div id="fileInfo" class="file-info" style="display: none;">
+            <h3>Selected File:</h3>
+            <p id="fileName"></p>
+            <p id="fileSize"></p>
+        </div>
+
+        <div style="text-align: center;">
+            <button id="uploadBtn" onclick="uploadFile()" disabled>Upload & Start Analysis</button>
+            <button id="clearBtn" onclick="clearFile()" style="background-color: #6c757d;">Clear</button>
+        </div>
+
+        <div class="progress" id="progressContainer">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+
+        <div id="status"></div>
+
+        <div id="pipelineStatus" class="pipeline-status" style="display: none;">
+            <h3>🔄 Processing Pipeline</h3>
+            <div id="pipelineSteps"></div>
+        </div>
+    </div>
+
+    <script>
+        let selectedFile = null;
+        let uploadedFileId = null;
+        const API_BASE = 'http://localhost:5000/api';
+
+        // File input handling
+        const fileInput = document.getElementById('fileInput');
+        const uploadSection = document.getElementById('uploadSection');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const fileInfo = document.getElementById('fileInfo');
+
+        fileInput.addEventListener('change', handleFileSelect);
+
+        // Drag and drop
+        uploadSection.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadSection.classList.add('dragover');
+        });
+
+        uploadSection.addEventListener('dragleave', () => {
+            uploadSection.classList.remove('dragover');
+        });
+
+        uploadSection.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadSection.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFile(files[0]);
+            }
+        });
+
+        function handleFileSelect(e) {
+            handleFile(e.target.files[0]);
+        }
+
+        function handleFile(file) {
+            if (!file) return;
+
+            if (!file.type.includes('audio') && !file.name.toLowerCase().endsWith('.mp3')) {
+                showStatus('Please select an MP3 audio file.', 'error');
+                return;
+            }
+
+            if (file.size > 100 * 1024 * 1024) {
+                showStatus('File size exceeds 100MB limit.', 'error');
+                return;
+            }
+
+            selectedFile = file;
+            document.getElementById('fileName').textContent = `Name: ${file.name}`;
+            document.getElementById('fileSize').textContent = `Size: ${(file.size / 1024 / 1024).toFixed(2)} MB`;
+            fileInfo.style.display = 'block';
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = 'Upload & Start Analysis';
+        }
+
+        function clearFile() {
+            selectedFile = null;
+            uploadedFileId = null;
+            fileInput.value = '';
+            fileInfo.style.display = 'none';
+            uploadBtn.disabled = true;
+            uploadBtn.textContent = 'Upload & Start Analysis';
+            document.getElementById('progressContainer').style.display = 'none';
+            document.getElementById('status').innerHTML = '';
+            document.getElementById('pipelineStatus').style.display = 'none';
+        }
+
+        async function uploadFile() {
+            if (!selectedFile) return;
+
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+
+            uploadBtn.disabled = true;
+            uploadBtn.textContent = 'Uploading...';
+            document.getElementById('progressContainer').style.display = 'block';
+
+            try {
+                const response = await fetch(`${API_BASE}/audio/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    uploadedFileId = result.id;
+                    showStatus(`✅ Upload successful! File ID: ${result.id}`, 'success');
+                    uploadBtn.textContent = 'Start Analysis';
+                    uploadBtn.disabled = false;
+                    uploadBtn.onclick = startAnalysis;
+                    
+                    // Show pipeline status
+                    showPipelineStatus();
+                } else {
+                    const error = await response.text();
+                    showStatus(`❌ Upload failed: ${error}`, 'error');
+                    uploadBtn.disabled = false;
+                    uploadBtn.textContent = 'Upload & Start Analysis';
+                }
+            } catch (error) {
+                showStatus(`❌ Upload error: ${error.message}`, 'error');
+                uploadBtn.disabled = false;
+                uploadBtn.textContent = 'Upload & Start Analysis';
+            }
+
+            document.getElementById('progressContainer').style.display = 'none';
+        }
+
+        async function startAnalysis() {
+            if (!uploadedFileId) return;
+
+            uploadBtn.disabled = true;
+            uploadBtn.textContent = 'Starting Analysis...';
+
+            try {
+                const response = await fetch(`${API_BASE}/audio/${uploadedFileId}/analyze`, {
+                    method: 'POST'
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    showStatus(`🔬 Analysis started! Job ID: ${result.jobId}`, 'info');
+                    uploadBtn.textContent = 'Analysis Started';
+                    
+                    // Start monitoring the pipeline
+                    monitorPipeline();
+                } else {
+                    const error = await response.text();
+                    showStatus(`❌ Analysis failed to start: ${error}`, 'error');
+                    uploadBtn.disabled = false;
+                    uploadBtn.textContent = 'Start Analysis';
+                }
+            } catch (error) {
+                showStatus(`❌ Analysis error: ${error.message}`, 'error');
+                uploadBtn.disabled = false;
+                uploadBtn.textContent = 'Start Analysis';
+            }
+        }
+
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.innerHTML = `<div class="${type}">${message}</div>`;
+        }
+
+        function showPipelineStatus() {
+            document.getElementById('pipelineStatus').style.display = 'block';
+            updatePipelineSteps([
+                { name: 'File Upload', status: 'completed', description: 'MP3 file uploaded to storage' },
+                { name: 'Analysis Request', status: 'pending', description: 'Waiting to start music analysis' },
+                { name: 'MIR Analysis', status: 'pending', description: 'BPM, key, chords, beats detection' },
+                { name: 'Source Separation', status: 'pending', description: 'Stem separation (vocals, drums, bass, other)' },
+                { name: 'Database Storage', status: 'pending', description: 'Save analysis results to database' },
+                { name: 'Training Preparation', status: 'pending', description: 'Automatic training data preparation' }
+            ]);
+        }
+
+        function updatePipelineSteps(steps) {
+            const container = document.getElementById('pipelineSteps');
+            container.innerHTML = steps.map(step => `
+                <div class="pipeline-step ${step.status}">
+                    <span class="step-icon">${getStatusIcon(step.status)}</span>
+                    <div>
+                        <strong>${step.name}</strong><br>
+                        <small>${step.description}</small>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function getStatusIcon(status) {
+            switch (status) {
+                case 'completed': return '✅';
+                case 'processing': return '⏳';
+                case 'failed': return '❌';
+                default: return '⏸️';
+            }
+        }
+
+        async function monitorPipeline() {
+            if (!uploadedFileId) return;
+
+            // Check status every 5 seconds
+            const interval = setInterval(async () => {
+                try {
+                    // Check file status
+                    const fileResponse = await fetch(`${API_BASE}/audio/${uploadedFileId}`);
+                    if (fileResponse.ok) {
+                        const fileData = await fileResponse.json();
+                        
+                        // Check if training preparation completed
+                        if (fileData.comment && fileData.comment.includes('Training data prepared')) {
+                            clearInterval(interval);
+                            showStatus('🎉 Complete pipeline finished! Training data is ready.', 'success');
+                            updatePipelineSteps([
+                                { name: 'File Upload', status: 'completed', description: 'MP3 file uploaded to storage' },
+                                { name: 'Analysis Request', status: 'completed', description: 'Music analysis completed' },
+                                { name: 'MIR Analysis', status: 'completed', description: 'BPM, key, chords, beats detected' },
+                                { name: 'Source Separation', status: 'completed', description: 'Stems separated and uploaded' },
+                                { name: 'Database Storage', status: 'completed', description: 'Analysis results saved to database' },
+                                { name: 'Training Preparation', status: 'completed', description: 'Training data prepared automatically' }
+                            ]);
+                            
+                            // Add generation button
+                            const generateBtn = document.createElement('button');
+                            generateBtn.textContent = 'Start Generation';
+                            generateBtn.onclick = startGeneration;
+                            generateBtn.style.backgroundColor = '#28a745';
+                            document.querySelector('.container').appendChild(generateBtn);
+                            return;
+                        }
+                    }
+
+                    // Check analysis status
+                    const analysisResponse = await fetch(`${API_BASE}/audio/${uploadedFileId}/analysis`);
+                    if (analysisResponse.ok) {
+                        updatePipelineSteps([
+                            { name: 'File Upload', status: 'completed', description: 'MP3 file uploaded to storage' },
+                            { name: 'Analysis Request', status: 'completed', description: 'Analysis job started' },
+                            { name: 'MIR Analysis', status: 'processing', description: 'Analyzing music features...' },
+                            { name: 'Source Separation', status: 'processing', description: 'Separating stems...' },
+                            { name: 'Database Storage', status: 'pending', description: 'Waiting for analysis completion' },
+                            { name: 'Training Preparation', status: 'pending', description: 'Will trigger automatically' }
+                        ]);
+                    }
+                } catch (error) {
+                    console.log('Monitoring error:', error);
+                }
+            }, 5000);
+
+            // Stop monitoring after 10 minutes
+            setTimeout(() => clearInterval(interval), 600000);
+        }
+
+        async function startGeneration() {
+            showStatus('🎵 Generation feature coming soon! Training data is ready.', 'info');
+        }
+    </script>
+</body>
+</html>

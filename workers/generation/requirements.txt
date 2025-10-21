@@ -15,20 +15,6 @@ soundfile==0.12.1
 numpy==1.24.3
 scipy==1.11.4
 
-# AI Music Generation Models
-# Stable Audio Open (Stability AI)
-# Note: Requires PyTorch with CUDA for GPU, CPU fallback supported
-torch==2.1.0
-torchaudio==2.1.0
-transformers==4.36.2
-diffusers==0.25.0
-accelerate==0.25.0
-
-# MusicGen (Meta AI) - TEMPORARILY DISABLED due to PyAV/FFmpeg compatibility issues
-# audiocraft==1.3.0 requires av==11.0.0 which won't compile against FFmpeg 6.x
-# TODO: Re-enable when conda environment or pre-built wheels are available
-# audiocraft==1.3.0
-
 # Audio manipulation
 pydub==0.25.1
 

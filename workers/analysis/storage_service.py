@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 import asyncio
+from urllib.parse import unquote
 
 from azure.storage.blob import BlobServiceClient, ContentSettings
 from azure.identity import DefaultAzureCredential
@@ -51,26 +52,28 @@ class StorageService:
             if not self.blob_service_client:
                 raise RuntimeError("Blob storage client not configured")
             
-            # Parse blob URI to get container and blob name
-            # Format: https://{account}.blob.core.windows.net/{container}/{blob}
-            # Or Azurite: http://azurite:10000/devstoreaccount1/{container}/{blob}
-            parts = blob_uri.split("/")
-            
-            # For Azurite (localhost, 127.0.0.1, or azurite hostname)
-            if "127.0.0.1" in blob_uri or "localhost" in blob_uri or "azurite" in blob_uri:
-                # Find devstoreaccount1 in parts, container is next
-                try:
-                    account_index = parts.index("devstoreaccount1")
-                    container_name = parts[account_index + 1]
-                    blob_name = "/".join(parts[account_index + 2:])
-                except (ValueError, IndexError):
-                    raise ValueError(f"Invalid Azurite blob URI format: {blob_uri}")
-            else:
-                # Production Azure: https://account.blob.core.windows.net/container/blob/path
-                container_name = parts[3]  # After https:// (0), empty (1), domain (2)
-                blob_name = "/".join(parts[4:])
-            
-            logger.info(f"Downloading blob: container={container_name}, blob={blob_name}")
+        # Parse blob URI to get container and blob name
+        # Format: https://{account}.blob.core.windows.net/{container}/{blob}
+        # Or Azurite: http://azurite:10000/devstoreaccount1/{container}/{blob}
+        parts = blob_uri.split("/")
+        
+        # For Azurite (localhost, 127.0.0.1, or azurite hostname)
+        if "127.0.0.1" in blob_uri or "localhost" in blob_uri or "azurite" in blob_uri:
+            # Find devstoreaccount1 in parts, container is next
+            try:
+                account_index = parts.index("devstoreaccount1")
+                container_name = parts[account_index + 1]
+                blob_name = "/".join(parts[account_index + 2:])
+                # URL decode the blob name to handle special characters
+                blob_name = unquote(blob_name)
+            except (ValueError, IndexError):
+                raise ValueError(f"Invalid Azurite blob URI format: {blob_uri}")
+        else:
+            # Production Azure: https://account.blob.core.windows.net/container/blob/path
+            container_name = parts[3]  # After https:// (0), empty (1), domain (2)
+            blob_name = "/".join(parts[4:])
+            # URL decode the blob name to handle special characters
+            blob_name = unquote(blob_name)            logger.info(f"Downloading blob: container={container_name}, blob={blob_name}")
             
             # Get blob client
             blob_client = self.blob_service_client.get_blob_client(
