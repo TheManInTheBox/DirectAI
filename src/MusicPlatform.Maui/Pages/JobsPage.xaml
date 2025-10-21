@@ -127,7 +127,7 @@
                                 <RoundRectangle CornerRadius="8"/>
                             </Border.StrokeShape>
 
-                            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto">
+                            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto">
                                 
                                 <!-- Status Icon & Main Info -->
                                 <Label Grid.Row="0" Grid.Column="0"
@@ -273,8 +273,51 @@
                                            LineBreakMode="WordWrap"/>
                                 </Border>
 
-                                <!-- Error Message -->
+                                <!-- Comprehensive Analysis Success (for Analysis jobs only) -->
                                 <Border Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="3"
+                                        Padding="10"
+                                        Margin="0,5,0,0"
+                                        BackgroundColor="{AppThemeBinding Light=#F0F8FF, Dark=#1E3A5F}"
+                                        Stroke="Green"
+                                        StrokeThickness="1">
+                                    <Border.IsVisible>
+                                        <MultiBinding Converter="{StaticResource AllTrueConverter}">
+                                            <Binding Path="Status" Converter="{StaticResource StringEqualsConverter}" ConverterParameter="Completed"/>
+                                            <Binding Path="Type" Converter="{StaticResource StringEqualsConverter}" ConverterParameter="Analysis"/>
+                                        </MultiBinding>
+                                    </Border.IsVisible>
+                                    <Border.StrokeShape>
+                                        <RoundRectangle CornerRadius="4"/>
+                                    </Border.StrokeShape>
+                                    <VerticalStackLayout Spacing="5">
+                                        <Label Text="🎉 Comprehensive Analysis Complete!"
+                                               FontSize="14"
+                                               FontAttributes="Bold"
+                                               TextColor="Green"/>
+                                        <Label Text="✅ Source separation (4 stems: vocals, drums, bass, other)"
+                                               FontSize="11"
+                                               TextColor="DarkGreen"/>
+                                        <Label Text="✅ Music Information Retrieval (BPM, key, chords, sections)"
+                                               FontSize="11"
+                                               TextColor="DarkGreen"/>
+                                        <Label Text="✅ Audio Flamingo AI analysis (genre, mood, instruments)"
+                                               FontSize="11"
+                                               TextColor="DarkGreen"/>
+                                        <Label Text="✅ Individual stem analysis with instrument features"
+                                               FontSize="11"
+                                               TextColor="DarkGreen"/>
+                                        <Label Text="✅ Bark training dataset generated with structured prompts"
+                                               FontSize="11"
+                                               TextColor="DarkGreen"/>
+                                        <Label Text="Ready for AI model training and generation!"
+                                               FontSize="12"
+                                               FontAttributes="Italic"
+                                               TextColor="Blue"/>
+                                    </VerticalStackLayout>
+                                </Border>
+
+                                <!-- Error Message -->
+                                <Border Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="3"
                                         Padding="10"
                                         Margin="0,5,0,0"
                                         BackgroundColor="{AppThemeBinding Light=#FFF3F3, Dark=#3D1F1F}"

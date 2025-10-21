@@ -1,0 +1,138 @@
+# ========================================
+# Generation Worker - Kubernetes Deployment
+# GPU-enabled deployment for music generation
+# ========================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: generation-worker
+  namespace: music-platform
+  labels:
+    app: generation-worker
+    component: worker
+    tier: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: generation-worker
+  template:
+    metadata:
+      labels:
+        app: generation-worker
+        component: worker
+        tier: backend
+    spec:
+      # Schedule pods on GPU nodes
+      nodeSelector:
+        accelerator: nvidia
+      # Tolerate GPU node taints
+      tolerations:
+      - key: sku
+        operator: Equal
+        value: gpu
+        effect: NoSchedule
+      containers:
+      - name: generation-worker
+        image: ${ACR_NAME}.azurecr.io/generation-worker:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: AZURE_STORAGE_CONNECTION_STRING
+          valueFrom:
+            secretKeyRef:
+              name: music-platform-secrets
+              key: storage-connection-string
+        - name: BLOB_CONTAINER_NAME
+          value: "audio-files"
+        - name: USE_GPU
+          value: "true"
+        - name: CUDA_VISIBLE_DEVICES
+          value: "0"
+        resources:
+          requests:
+            memory: "8Gi"
+            cpu: "4"
+            nvidia.com/gpu: 1  # Request 1 GPU
+          limits:
+            memory: "16Gi"
+            cpu: "8"
+            nvidia.com/gpu: 1  # Limit to 1 GPU
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: temp-storage
+          mountPath: /tmp
+        - name: model-cache
+          mountPath: /root/.cache
+      volumes:
+      - name: temp-storage
+        emptyDir:
+          sizeLimit: 20Gi
+      - name: model-cache
+        persistentVolumeClaim:
+          claimName: musicgen-model-cache
+---
+# ========================================
+# Generation Worker - Service
+# ========================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: generation-worker
+  namespace: music-platform
+  labels:
+    app: generation-worker
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: generation-worker
+---
+# ========================================
+# Generation Worker - Horizontal Pod Autoscaler
+# ========================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: generation-worker
+  namespace: music-platform
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: generation-worker
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80

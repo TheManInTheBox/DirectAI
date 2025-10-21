@@ -20,6 +20,7 @@
             <converters:IsGreaterThanZeroConverter x:Key="IsGreaterThanZeroConverter" />
             <converters:BoolToColorConverter x:Key="BoolToColorConverter" />
             <converters:StringEqualsConverter x:Key="StringEqualsConverter" />
+            <converters:AllTrueConverter x:Key="AllTrueConverter" />
             <converters:HttpImageSourceConverter x:Key="HttpImageSourceConverter" />
             
             <!-- Additional Colors -->

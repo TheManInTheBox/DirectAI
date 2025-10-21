@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
+using Microsoft.AspNetCore.SignalR.Client;
 using MusicPlatform.Maui.Services;
 
 namespace MusicPlatform.Maui.ViewModels;
@@ -9,14 +10,16 @@ namespace MusicPlatform.Maui.ViewModels;
 /// <summary>
 /// ViewModel for the Jobs page - displays background processing queue
 /// </summary>
-public class JobsViewModel : INotifyPropertyChanged
+public class JobsViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly MusicPlatformApiClient _apiClient;
+    private HubConnection? _hubConnection;
     private string _statusMessage = string.Empty;
     private bool _isRefreshing = false;
     private JobStatisticsDto _statistics = new(0, 0, 0, 0, 0, 0, 0, 0, 0);
     private CancellationTokenSource? _autoRefreshCts;
     private bool _isRealTimeMode = true;
+    private bool _isSignalRConnected = false;
 
     public ObservableCollection<JobItem> Jobs { get; } = new();
 
@@ -75,11 +78,148 @@ public class JobsViewModel : INotifyPropertyChanged
         CancelJobCommand = new Command<JobItem>(async (job) => await CancelJobAsync(job));
         RetryJobCommand = new Command<JobItem>(async (job) => await RetryJobAsync(job));
 
+        // Initialize SignalR connection
+        InitializeSignalRConnection();
+
         // Load jobs on initialization
         Task.Run(async () => await LoadJobsAsync());
 
-        // Start real-time auto-refresh with adaptive polling
+        // Start real-time auto-refresh with adaptive polling (fallback when SignalR isn't connected)
         StartRealTimeRefresh();
+    }
+
+    private void InitializeSignalRConnection()
+    {
+        try
+        {
+            // TODO: Get the API base URL from configuration
+            var apiBaseUrl = "https://localhost:7098"; // Development URL
+            
+            _hubConnection = new HubConnectionBuilder()
+                .WithUrl($"{apiBaseUrl}/hubs/jobprogress")
+                .WithAutomaticReconnect()
+                .Build();
+
+            // Set up event handlers for job progress updates
+            _hubConnection.On<Guid, string, string>("JobStatusUpdated", async (jobId, status, message) =>
+            {
+                await MainThread.InvokeOnMainThreadAsync(() =>
+                {
+                    var job = Jobs.FirstOrDefault(j => j.Id == jobId);
+                    if (job != null)
+                    {
+                        job.Status = status;
+                        StatusMessage = $"📡 Real-time update: {message}";
+                    }
+                });
+            });
+
+            _hubConnection.On<Guid, string, string, int, string>("JobProgressUpdated", async (jobId, status, currentStep, progressPercentage, message) =>
+            {
+                await MainThread.InvokeOnMainThreadAsync(() =>
+                {
+                    var job = Jobs.FirstOrDefault(j => j.Id == jobId);
+                    if (job != null)
+                    {
+                        job.Status = status;
+                        job.CurrentStep = currentStep;
+                        job.ProgressPercentage = progressPercentage;
+                        StatusMessage = $"📡 Real-time: {message} ({progressPercentage}%)";
+                    }
+                });
+            });
+
+            _hubConnection.On<Guid, bool, object>("AnalysisCompleted", async (jobId, success, analysisResult) =>
+            {
+                await MainThread.InvokeOnMainThreadAsync(() =>
+                {
+                    var job = Jobs.FirstOrDefault(j => j.Id == jobId);
+                    if (job != null)
+                    {
+                        job.Status = success ? "Completed" : "Failed";
+                        job.ProgressPercentage = 100;
+                        StatusMessage = success 
+                            ? "📡 ✅ Analysis completed successfully!" 
+                            : "📡 ❌ Analysis failed";
+                        
+                        // Trigger a data refresh to get updated completion details
+                        Task.Run(async () => await LoadJobsAsync());
+                    }
+                });
+            });
+
+            // Handle connection state changes
+            _hubConnection.Closed += async (error) =>
+            {
+                _isSignalRConnected = false;
+                await MainThread.InvokeOnMainThreadAsync(() =>
+                {
+                    StatusMessage = "📡 SignalR disconnected, using polling...";
+                });
+            };
+
+            _hubConnection.Reconnected += async (connectionId) =>
+            {
+                _isSignalRConnected = true;
+                await MainThread.InvokeOnMainThreadAsync(() =>
+                {
+                    StatusMessage = "📡 SignalR reconnected for real-time updates!";
+                });
+            };
+
+            // Start the connection
+            Task.Run(async () => await StartSignalRConnection());
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"SignalR initialization error: {ex.Message}");
+            StatusMessage = "📡 SignalR setup failed, using polling mode";
+        }
+    }
+
+    private async Task StartSignalRConnection()
+    {
+        try
+        {
+            if (_hubConnection != null)
+            {
+                await _hubConnection.StartAsync();
+                _isSignalRConnected = true;
+                
+                await MainThread.InvokeOnMainThreadAsync(() =>
+                {
+                    StatusMessage = "📡 Connected to real-time job updates!";
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"SignalR connection error: {ex.Message}");
+            _isSignalRConnected = false;
+            
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                StatusMessage = "📡 Real-time connection failed, using polling mode";
+            });
+        }
+    }
+
+    private async Task StopSignalRConnection()
+    {
+        try
+        {
+            if (_hubConnection != null)
+            {
+                await _hubConnection.StopAsync();
+                await _hubConnection.DisposeAsync();
+                _hubConnection = null;
+                _isSignalRConnected = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"SignalR disconnect error: {ex.Message}");
+        }
     }
 
     private async Task LoadJobsAsync()
@@ -233,6 +373,13 @@ public class JobsViewModel : INotifyPropertyChanged
 
     private int GetRefreshInterval()
     {
+        // When SignalR is connected, poll much less frequently since we get real-time updates
+        if (_isSignalRConnected)
+        {
+            return 30; // Poll every 30 seconds just for statistics and new jobs
+        }
+        
+        // Fallback to aggressive polling when SignalR is not connected
         var activeJobs = Jobs.Count(j => j.Status == "Running" || j.Status == "Pending");
         return activeJobs > 0 ? 2 : 5; // 2s when active, 5s when idle
     }
@@ -281,7 +428,7 @@ public class JobsViewModel : INotifyPropertyChanged
             {
                 try
                 {
-                    // Adaptive polling: faster when jobs are active
+                    // Adaptive polling: much slower when SignalR is connected, faster when jobs are active
                     var interval = GetRefreshInterval() * 1000; // Convert to milliseconds
                     await Task.Delay(interval, _autoRefreshCts.Token);
                     
@@ -375,11 +522,17 @@ public class JobsViewModel : INotifyPropertyChanged
         {
             return currentStep switch
             {
-                "initializing" => "🚀 Starting analysis...",
-                "downloading_audio" => "⬇️ Downloading audio file...",
-                "calling_analysis_worker" => "📞 Calling analysis worker...",
-                "worker_processing" => "🔬 Processing audio (separation + analysis)...",
-                "uploading_results" => "⬆️ Uploading results...",
+                "initializing" => "🚀 Starting comprehensive analysis...",
+                "downloading_audio" => "⬇️ Downloading MP3 file from storage...",
+                "calling_analysis_worker" => "📞 Calling enhanced analysis worker...",
+                "worker_processing" => "🔬 AI Analysis Pipeline: Source separation + MIR + Audio Flamingo + Bark training data...",
+                "source_separation" => "🎵 Separating audio into stems (vocals, drums, bass, other)...",
+                "mir_analysis" => "🎼 Extracting music features (BPM, key, chords, beats, sections)...",
+                "flamingo_analysis" => "🦩 Audio Flamingo: Analyzing genre, mood, instruments...",
+                "stem_analysis" => "🔍 Individual stem analysis with instrument-specific features...",
+                "bark_preparation" => "🎯 Preparing Bark training dataset with structured prompts...",
+                "uploading_results" => "⬆️ Uploading stems, analysis results, and training data...",
+                "database_storage" => "💾 Storing comprehensive analysis results in database...",
                 _ => $"🔄 {currentStep.Replace('_', ' ')}"
             };
         }
@@ -414,10 +567,16 @@ public class JobsViewModel : INotifyPropertyChanged
             return currentStep switch
             {
                 "initializing" => 5,
-                "downloading_audio" => 15,
-                "calling_analysis_worker" => 20,
-                "worker_processing" => 60, // Bulk of the work
-                "uploading_results" => 90,
+                "downloading_audio" => 10,
+                "calling_analysis_worker" => 15,
+                "worker_processing" => 40, // General processing - covers multiple sub-steps
+                "source_separation" => 25,
+                "mir_analysis" => 35,
+                "flamingo_analysis" => 50,
+                "stem_analysis" => 65,
+                "bark_preparation" => 75,
+                "uploading_results" => 85,
+                "database_storage" => 95,
                 _ => 50
             };
         }
@@ -430,6 +589,21 @@ public class JobsViewModel : INotifyPropertyChanged
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            StopRealTimeRefresh();
+            Task.Run(async () => await StopSignalRConnection());
+        }
     }
 }
 

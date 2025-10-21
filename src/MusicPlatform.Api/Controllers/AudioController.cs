@@ -4,6 +4,7 @@ using Azure.Storage.Blobs;
 using MusicPlatform.Domain.Models;
 using MusicPlatform.Infrastructure.Data;
 using MusicPlatform.Api.Services;
+using MusicPlatform.Api.Hubs;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace MusicPlatform.Api.Controllers;
@@ -526,6 +527,9 @@ public class AudioController : ControllerBase
 
         if (request.JobId.HasValue)
         {
+            // Get progress service for real-time updates
+            var progressService = _serviceProvider.GetRequiredService<JobProgressService>();
+            
             // Use the specific job ID provided by the worker
             if (request.Success)
             {
@@ -542,6 +546,10 @@ public class AudioController : ControllerBase
 
                 await _jobService.CompleteJobAsync(request.JobId.Value, completionMetadata);
                 
+                // Send real-time completion notification
+                await progressService.SendJobStatusUpdate(request.JobId.Value, "Completed", 
+                    "✅ Analysis completed successfully!");
+                
                 // TRIGGER TRAINING DATA PREPARATION ON SUCCESSFUL ANALYSIS COMPLETION
                 _ = Task.Run(async () => await PrepareTrainingDataAsync(id));
             }
@@ -556,6 +564,10 @@ public class AudioController : ControllerBase
                 await _jobService.FailJobAsync(request.JobId.Value, 
                     request.ErrorMessage ?? "Analysis failed (no error message provided)", 
                     failureMetadata);
+                    
+                // Send real-time failure notification
+                await progressService.SendJobStatusUpdate(request.JobId.Value, "Failed", 
+                    $"❌ Analysis failed: {request.ErrorMessage ?? "Unknown error"}");
             }
         }
         else
@@ -570,9 +582,16 @@ public class AudioController : ControllerBase
 
             if (job != null)
             {
+                // Get progress service for real-time updates
+                var progressService = _serviceProvider.GetRequiredService<JobProgressService>();
+                
                 if (request.Success)
                 {
                     await _jobService.CompleteJobAsync(job.Id);
+                    
+                    // Send real-time completion notification
+                    await progressService.SendJobStatusUpdate(job.Id, "Completed", 
+                        "✅ Analysis completed successfully!");
                     
                     // TRIGGER TRAINING DATA PREPARATION ON SUCCESSFUL ANALYSIS COMPLETION
                     _ = Task.Run(async () => await PrepareTrainingDataAsync(id));
@@ -581,6 +600,10 @@ public class AudioController : ControllerBase
                 {
                     await _jobService.FailJobAsync(job.Id, 
                         request.ErrorMessage ?? "Analysis failed (no error message provided)");
+                        
+                    // Send real-time failure notification
+                    await progressService.SendJobStatusUpdate(job.Id, "Failed", 
+                        $"❌ Analysis failed: {request.ErrorMessage ?? "Unknown error"}");
                 }
                 
                 _logger.LogInformation("Updated job {JobId} status to {Status} (found by audio file ID)", 

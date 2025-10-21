@@ -1,0 +1,87 @@
+# ========================================
+# Namespace for Music Platform
+# ========================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: music-platform
+  labels:
+    name: music-platform
+    environment: ${ENVIRONMENT}
+---
+# ========================================
+# Persistent Volume Claim for MusicGen Model Cache
+# Reduces download time by persisting models across pod restarts
+# ========================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: musicgen-model-cache
+  namespace: music-platform
+spec:
+  accessModes:
+  - ReadWriteMany
+  storageClassName: azurefile
+  resources:
+    requests:
+      storage: 10Gi
+---
+# ========================================
+# NVIDIA GPU Device Plugin DaemonSet
+# Required for GPU scheduling in Kubernetes
+# ========================================
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-device-plugin-daemonset
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      name: nvidia-device-plugin-ds
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        name: nvidia-device-plugin-ds
+    spec:
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+      - key: sku
+        operator: Equal
+        value: gpu
+        effect: NoSchedule
+      priorityClassName: system-node-critical
+      containers:
+      - image: nvcr.io/nvidia/k8s-device-plugin:v0.14.5
+        name: nvidia-device-plugin-ctr
+        env:
+        - name: FAIL_ON_INIT_ERROR
+          value: "false"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: device-plugin
+          mountPath: /var/lib/kubelet/device-plugins
+      volumes:
+      - name: device-plugin
+        hostPath:
+          path: /var/lib/kubelet/device-plugins
+---
+# ========================================
+# ConfigMap for Common Worker Settings
+# ========================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: worker-config
+  namespace: music-platform
+data:
+  BLOB_CONTAINER_NAME: "audio-files"
+  LOG_LEVEL: "INFO"
+  PYTHONUNBUFFERED: "1"

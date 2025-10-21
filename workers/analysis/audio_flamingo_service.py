@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 import asyncio
 import numpy as np
+import torch
 
 logger = logging.getLogger(__name__)
 
@@ -29,12 +30,42 @@ class AudioFlamingoService:
             return
             
         try:
-            logger.info("Loading Audio Flamingo model...")
+            logger.info("Attempting to install and load Audio Flamingo model...")
+            
+            # Try to install Audio Flamingo at runtime if not available
+            import subprocess
+            import sys
+            
+            try:
+                # Check if transformers supports audio flamingo
+                from transformers import AutoProcessor, AutoModelForCausalLM
+                
+                # Try to access the model - this will fail if not available
+                processor_test = AutoProcessor.from_pretrained("nvidia/audio-flamingo-2-1.5B")
+                logger.info("Audio Flamingo model is accessible")
+                
+            except Exception as install_error:
+                logger.warning(f"Audio Flamingo model not accessible: {install_error}")
+                logger.info("Attempting to install Audio Flamingo from source...")
+                
+                # Try to install from git repository
+                result = subprocess.run([
+                    sys.executable, "-m", "pip", "install", "--no-cache-dir",
+                    "git+https://github.com/NVIDIA/audio-flamingo.git@audio_flamingo_2"
+                ], capture_output=True, text=True)
+                
+                if result.returncode != 0:
+                    logger.error(f"Failed to install Audio Flamingo: {result.stderr}")
+                    self.model_loaded = False
+                    return
+                
+                logger.info("Audio Flamingo installed successfully")
             
             # Import Audio Flamingo components
             from transformers import AutoProcessor, AutoModelForCausalLM
             
             # Load the processor and model
+            logger.info("Loading Audio Flamingo processor and model...")
             self.processor = AutoProcessor.from_pretrained(self.model_name)
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
@@ -47,6 +78,7 @@ class AudioFlamingoService:
             
         except Exception as e:
             logger.error(f"Failed to load Audio Flamingo model: {str(e)}")
+            logger.info("Analysis will continue without Audio Flamingo enhanced features")
             # Don't raise the exception - continue without flamingo if it fails
             self.model_loaded = False
     

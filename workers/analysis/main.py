@@ -165,10 +165,20 @@ async def process_analysis(
         stems_info = await analysis_service.separate_sources(audio_path, stems_dir)
         logger.info(f"Source separation complete. Generated {len(stems_info)} stems")
         
-        # Step 4: MIR analysis (BPM, key, sections, chords, beats)
-        logger.info("Starting MIR analysis...")
-        analysis_results = await analysis_service.analyze_music(audio_path)
-        logger.info(f"MIR analysis complete. Detected BPM: {analysis_results.get('bpm')}, Key: {analysis_results.get('key')}")
+        # Step 4: Comprehensive Analysis + Bark Training Dataset Export
+        logger.info("Starting comprehensive analysis with Bark training data export...")
+        bark_training_dir = temp_path / "bark_training"
+        comprehensive_result = await analysis_service.analyze_and_export_bark_dataset(
+            audio_path=audio_path,
+            stems_dir=stems_dir,
+            output_dir=bark_training_dir,
+            audio_file_id=audio_file_id
+        )
+        
+        # Extract main analysis results for backward compatibility
+        analysis_results = comprehensive_result.get("main_analysis", {})
+        logger.info(f"Comprehensive analysis complete. Detected BPM: {analysis_results.get('bpm')}, Key: {analysis_results.get('key')}")
+        logger.info(f"Bark training dataset: {comprehensive_result.get('total_training_samples', 0)} samples generated")
         
         # Step 5: Generate JAMS annotation
         logger.info("Generating JAMS annotation...")
@@ -412,15 +422,60 @@ async def process_analysis(
         jams_blob_url = await storage_service.upload_jams(audio_file_id, jams_path)
         logger.info(f"Uploaded JAMS annotation: {jams_blob_url}")
         
+        # Step 8.5: Upload Bark Training Dataset
+        bark_dataset_urls = []
+        if comprehensive_result.get("pipeline_success") and bark_training_dir.exists():
+            logger.info("Uploading Bark training dataset files...")
+            try:
+                for bark_file in bark_training_dir.glob("*"):
+                    if bark_file.is_file():
+                        bark_blob_url = await storage_service.upload_bark_training_file(
+                            audio_file_id, bark_file
+                        )
+                        bark_dataset_urls.append({
+                            "file_name": bark_file.name,
+                            "blob_url": bark_blob_url,
+                            "file_type": bark_file.suffix
+                        })
+                        logger.info(f"Uploaded Bark training file: {bark_file.name} -> {bark_blob_url}")
+                
+                logger.info(f"Bark training dataset upload complete: {len(bark_dataset_urls)} files")
+            except Exception as bark_error:
+                logger.error(f"Error uploading Bark training dataset: {bark_error}")
+        
         # Step 9: Prepare final response
         processing_time = (datetime.utcnow() - start_time).total_seconds()
         
-        # Step 10: Send success callback
+        # Step 10: Send success callback with comprehensive results
         if callback_url:
             logger.info(f"Sending success callback to: {callback_url}")
             success_payload = {
                 "success": True,
-                "error_message": None
+                "error_message": None,
+                "processing_time_seconds": processing_time,
+                "analysis": {
+                    "bpm": analysis_results.get("bpm"),
+                    "key": analysis_results.get("key"),
+                    "tuning_frequency": analysis_results.get("tuning_frequency"),
+                    "duration_seconds": analysis_results.get("duration_seconds"),
+                    "flamingo_analysis": analysis_results.get("flamingo_analysis", {}),
+                    "bark_training_data": analysis_results.get("bark_training_data", {})
+                },
+                "stems": [
+                    {
+                        "stem_type": stem["stem_type"],
+                        "blob_url": stem["blob_url"],
+                        "file_size_bytes": stem["file_size_bytes"]
+                    }
+                    for stem in uploaded_stems
+                ],
+                "jams_url": jams_blob_url,
+                "bark_training_dataset": bark_dataset_urls,
+                "comprehensive_analysis": {
+                    "total_training_samples": comprehensive_result.get("total_training_samples", 0),
+                    "pipeline_success": comprehensive_result.get("pipeline_success", False),
+                    "stem_analyses_count": len(comprehensive_result.get("stem_analyses", []))
+                }
             }
             try:
                 async with httpx.AsyncClient(timeout=30.0) as client:

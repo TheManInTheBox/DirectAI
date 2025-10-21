@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using MusicPlatform.Domain.Models;
 using MusicPlatform.Infrastructure.Data;
+using MusicPlatform.Api.Hubs;
 using System.Text.Json;
 
 namespace MusicPlatform.Api.Services;
@@ -108,6 +109,11 @@ public class JobOrchestrationService : BackgroundService
                 return;
             }
 
+            // Send real-time progress update
+            var progressService = scope.ServiceProvider.GetRequiredService<JobProgressService>();
+            await progressService.SendJobProgressUpdate(job.Id, "Running", "initializing", 5, 
+                "🚀 Starting comprehensive analysis...");
+
             // Update checkpoints
             await jobService.UpdateJobWithHeartbeatAsync(job.Id, JobStatus.Running, "initialized", new Dictionary<string, object>
             {
@@ -145,6 +151,10 @@ public class JobOrchestrationService : BackgroundService
     private async Task ProcessAnalysisJob(Job job, IHttpClientFactory httpClientFactory, 
         IdempotentJobService jobService, CancellationToken cancellationToken)
     {
+        // Get progress service for real-time updates
+        using var scope = _serviceProvider.CreateScope();
+        var progressService = scope.ServiceProvider.GetRequiredService<JobProgressService>();
+        
         var httpClient = httpClientFactory.CreateClient("AnalysisWorker");
 
         // Prepare analysis request
@@ -156,6 +166,10 @@ public class JobOrchestrationService : BackgroundService
         };
 
         _logger.LogInformation("Sending analysis request for job {JobId} to worker", job.Id);
+
+        // Send real-time progress update
+        await progressService.SendJobProgressUpdate(job.Id, "Running", "worker_processing", 15, 
+            "🎵 Sending audio to analysis worker...");
 
         // Send request to analysis worker
         var response = await httpClient.PostAsJsonAsync("/analyze", request, cancellationToken);
@@ -180,6 +194,10 @@ public class JobOrchestrationService : BackgroundService
     private async Task ProcessGenerationJob(Job job, IHttpClientFactory httpClientFactory, 
         IdempotentJobService jobService, CancellationToken cancellationToken)
     {
+        // Get progress service for real-time updates
+        using var scope = _serviceProvider.CreateScope();
+        var progressService = scope.ServiceProvider.GetRequiredService<JobProgressService>();
+        
         var httpClient = httpClientFactory.CreateClient("GenerationWorker");
 
         // Prepare generation request from job metadata
@@ -192,6 +210,10 @@ public class JobOrchestrationService : BackgroundService
         };
 
         _logger.LogInformation("Sending generation request for job {JobId} to worker", job.Id);
+
+        // Send real-time progress update
+        await progressService.SendJobProgressUpdate(job.Id, "Running", "worker_processing", 15, 
+            "🎶 Sending generation request to worker...");
 
         // Send request to generation worker
         var response = await httpClient.PostAsJsonAsync("/generate", request, cancellationToken);

@@ -167,27 +167,32 @@ resource aks 'Microsoft.ContainerService/managedClusters@2023-10-01' = {
   }
 }
 
-// GPU Node Pool (optional, comment out for dev)
-// Uncomment for production with GPU workloads
-/*
-resource aksGpuNodePool 'Microsoft.ContainerService/managedClusters/agentPools@2023-10-01' = {
+// GPU Node Pool for AI/ML workloads
+// Uses NVIDIA T4 GPUs (NC4as_T4_v3) which are cost-effective for inference workloads
+// For training, consider NC6s_v3 (V100) or NC24ads_A100_v4 (A100)
+resource aksGpuNodePool 'Microsoft.ContainerService/managedClusters/agentPools@2024-02-01' = {
   parent: aks
   name: 'gpupool'
   properties: {
-    count: 2
-    vmSize: 'Standard_NC6s_v3' // NVIDIA Tesla V100
+    count: environment == 'prod' ? 2 : 1
+    vmSize: 'Standard_NC4as_T4_v3' // NVIDIA T4 GPU (cost-effective for inference)
     osDiskSizeGB: 128
+    osDiskType: 'Managed'
     mode: 'User'
     osType: 'Linux'
+    enableAutoScaling: true
+    minCount: environment == 'prod' ? 1 : 0
+    maxCount: environment == 'prod' ? 5 : 2
     nodeTaints: [
-      'gpu=true:NoSchedule'
+      'sku=gpu:NoSchedule'
     ]
     nodeLabels: {
-      gpu: 'nvidia'
+      accelerator: 'nvidia'
+      'gpu-type': 't4'
+      workload: 'ai'
     }
   }
 }
-*/
 
 // =====================================================
 // Azure Container Registry

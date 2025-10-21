@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Azure.Storage.Blobs;
 using Azure.Identity;
 using MusicPlatform.Api.Services;
+using MusicPlatform.Api.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -56,8 +57,15 @@ builder.Services.AddHttpClient("GenerationWorker", client =>
 var orchestrationType = builder.Configuration["Orchestration:Type"];
 builder.Services.AddHostedService<JobOrchestrationService>();
 
+// 4.1. Worker Autoscaler (for Docker Compose environments)
+builder.Services.AddHostedService<WorkerAutoscalerService>();
+
 // 5. Application Services
 builder.Services.AddScoped<IdempotentJobService>();
+
+// 5.1. SignalR for real-time progress updates
+builder.Services.AddSignalR();
+builder.Services.AddScoped<JobProgressService>();
 
 // 6. Controllers and OpenAPI
 builder.Services.AddControllers()
@@ -69,23 +77,25 @@ builder.Services.AddControllers()
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// 6. CORS (for local MAUI app development)
+// 6. CORS (for local MAUI app development + SignalR)
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
         if (builder.Environment.IsDevelopment())
         {
-            policy.AllowAnyOrigin()
+            policy.SetIsOriginAllowed(_ => true) // Allow any origin in development
                   .AllowAnyMethod()
-                  .AllowAnyHeader();
+                  .AllowAnyHeader()
+                  .AllowCredentials(); // Required for SignalR
         }
         else
         {
             // Production: Only allow MAUI app origins
             policy.WithOrigins("https://music-app.azurewebsites.net")
                   .AllowAnyMethod()
-                  .AllowAnyHeader();
+                  .AllowAnyHeader()
+                  .AllowCredentials(); // Required for SignalR
         }
     });
 });
@@ -108,6 +118,9 @@ app.UseHttpsRedirection();
 app.UseCors();
 app.UseAuthorization();
 app.MapControllers();
+
+// Map SignalR hub
+app.MapHub<JobProgressHub>("/hubs/jobprogress");
 
 // Health Check Endpoint
 app.MapGet("/health", () => Results.Ok(new 

@@ -52,28 +52,30 @@ class StorageService:
             if not self.blob_service_client:
                 raise RuntimeError("Blob storage client not configured")
             
-        # Parse blob URI to get container and blob name
-        # Format: https://{account}.blob.core.windows.net/{container}/{blob}
-        # Or Azurite: http://azurite:10000/devstoreaccount1/{container}/{blob}
-        parts = blob_uri.split("/")
-        
-        # For Azurite (localhost, 127.0.0.1, or azurite hostname)
-        if "127.0.0.1" in blob_uri or "localhost" in blob_uri or "azurite" in blob_uri:
-            # Find devstoreaccount1 in parts, container is next
-            try:
-                account_index = parts.index("devstoreaccount1")
-                container_name = parts[account_index + 1]
-                blob_name = "/".join(parts[account_index + 2:])
+            # Parse blob URI to get container and blob name
+            # Format: https://{account}.blob.core.windows.net/{container}/{blob}
+            # Or Azurite: http://azurite:10000/devstoreaccount1/{container}/{blob}
+            parts = blob_uri.split("/")
+            
+            # For Azurite (localhost, 127.0.0.1, or azurite hostname)
+            if "127.0.0.1" in blob_uri or "localhost" in blob_uri or "azurite" in blob_uri:
+                # Find devstoreaccount1 in parts, container is next
+                try:
+                    account_index = parts.index("devstoreaccount1")
+                    container_name = parts[account_index + 1]
+                    blob_name = "/".join(parts[account_index + 2:])
+                    # URL decode the blob name to handle special characters
+                    blob_name = unquote(blob_name)
+                except (ValueError, IndexError):
+                    raise ValueError(f"Invalid Azurite blob URI format: {blob_uri}")
+            else:
+                # Production Azure: https://account.blob.core.windows.net/container/blob/path
+                container_name = parts[3]  # After https:// (0), empty (1), domain (2)
+                blob_name = "/".join(parts[4:])
                 # URL decode the blob name to handle special characters
                 blob_name = unquote(blob_name)
-            except (ValueError, IndexError):
-                raise ValueError(f"Invalid Azurite blob URI format: {blob_uri}")
-        else:
-            # Production Azure: https://account.blob.core.windows.net/container/blob/path
-            container_name = parts[3]  # After https:// (0), empty (1), domain (2)
-            blob_name = "/".join(parts[4:])
-            # URL decode the blob name to handle special characters
-            blob_name = unquote(blob_name)            logger.info(f"Downloading blob: container={container_name}, blob={blob_name}")
+            
+            logger.info(f"Downloading blob: container={container_name}, blob={blob_name}")
             
             # Get blob client
             blob_client = self.blob_service_client.get_blob_client(
@@ -217,4 +219,47 @@ class StorageService:
             
         except Exception as e:
             logger.error(f"Error uploading JAMS: {str(e)}", exc_info=True)
+            raise
+    
+    async def upload_bark_training_file(
+        self,
+        audio_file_id: str,
+        local_path: Path
+    ) -> str:
+        """Upload Bark training dataset file to blob storage"""
+        try:
+            if not self.blob_service_client:
+                raise RuntimeError("Blob storage client not configured")
+            
+            # Generate blob name: {audio_file_id}/bark_training/{filename}
+            blob_name = f"{audio_file_id}/bark_training/{local_path.name}"
+            
+            logger.info(f"Uploading Bark training file: {blob_name}")
+            
+            # Get blob client
+            blob_client = self.blob_service_client.get_blob_client(
+                container=self.container_name,
+                blob=blob_name
+            )
+            
+            # Determine content type based on file extension
+            content_type = "application/json" if local_path.suffix == ".json" else "text/markdown"
+            
+            # Upload file
+            with open(local_path, "rb") as data:
+                await asyncio.to_thread(
+                    blob_client.upload_blob,
+                    data,
+                    overwrite=True,
+                    content_settings=ContentSettings(content_type=content_type)
+                )
+            
+            # Get blob URL
+            blob_url = blob_client.url
+            logger.info(f"Uploaded Bark training file to {blob_url}")
+            
+            return blob_url
+            
+        except Exception as e:
+            logger.error(f"Error uploading Bark training file: {str(e)}", exc_info=True)
             raise

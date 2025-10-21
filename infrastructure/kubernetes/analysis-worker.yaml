@@ -1,0 +1,135 @@
+# ========================================
+# Analysis Worker - Kubernetes Deployment
+# GPU-enabled deployment for audio analysis
+# ========================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analysis-worker
+  namespace: music-platform
+  labels:
+    app: analysis-worker
+    component: worker
+    tier: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: analysis-worker
+  template:
+    metadata:
+      labels:
+        app: analysis-worker
+        component: worker
+        tier: backend
+    spec:
+      # Schedule pods on GPU nodes
+      nodeSelector:
+        accelerator: nvidia
+      # Tolerate GPU node taints
+      tolerations:
+      - key: sku
+        operator: Equal
+        value: gpu
+        effect: NoSchedule
+      containers:
+      - name: analysis-worker
+        image: ${ACR_NAME}.azurecr.io/analysis-worker:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: AZURE_STORAGE_CONNECTION_STRING
+          valueFrom:
+            secretKeyRef:
+              name: music-platform-secrets
+              key: storage-connection-string
+        - name: BLOB_CONTAINER_NAME
+          value: "audio-files"
+        - name: DEMUCS_MODEL
+          value: "htdemucs"
+        - name: API_BASE_URL
+          value: "http://music-api:8080"
+        - name: CUDA_VISIBLE_DEVICES
+          value: "0"
+        resources:
+          requests:
+            memory: "8Gi"
+            cpu: "4"
+            nvidia.com/gpu: 1  # Request 1 GPU
+          limits:
+            memory: "16Gi"
+            cpu: "8"
+            nvidia.com/gpu: 1  # Limit to 1 GPU
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: temp-storage
+          mountPath: /tmp
+      volumes:
+      - name: temp-storage
+        emptyDir:
+          sizeLimit: 20Gi
+---
+# ========================================
+# Analysis Worker - Service
+# ========================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: analysis-worker
+  namespace: music-platform
+  labels:
+    app: analysis-worker
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: analysis-worker
+---
+# ========================================
+# Analysis Worker - Horizontal Pod Autoscaler
+# ========================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: analysis-worker
+  namespace: music-platform
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: analysis-worker
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
