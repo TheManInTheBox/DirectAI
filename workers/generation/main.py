@@ -33,7 +33,7 @@ app = FastAPI(
 
 # Initialize services
 storage_service = StorageService()
-generation_service = GenerationService()
+generation_service = GenerationService(storage_service=storage_service)
 
 # Request/Response models
 class GenerationParameters(BaseModel):

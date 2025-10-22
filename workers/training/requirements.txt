@@ -1,0 +1,23 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Azure SDK
+azure-storage-blob==12.19.0
+
+# Database
+asyncpg==0.29.0
+
+# ML/Audio
+torch==2.1.0
+torchaudio==2.1.0
+transformers==4.36.0
+accelerate==0.25.0
+peft==0.7.1
+datasets==2.16.0
+librosa==0.10.1
+soundfile==0.12.1
+
+# Audio processing (will be installed via conda in Dockerfile)
+# audiocraft (includes musicgen models)

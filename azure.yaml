@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
+name: directai-music-platform
+metadata:
+  template: directai-music-platform@0.0.1-beta
+
+services:
+  api:
+    project: ./src/MusicPlatform.Api
+    language: csharp
+    host: containerapp
+    docker:
+      path: ./Dockerfile
+      context: ./src/MusicPlatform.Api
+    
+  analysis-worker:
+    project: ./workers/analysis
+    language: python
+    host: containerapp
+    docker:
+      path: ./Dockerfile
+      context: ./workers/analysis
+    
+  generation-worker:
+    project: ./workers/generation
+    language: python
+    host: containerapp
+    docker:
+      path: ./Dockerfile
+      context: ./workers/generation
+  
+  training-worker:
+    project: ./workers/training
+    language: python
+    host: containerapp
+    docker:
+      path: ./Dockerfile
+      context: ./workers/training

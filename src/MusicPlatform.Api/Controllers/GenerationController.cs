@@ -406,4 +406,13 @@ public class GenerationParametersDto
     public string? Prompt { get; set; }
     public float? Temperature { get; set; }
     public int? RandomSeed { get; set; }
+    
+    // Musical parameters for trained model generation
+    public string? Key { get; set; }  // e.g., "C", "D#", "Bb"
+    public string? Scale { get; set; }  // e.g., "major", "minor", "dorian", "mixolydian"
+    public string? TimeSignature { get; set; }  // e.g., "4/4", "3/4", "6/8", "7/8"
+    public int? Bars { get; set; }  // Number of bars to generate
+    
+    // For trained model generation
+    public Guid? TrainedModelId { get; set; }  // Use custom trained model instead of base MusicGen
 }

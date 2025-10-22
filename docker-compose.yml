@@ -59,6 +59,7 @@ services:
       - BlobStorage__ConnectionString=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
       - Workers__AnalysisWorkerUrl=http://analysis-worker:8080
       - Workers__GenerationWorkerUrl=http://generation-worker:8080
+      - TRAINING_WORKER_URL=http://training-worker:8003
     ports:
       - "5000:8080"
     depends_on:
@@ -129,6 +130,39 @@ services:
       - generation_temp:/tmp
       - musicgen_cache:/root/.cache
 
+  # Training Worker (Python) - MusicGen LoRA Fine-tuning
+  # CPU-only by default (training is slow but functional)
+  # For GPU: change dockerfile to Dockerfile.gpu and add deploy.resources section
+  training-worker:
+    build:
+      context: ./workers/training
+      dockerfile: Dockerfile  # Use Dockerfile.gpu for GPU support
+    environment:
+      - AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
+      - BLOB_CONTAINER_NAME=audio-files
+      - DATABASE_URL=postgresql://postgres:DevPassword123!@db:5432/musicplatform
+      - USE_GPU=false  # Set to true when using Dockerfile.gpu
+    ports:
+      - "8003:8003"  # Expose for training trigger from API
+    depends_on:
+      db:
+        condition: service_healthy
+      azurite:
+        condition: service_started
+    networks:
+      - music-network
+    volumes:
+      - training_temp:/tmp
+      - training_cache:/root/.cache
+    # Uncomment for GPU support (requires nvidia-docker and Dockerfile.gpu):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
   # PgAdmin (Database UI)
   pgadmin:
     image: dpage/pgadmin4:latest
@@ -157,3 +191,5 @@ volumes:
   analysis_temp:
   generation_temp:
   musicgen_cache:  # Cache for MusicGen models (~1.5GB)
+  training_temp:  # Temporary storage for training data
+  training_cache:  # Cache for training models and checkpoints

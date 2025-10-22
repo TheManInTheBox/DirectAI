@@ -9,6 +9,13 @@ httpx==0.26.0
 azure-storage-blob==12.19.0
 azure-identity==1.15.0
 
+# ML/Audio generation
+torch==2.1.0
+torchaudio==2.1.0
+transformers==4.36.0
+accelerate==0.25.0
+peft==0.7.1  # LoRA support for trained models
+
 # Audio processing
 librosa==0.10.1
 soundfile==0.12.1
