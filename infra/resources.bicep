@@ -309,7 +309,7 @@ resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2024-03-01'
 // ===== Container Apps =====
 // API Container App
 resource apiContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
-  name: 'azca-api-${resourceToken}'
+  name: 'api-${resourceToken}'
   location: location
   tags: union(tags, {
     'azd-service-name': 'api'
@@ -325,7 +325,7 @@ resource apiContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
     configuration: {
       ingress: {
         external: true
-        targetPort: 5000
+        targetPort: 8080
         transport: 'http'
         corsPolicy: {
           allowedOrigins: ['*']
@@ -357,8 +357,8 @@ resource apiContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
           name: 'api'
           image: 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
           resources: {
-            cpu: json('1.0')
-            memory: '2Gi'
+            cpu: json('2.0')
+            memory: '4Gi'
           }
           env: [
             {
@@ -399,7 +399,7 @@ resource apiContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
             }
             {
               name: 'TRAINING_WORKER_URL'
-              value: 'http://azca-training-worker-${resourceToken}'
+              value: 'http://training-${resourceToken}'
             }
           ]
         }
@@ -427,7 +427,7 @@ resource apiContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
 
 // Analysis Worker Container App
 resource analysisWorkerContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
-  name: 'azca-analysis-worker-${resourceToken}'
+  name: 'analysis-${resourceToken}'
   location: location
   tags: union(tags, {
     'azd-service-name': 'analysis-worker'
@@ -525,7 +525,7 @@ resource analysisWorkerContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
 
 // Generation Worker Container App
 resource generationWorkerContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
-  name: 'azca-generation-worker-${resourceToken}'
+  name: 'generation-${resourceToken}'
   location: location
   tags: union(tags, {
     'azd-service-name': 'generation-worker'
@@ -627,7 +627,7 @@ resource generationWorkerContainerApp 'Microsoft.App/containerApps@2024-03-01' =
 
 // Training Worker Container App
 resource trainingWorkerContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
-  name: 'azca-training-worker-${resourceToken}'
+  name: 'training-${resourceToken}'
   location: location
   tags: union(tags, {
     'azd-service-name': 'training-worker'
@@ -666,8 +666,8 @@ resource trainingWorkerContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
           name: 'training-worker'
           image: 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
           resources: {
-            cpu: json('4.0')
-            memory: '8Gi'
+            cpu: json('2.0')
+            memory: '4Gi'
           }
           env: [
             {

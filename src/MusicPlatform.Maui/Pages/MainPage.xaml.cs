@@ -34,10 +34,10 @@ public partial class MainPage : ContentPage
                     winArgs.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
                     
                     // Visual feedback - highlight drop zone
-                    if (sender is Frame frame)
+                    if (sender is Border border)
                     {
-                        frame.BackgroundColor = Color.FromArgb("#E3F2FD"); // Light blue highlight
-                        frame.BorderColor = Color.FromArgb("#2196F3"); // Blue border
+                        border.BackgroundColor = Color.FromArgb("#E3F2FD"); // Light blue highlight
+                        border.Stroke = Color.FromArgb("#2196F3"); // Blue border
                     }
                 }
                 else
@@ -63,12 +63,12 @@ public partial class MainPage : ContentPage
         try
         {
             // Reset visual feedback
-            if (sender is Frame frame)
+            if (sender is Border border)
             {
-                frame.BackgroundColor = Application.Current?.Resources.ContainsKey("PrimaryLight") == true
+                border.BackgroundColor = Application.Current?.Resources.ContainsKey("PrimaryLight") == true
                     ? (Color)Application.Current.Resources["PrimaryLight"]
                     : Colors.LightGray;
-                frame.BorderColor = Application.Current?.Resources.ContainsKey("Primary") == true
+                border.Stroke = Application.Current?.Resources.ContainsKey("Primary") == true
                     ? (Color)Application.Current.Resources["Primary"]
                     : Colors.Gray;
             }
@@ -83,12 +83,12 @@ public partial class MainPage : ContentPage
     private async void OnDrop(object? sender, DropEventArgs e)
     {
         // Reset visual feedback
-        if (sender is Frame frame)
+        if (sender is Border border)
         {
-            frame.BackgroundColor = Application.Current?.Resources.ContainsKey("PrimaryLight") == true
+            border.BackgroundColor = Application.Current?.Resources.ContainsKey("PrimaryLight") == true
                 ? (Color)Application.Current.Resources["PrimaryLight"]
                 : Colors.LightGray;
-            frame.BorderColor = Application.Current?.Resources.ContainsKey("Primary") == true
+            border.Stroke = Application.Current?.Resources.ContainsKey("Primary") == true
                 ? (Color)Application.Current.Resources["Primary"]
                 : Colors.Gray;
         }

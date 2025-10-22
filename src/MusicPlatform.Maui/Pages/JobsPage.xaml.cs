@@ -5,9 +5,9 @@ namespace MusicPlatform.Maui.Pages;
 
 public partial class JobsPage : ContentPage
 {
-    public JobsPage(MusicPlatformApiClient apiClient)
+    public JobsPage(MusicPlatformApiClient apiClient, ApiSettings apiSettings)
     {
         InitializeComponent();
-        BindingContext = new JobsViewModel(apiClient);
+        BindingContext = new JobsViewModel(apiClient, apiSettings);
     }
 }

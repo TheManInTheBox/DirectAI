@@ -13,7 +13,7 @@ public partial class AnalysisPage : ContentPage
         BindingContext = _viewModel;
     }
 
-    protected override async void OnAppearing()
+    protected override void OnAppearing()
     {
         base.OnAppearing();
         

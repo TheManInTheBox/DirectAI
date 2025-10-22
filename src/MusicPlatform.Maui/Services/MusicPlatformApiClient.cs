@@ -38,19 +38,38 @@ public class MusicPlatformApiClient
         CancellationToken cancellationToken = default
     )
     {
-        using var content = new MultipartFormDataContent();
-        var streamContent = new StreamContent(audioStream);
-        streamContent.Headers.ContentType = new MediaTypeHeaderValue("audio/mpeg");
-        content.Add(streamContent, "file", fileName);
+        try
+        {
+            Console.WriteLine($"🔼 Uploading {fileName} to {_httpClient.BaseAddress}/api/audio/upload");
+            
+            using var content = new MultipartFormDataContent();
+            var streamContent = new StreamContent(audioStream);
+            streamContent.Headers.ContentType = new MediaTypeHeaderValue("audio/mpeg");
+            content.Add(streamContent, "file", fileName);
 
-        var response = await _httpClient.PostAsync(
-            "/api/audio/upload",
-            content,
-            cancellationToken
-        );
+            var response = await _httpClient.PostAsync(
+                "/api/audio/upload",
+                content,
+                cancellationToken
+            );
 
-        response.EnsureSuccessStatusCode();
-        return await response.Content.ReadFromJsonAsync<AudioFileDto>(cancellationToken: cancellationToken);
+            Console.WriteLine($"📥 Response status: {response.StatusCode}");
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                Console.WriteLine($"❌ Error response: {errorContent}");
+                throw new HttpRequestException($"Upload failed with status {response.StatusCode}: {errorContent}");
+            }
+
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<AudioFileDto>(cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Upload exception: {ex}");
+            throw;
+        }
     }
 
     /// <summary>

@@ -20,14 +20,11 @@ public class ApiSettings
     /// </summary>
     private static string GetDefaultBaseUrl()
     {
-#if DEBUG
-        // Local development - Docker Desktop
-        return "http://localhost:5000";
-#else
-        // Production - Azure deployment
-        // TODO: Replace with actual Azure App Service URL after deployment
-        return "https://musicplatform-api.azurewebsites.net";
-#endif
+        // Azure Container Apps deployment (dev environment)
+        return "https://api-mo6rlbmgpkrs4.livelymushroom-0aa872a5.eastus2.azurecontainerapps.io";
+        
+        // Uncomment below to use local development:
+        // return "http://localhost:5000";
     }
 
     /// <summary>

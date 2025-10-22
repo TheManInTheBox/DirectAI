@@ -233,7 +233,7 @@ public class AudioFileDetailViewModel : INotifyPropertyChanged
             {
                 AnalysisResult = await _apiClient.GetAnalysisAsync(id);
             }
-            catch (Exception ex)
+            catch
             {
                 // Analysis may not exist yet, that's okay
             }
@@ -625,10 +625,14 @@ public class StemDetailItemViewModel : INotifyPropertyChanged
             }
 
             var notationText = FormatNotationForDisplay(notation);
-            await Application.Current!.MainPage!.DisplayAlert(
-                $"{StemType} Notation",
-                notationText,
-                "Close");
+            var page = Application.Current?.Windows?.FirstOrDefault()?.Page;
+            if (page != null)
+            {
+                await page.DisplayAlert(
+                    $"{StemType} Notation",
+                    notationText,
+                    "Close");
+            }
         }
         catch (Exception ex)
         {

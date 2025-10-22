@@ -7,6 +7,17 @@ using MusicPlatform.Maui.Services;
 namespace MusicPlatform.Maui.ViewModels;
 
 /// <summary>
+/// Helper for getting the current page across all ViewModels
+/// </summary>
+internal static class PageHelper
+{
+    public static Page? GetCurrentPage()
+    {
+        return Application.Current?.Windows?.FirstOrDefault()?.Page;
+    }
+}
+
+/// <summary>
 /// Main ViewModel with drag-and-drop upload and library carousels
 /// </summary>
 public class MainViewModel : INotifyPropertyChanged
@@ -51,9 +62,13 @@ public class MainViewModel : INotifyPropertyChanged
             }
             catch (Exception ex)
             {
-                await Application.Current?.MainPage?.DisplayAlert("Error", 
-                    $"Failed to navigate: {ex.Message}\n\nStack: {ex.StackTrace}", 
-                    "OK");
+                var page = PageHelper.GetCurrentPage();
+                if (page != null)
+                {
+                    await page.DisplayAlert("Error", 
+                        $"Failed to navigate: {ex.Message}\n\nStack: {ex.StackTrace}", 
+                        "OK");
+                }
             }
         });
         
@@ -145,10 +160,15 @@ public class MainViewModel : INotifyPropertyChanged
 
     private async Task UploadFilesAsync(IEnumerable<string> filePaths)
     {
-        if (filePaths == null || !filePaths.Any()) return;
+        if (filePaths == null || !filePaths.Any())
+        {
+            Console.WriteLine("⚠️ No file paths provided to UploadFilesAsync");
+            return;
+        }
 
         try
         {
+            Console.WriteLine($"📤 Starting upload of {filePaths.Count()} file(s)");
             IsUploading = true;
             var uploadedCount = 0;
             var totalFiles = filePaths.Count();
@@ -157,11 +177,14 @@ public class MainViewModel : INotifyPropertyChanged
             {
                 try
                 {
+                    Console.WriteLine($"📂 Processing file: {filePath}");
                     UploadStatus = $"Uploading {Path.GetFileName(filePath)} ({++uploadedCount}/{totalFiles})...";
                     
+                    Console.WriteLine($"📖 Opening file stream...");
                     using var stream = File.OpenRead(filePath);
                     var fileName = Path.GetFileName(filePath);
                     
+                    Console.WriteLine($"☁️ Calling API to upload {fileName}, size: {stream.Length} bytes");
                     var result = await _apiClient.UploadAudioAsync(stream, fileName);
                     
                     if (result != null)
@@ -172,8 +195,12 @@ public class MainViewModel : INotifyPropertyChanged
                 }
                 catch (Exception ex)
                 {
-                    UploadStatus = $"Error uploading {Path.GetFileName(filePath)}: {ex.Message}";
-                    await Task.Delay(2000); // Show error briefly
+                    var errorDetails = ex.InnerException != null 
+                        ? $"{ex.Message} | Inner: {ex.InnerException.Message}"
+                        : ex.Message;
+                    UploadStatus = $"Error uploading {Path.GetFileName(filePath)}: {errorDetails}";
+                    Console.WriteLine($"❌ UPLOAD ERROR: {ex}");
+                    await Task.Delay(3000); // Show error longer
                 }
             }
 
@@ -188,7 +215,16 @@ public class MainViewModel : INotifyPropertyChanged
         }
         catch (Exception ex)
         {
+            Console.WriteLine($"❌ UPLOAD ERROR (outer): {ex}");
             UploadStatus = $"Upload error: {ex.Message}";
+            
+            var page = PageHelper.GetCurrentPage();
+            if (page != null)
+            {
+                await page.DisplayAlert("Upload Error", 
+                    $"Failed to upload files:\n\n{ex.Message}\n\n{ex.InnerException?.Message}", 
+                    "OK");
+            }
         }
         finally
         {
@@ -491,9 +527,12 @@ public class MainViewModel : INotifyPropertyChanged
     {
         var selectedItems = SourceMaterialLibrary.Where(item => item.IsSelected && item.IsAnalyzed).ToList();
         
+        var page = PageHelper.GetCurrentPage();
+        if (page == null) return;
+        
         if (!selectedItems.Any())
         {
-            await Application.Current!.MainPage!.DisplayAlert(
+            await page.DisplayAlert(
                 "No Selection",
                 "Please select analyzed source materials to generate stems.",
                 "OK"
@@ -501,7 +540,7 @@ public class MainViewModel : INotifyPropertyChanged
             return;
         }
 
-        var confirmed = await Application.Current!.MainPage!.DisplayAlert(
+        var confirmed = await page.DisplayAlert(
             "Generate Stems",
             $"Generate AI stems from {selectedItems.Count} selected file(s)?\n\nThis will create guitar, bass, and drums stems for each file.\n\nProcessing time: 1-3 minutes per stem.",
             "Generate",
@@ -555,11 +594,15 @@ public class MainViewModel : INotifyPropertyChanged
             }
             message += "\n\nCheck Generated Library in 3-5 minutes.";
 
-            await Application.Current!.MainPage!.DisplayAlert(
-                "Batch Generation Started",
-                message,
-                "OK"
-            );
+            var successPage = PageHelper.GetCurrentPage();
+            if (successPage != null)
+            {
+                await successPage.DisplayAlert(
+                    "Batch Generation Started",
+                    message,
+                    "OK"
+                );
+            }
 
             // Exit selection mode and deselect all
             IsSelectionMode = false;
@@ -567,11 +610,15 @@ public class MainViewModel : INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            await Application.Current!.MainPage!.DisplayAlert(
-                "Error",
-                $"Error generating stems: {ex.Message}",
-                "OK"
-            );
+            var errorPage = PageHelper.GetCurrentPage();
+            if (errorPage != null)
+            {
+                await errorPage.DisplayAlert(
+                    "Error",
+                    $"Error generating stems: {ex.Message}",
+                    "OK"
+                );
+            }
         }
     }
 
@@ -834,11 +881,15 @@ public class GeneratedMusicItem : INotifyPropertyChanged
 
             StatusMessage = $"✓ Downloaded";
 
-            await Application.Current!.Windows[0].Page!.DisplayAlert(
-                "Download Complete",
-                $"Stem saved to:\n{filePath}",
-                "OK"
-            );
+            var page = PageHelper.GetCurrentPage();
+            if (page != null)
+            {
+                await page.DisplayAlert(
+                    "Download Complete",
+                    $"Stem saved to:\n{filePath}",
+                    "OK"
+                );
+            }
         }
         catch (Exception ex)
         {

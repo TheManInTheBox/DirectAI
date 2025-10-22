@@ -74,29 +74,34 @@ builder.Services.AddControllers()
         // Serialize enums as strings instead of numbers
         options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
     });
+
+// Configure file upload size limits (up to 100MB for audio files)
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = 104_857_600; // 100 MB
+    options.ValueLengthLimit = 104_857_600;
+    options.MultipartHeadersLengthLimit = 104_857_600;
+});
+
+builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(options =>
+{
+    options.Limits.MaxRequestBodySize = 104_857_600; // 100 MB
+});
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// 6. CORS (for local MAUI app development + SignalR)
+// 6. CORS (for MAUI app + SignalR)
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
-        if (builder.Environment.IsDevelopment())
-        {
-            policy.SetIsOriginAllowed(_ => true) // Allow any origin in development
-                  .AllowAnyMethod()
-                  .AllowAnyHeader()
-                  .AllowCredentials(); // Required for SignalR
-        }
-        else
-        {
-            // Production: Only allow MAUI app origins
-            policy.WithOrigins("https://music-app.azurewebsites.net")
-                  .AllowAnyMethod()
-                  .AllowAnyHeader()
-                  .AllowCredentials(); // Required for SignalR
-        }
+        // MAUI apps are native and don't send Origin headers, so we need to allow all origins
+        // This is safe for MAUI because authentication/authorization should be handled separately
+        policy.SetIsOriginAllowed(_ => true) // Allow any origin (required for MAUI)
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials(); // Required for SignalR
     });
 });
 

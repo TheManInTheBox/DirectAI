@@ -13,6 +13,7 @@ namespace MusicPlatform.Maui.ViewModels;
 public class JobsViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly MusicPlatformApiClient _apiClient;
+    private readonly ApiSettings _apiSettings;
     private HubConnection? _hubConnection;
     private string _statusMessage = string.Empty;
     private bool _isRefreshing = false;
@@ -57,9 +58,10 @@ public class JobsViewModel : INotifyPropertyChanged, IDisposable
     public ICommand CancelJobCommand { get; }
     public ICommand RetryJobCommand { get; }
 
-    public JobsViewModel(MusicPlatformApiClient apiClient)
+    public JobsViewModel(MusicPlatformApiClient apiClient, ApiSettings apiSettings)
     {
         _apiClient = apiClient;
+        _apiSettings = apiSettings;
         
         // Initialize Statistics with default values to prevent null reference
         Statistics = new JobStatisticsDto(
@@ -92,8 +94,8 @@ public class JobsViewModel : INotifyPropertyChanged, IDisposable
     {
         try
         {
-            // TODO: Get the API base URL from configuration
-            var apiBaseUrl = "https://localhost:7098"; // Development URL
+            // Get the API base URL from the API settings
+            var apiBaseUrl = _apiSettings.BaseUrl.TrimEnd('/');
             
             _hubConnection = new HubConnectionBuilder()
                 .WithUrl($"{apiBaseUrl}/hubs/jobprogress")

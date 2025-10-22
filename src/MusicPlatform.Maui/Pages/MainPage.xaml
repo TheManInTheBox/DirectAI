@@ -61,18 +61,20 @@
             </Border>
 
             <!-- Drag and Drop Upload Zone -->
-            <Frame x:Name="DropZone"
-                   BorderColor="{StaticResource Primary}"
-                   CornerRadius="15"
-                   Padding="40"
-                   HasShadow="True"
-                   BackgroundColor="{StaticResource PrimaryLight}">
-                <Frame.GestureRecognizers>
+            <Border x:Name="DropZone"
+                    Stroke="{StaticResource Primary}"
+                    StrokeThickness="2"
+                    Padding="40"
+                    BackgroundColor="{StaticResource PrimaryLight}">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="15" />
+                </Border.StrokeShape>
+                <Border.GestureRecognizers>
                     <DropGestureRecognizer AllowDrop="True"
                                           Drop="OnDrop"
                                           DragOver="OnDragOver"
                                           DragLeave="OnDragLeave" />
-                </Frame.GestureRecognizers>
+                </Border.GestureRecognizers>
                 <VerticalStackLayout Spacing="15">
                     <Label Text="📂"
                            FontSize="60"
@@ -114,12 +116,10 @@
                            IsVisible="{Binding UploadStatus, Converter={StaticResource IsNotNullOrEmptyConverter}}"
                            FontSize="14"
                            HorizontalOptions="Center"
-                           HorizontalTextAlignment="Center"
-                           TextColor="{StaticResource Success}" />
+                               HorizontalTextAlignment="Center"
+                               TextColor="{StaticResource Success}" />
                 </VerticalStackLayout>
-            </Frame>
-
-            <!-- Source Material Library -->
+            </Border>            <!-- Source Material Library -->
             <VerticalStackLayout Spacing="10">
                 <HorizontalStackLayout Spacing="10" HorizontalOptions="FillAndExpand">
                     <Label Text="📁 Source Material Library"
