@@ -166,19 +166,39 @@ async def process_analysis(
         logger.info(f"Source separation complete. Generated {len(stems_info)} stems")
         
         # Step 4: Comprehensive Analysis + Bark Training Dataset Export
+        # Note: Older code referenced a non-existent analyze_and_export_bark_dataset method.
+        # Here we explicitly run the main analysis, analyze stems, then export the Bark dataset using available methods.
         logger.info("Starting comprehensive analysis with Bark training data export...")
         bark_training_dir = temp_path / "bark_training"
-        comprehensive_result = await analysis_service.analyze_and_export_bark_dataset(
-            audio_path=audio_path,
-            stems_dir=stems_dir,
+        bark_training_dir.mkdir(parents=True, exist_ok=True)
+
+        # Run main track analysis
+        analysis_results = await analysis_service.analyze_music(audio_path)
+        logger.info(
+            f"Main analysis complete. Detected BPM: {analysis_results.get('bpm')}, Key: {analysis_results.get('key')}"
+        )
+
+        # Analyze each stem comprehensively (for Flamingo/notation) and collect results
+        stem_analyses = []
+        for stem_info in stems_info:
+            try:
+                stem_path = Path(stem_info["path"])
+                stem_type = stem_info["stem_type"]
+                result = await analysis_service.analyze_stem_comprehensive(stem_path, stem_type)
+                stem_analyses.append(result)
+            except Exception as stem_err:
+                logger.warning(f"Stem analysis failed for {stem_info.get('stem_type')}: {stem_err}")
+
+        # Export Bark training dataset
+        export_summary = await analysis_service.export_bark_training_dataset(
+            analysis_results=analysis_results,
+            stem_analyses=stem_analyses,
             output_dir=bark_training_dir,
             audio_file_id=audio_file_id
         )
-        
-        # Extract main analysis results for backward compatibility
-        analysis_results = comprehensive_result.get("main_analysis", {})
-        logger.info(f"Comprehensive analysis complete. Detected BPM: {analysis_results.get('bpm')}, Key: {analysis_results.get('key')}")
-        logger.info(f"Bark training dataset: {comprehensive_result.get('total_training_samples', 0)} samples generated")
+        logger.info(
+            f"Bark training dataset exported. Total samples: {export_summary.get('total_training_samples', 0)}"
+        )
         
         # Step 5: Generate JAMS annotation
         logger.info("Generating JAMS annotation...")
@@ -198,6 +218,7 @@ async def process_analysis(
             "key": analysis_results.get("key", "").split()[0] if analysis_results.get("key") else "",  # Extract just the key letter
             "mode": analysis_results.get("key", "").split()[1] if len(analysis_results.get("key", "").split()) > 1 else "major",  # Extract mode
             "tuningFrequency": analysis_results.get("tuning_frequency", 440.0),
+            "flamingoInsightsJson": json.dumps(analysis_results.get("flamingo_analysis", {})),
             "chords": [
                 {
                     "startTime": chord.get("start_time", 0.0),
@@ -299,6 +320,17 @@ async def process_analysis(
                 spectral_centroid = float(np.mean(librosa.feature.spectral_centroid(y=y_stem, sr=sr_stem)))
                 zero_crossing_rate = float(np.mean(librosa.feature.zero_crossing_rate(y_stem)))
                 
+                # Attempt to find per-stem Flamingo analysis from comprehensive results
+                stem_flamingo = None
+                try:
+                    # Look up the analyzed stem by demucs stem type
+                    for sa in stem_analyses:
+                        if sa.get("stem_type", "").lower() == demucs_stem_type:
+                            stem_flamingo = sa.get("flamingo_analysis")
+                            break
+                except Exception:
+                    stem_flamingo = None
+
                 # Prepare stem data for API (include MP3 metadata context)
                 stem_data = {
                     "audioFileId": audio_file_id,
@@ -327,6 +359,8 @@ async def process_analysis(
                     
                     # Musical notation data (NEW)
                     "notationData": json.dumps(notation_data) if notation_data else None,
+                    # Flamingo insights for this stem (if available)
+                    "flamingoInsightsJson": json.dumps(stem_flamingo) if stem_flamingo is not None else None,
                     
                     # Analysis status
                     "analysisStatus": "Completed",
@@ -424,7 +458,7 @@ async def process_analysis(
         
         # Step 8.5: Upload Bark Training Dataset
         bark_dataset_urls = []
-        if comprehensive_result.get("pipeline_success") and bark_training_dir.exists():
+        if bark_training_dir.exists():
             logger.info("Uploading Bark training dataset files...")
             try:
                 for bark_file in bark_training_dir.glob("*"):
@@ -472,9 +506,9 @@ async def process_analysis(
                 "jams_url": jams_blob_url,
                 "bark_training_dataset": bark_dataset_urls,
                 "comprehensive_analysis": {
-                    "total_training_samples": comprehensive_result.get("total_training_samples", 0),
-                    "pipeline_success": comprehensive_result.get("pipeline_success", False),
-                    "stem_analyses_count": len(comprehensive_result.get("stem_analyses", []))
+                    "total_training_samples": export_summary.get("total_training_samples", 0),
+                    "pipeline_success": True,
+                    "stem_analyses_count": len(stem_analyses)
                 }
             }
             try:

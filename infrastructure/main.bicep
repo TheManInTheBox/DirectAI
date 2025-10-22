@@ -199,7 +199,7 @@ resource aksGpuNodePool 'Microsoft.ContainerService/managedClusters/agentPools@2
 // =====================================================
 
 resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
-  name: '${replace(resourcePrefix, '-', '')}acr'
+  name: 'acr${replace(resourcePrefix, '-', '')}'  // Prefix with 'acr' to ensure minimum length
   location: location
   tags: tags
   sku: {
@@ -376,7 +376,7 @@ resource functionKvRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 // =====================================================
 
 output storageAccountName string = storageAccount.name
-output storageAccountKey string = storageAccount.listKeys().keys[0].value
+// Note: Storage account key should be retrieved using Azure CLI or SDK for security
 output sqlServerName string = sqlServer.properties.fullyQualifiedDomainName
 output sqlDatabaseName string = sqlDatabase.name
 output aksName string = aks.name

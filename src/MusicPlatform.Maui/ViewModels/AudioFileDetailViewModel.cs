@@ -22,6 +22,8 @@ public class AudioFileDetailViewModel : INotifyPropertyChanged
     private bool _showStemsLoading;
     private bool _showStemsList;
     private bool _showNoStemsMessage;
+    private CancellationTokenSource? _refreshCts;
+    private bool _isRefreshLoopRunning = false;
     
     // Stem selection properties
     private bool _isStemSelectionMode = false;
@@ -162,11 +164,19 @@ public class AudioFileDetailViewModel : INotifyPropertyChanged
         _ => "Unknown"
     };
 
-    // Analysis properties - now from AudioFile directly
-    public bool HasAnalysis => AudioFile?.Bpm != null && AudioFile?.Key != null;
-    public string? Bpm => AudioFile?.Bpm?.ToString("F1");
-    public string? Key => AudioFile?.Key;
-    public string? TimeSignature => AudioFile?.TimeSignature;
+    // Analysis properties - prefer AudioFile, fallback to AnalysisResult
+    // Relaxed: consider analysis available if ANY key piece is present (BPM OR Key OR TimeSignature)
+    // This prevents the UI from showing a stale "pending" message when partial results exist.
+    public bool HasAnalysis =>
+        (AudioFile?.Bpm.HasValue == true) ||
+        !string.IsNullOrWhiteSpace(AudioFile?.Key) ||
+        !string.IsNullOrWhiteSpace(AudioFile?.TimeSignature) ||
+        (AnalysisResult?.Bpm.HasValue == true) ||
+        !string.IsNullOrWhiteSpace(AnalysisResult?.Key) ||
+        !string.IsNullOrWhiteSpace(AnalysisResult?.TimeSignature);
+    public string? Bpm => (AudioFile?.Bpm ?? AnalysisResult?.Bpm)?.ToString("F1");
+    public string? Key => !string.IsNullOrWhiteSpace(AudioFile?.Key) ? AudioFile!.Key : AnalysisResult?.Key;
+    public string? TimeSignature => !string.IsNullOrWhiteSpace(AudioFile?.TimeSignature) ? AudioFile!.TimeSignature : AnalysisResult?.TimeSignature;
     public string? Tuning => !string.IsNullOrEmpty(AnalysisResult?.Tuning) ? AnalysisResult.Tuning + " Hz" : null;
 
     // Chord Progression properties (from stems - displayed at global level)
@@ -232,6 +242,12 @@ public class AudioFileDetailViewModel : INotifyPropertyChanged
             await LoadStemsAsync(id);
 
             StatusMessage = string.Empty;
+
+            // If analysis hasn't populated yet, start a lightweight refresh loop
+            if (!HasAnalysis)
+            {
+                StartAnalysisRefreshLoop(id);
+            }
         }
         catch (Exception ex)
         {
@@ -249,6 +265,65 @@ public class AudioFileDetailViewModel : INotifyPropertyChanged
                 UpdateStemVisibility(showList: true);
             }
         }
+    }
+
+    private void StartAnalysisRefreshLoop(Guid audioFileId)
+    {
+        // Prevent multiple loops
+        if (_isRefreshLoopRunning)
+            return;
+
+        _isRefreshLoopRunning = true;
+        _refreshCts?.Cancel();
+        _refreshCts = new CancellationTokenSource();
+        var token = _refreshCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                // Poll up to ~2 minutes (40 attempts x 3s)
+                for (int attempt = 0; attempt < 40 && !token.IsCancellationRequested; attempt++)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(3), token);
+
+                    try
+                    {
+                        // Re-query audio file for updated BPM/Key set by analysis worker
+                        var latest = await _apiClient.GetAudioFileAsync(audioFileId, token);
+                        if (latest != null)
+                        {
+                            AudioFile = latest;
+                        }
+
+                        // Also try to fetch the analysis record (optional, enriches tuning)
+                        try
+                        {
+                            AnalysisResult = await _apiClient.GetAnalysisAsync(audioFileId, token);
+                        }
+                        catch { /* ignore */ }
+
+                        if (HasAnalysis)
+                        {
+                            StatusMessage = "✔ Analysis updated";
+                            // Clear transient message shortly after
+                            _ = Task.Run(async () =>
+                            {
+                                await Task.Delay(2000);
+                                if (StatusMessage == "✔ Analysis updated") StatusMessage = string.Empty;
+                            });
+                            break;
+                        }
+                    }
+                    catch (TaskCanceledException) { break; }
+                    catch { /* ignore and retry */ }
+                }
+            }
+            finally
+            {
+                _isRefreshLoopRunning = false;
+            }
+        }, token);
     }
 
     private async Task LoadStemsAsync(Guid audioFileId)
@@ -473,24 +548,44 @@ public class StemDetailItemViewModel : INotifyPropertyChanged
             {
                 var notation = System.Text.Json.JsonSerializer.Deserialize<NotationDataModel>(_stem.NotationData);
                 if (notation == null) return null;
-                
-                // Create a preview based on notation type
-                if (notation.Type == "drum_pattern" && notation.DrumPattern?.Length > 0)
+
+                // New worker schema preview by notation_type
+                switch (notation.NotationType?.ToLowerInvariant())
                 {
-                    var preview = notation.DrumPattern[0];
-                    return $"Kick: {preview.Kick}\nSnare: {preview.Snare}\nHH: {preview.HiHat}";
+                    case "drums":
+                        if (notation.Events != null && notation.Events.Count > 0)
+                        {
+                            var first = notation.Events[0];
+                            var kick = notation.Events.Count(e => string.Equals(e.DrumType, "kick", StringComparison.OrdinalIgnoreCase));
+                            var snare = notation.Events.Count(e => string.Equals(e.DrumType, "snare", StringComparison.OrdinalIgnoreCase));
+                            var hh = notation.Events.Count(e => e.DrumType != null && e.DrumType.ToLower().Contains("hat"));
+                            return $"Events: {notation.TotalEvents ?? notation.Events.Count}  (K:{kick} S:{snare} HH:{hh})\nFirst: {first.Time:F2}s {first.DrumType}";
+                        }
+                        break;
+                    case "bass":
+                        if (notation.PitchContour != null && notation.PitchContour.Count > 0)
+                        {
+                            var items = notation.PitchContour.Take(3).Select(i => $"{i.Time:F1}s {i.Note}");
+                            return $"Notes: {notation.TotalNotes ?? notation.PitchContour.Count}  ·  {string.Join(", ", items)}";
+                        }
+                        break;
+                    case "guitar":
+                    case "other":
+                        if (notation.ChordProgression != null && notation.ChordProgression.Count > 0)
+                        {
+                            var items = notation.ChordProgression.Take(4).Select(c => c.Chord);
+                            return $"Chords: {notation.TotalChords ?? notation.ChordProgression.Count}  ·  {string.Join(" → ", items)}";
+                        }
+                        break;
+                    case "vocals":
+                        if (notation.Melody != null && notation.Melody.Count > 0)
+                        {
+                            var items = notation.Melody.Take(3).Select(m => $"{m.Time:F1}s {m.Note}");
+                            return $"Melody: {notation.TotalNotes ?? notation.Melody.Count}  ·  {string.Join(", ", items)}";
+                        }
+                        break;
                 }
-                else if (notation.Type == "tablature" && notation.Tablature?.Length > 0)
-                {
-                    var preview = notation.Tablature[0];
-                    return $"{preview.String}: {preview.Fret} ({preview.Technique})";
-                }
-                else if (notation.Type == "chord_shapes" && notation.ChordShapes?.Length > 0)
-                {
-                    var preview = notation.ChordShapes[0];
-                    return $"{preview.ChordName}: {string.Join("-", preview.Frets)}";
-                }
-                
+
                 return "Notation available";
             }
             catch
@@ -545,39 +640,54 @@ public class StemDetailItemViewModel : INotifyPropertyChanged
     {
         var sb = new System.Text.StringBuilder();
         
-        sb.AppendLine($"Type: {notation.Type}");
-        sb.AppendLine($"Confidence: {notation.Confidence:P0}");
+        sb.AppendLine($"Type: {notation.NotationType}");
+        if (notation.Duration.HasValue)
+            sb.AppendLine($"Duration: {notation.Duration:F1}s");
         sb.AppendLine();
 
-        if (notation.Type == "drum_pattern" && notation.DrumPattern != null)
+        switch (notation.NotationType?.ToLowerInvariant())
         {
-            sb.AppendLine("Drum Pattern:");
-            foreach (var pattern in notation.DrumPattern.Take(10))
-            {
-                sb.AppendLine($"  Beat {pattern.Beat}: Kick={pattern.Kick}, Snare={pattern.Snare}, HH={pattern.HiHat}");
-            }
-            if (notation.DrumPattern.Length > 10)
-                sb.AppendLine($"  ... and {notation.DrumPattern.Length - 10} more beats");
-        }
-        else if (notation.Type == "tablature" && notation.Tablature != null)
-        {
-            sb.AppendLine("Tablature:");
-            foreach (var note in notation.Tablature.Take(20))
-            {
-                sb.AppendLine($"  {note.Time:F2}s: String {note.String}, Fret {note.Fret} ({note.Technique})");
-            }
-            if (notation.Tablature.Length > 20)
-                sb.AppendLine($"  ... and {notation.Tablature.Length - 20} more notes");
-        }
-        else if (notation.Type == "chord_shapes" && notation.ChordShapes != null)
-        {
-            sb.AppendLine("Chord Shapes:");
-            foreach (var chord in notation.ChordShapes.Take(10))
-            {
-                sb.AppendLine($"  {chord.Time:F2}s: {chord.ChordName} - {string.Join("-", chord.Frets)}");
-            }
-            if (notation.ChordShapes.Length > 10)
-                sb.AppendLine($"  ... and {notation.ChordShapes.Length - 10} more chords");
+            case "drums":
+                sb.AppendLine("Drum Events:");
+                if (notation.Events != null)
+                {
+                    foreach (var e in notation.Events.Take(25))
+                        sb.AppendLine($"  {e.Time:F2}s: {e.DrumType} (vel {e.Velocity})");
+                    if (notation.Events.Count > 25)
+                        sb.AppendLine($"  ... and {notation.Events.Count - 25} more events");
+                }
+                break;
+            case "bass":
+                sb.AppendLine("Bass Notes:");
+                if (notation.PitchContour != null)
+                {
+                    foreach (var n in notation.PitchContour.Take(30))
+                        sb.AppendLine($"  {n.Time:F2}s: {n.Note} ({n.Frequency:F1} Hz)");
+                    if (notation.PitchContour.Count > 30)
+                        sb.AppendLine($"  ... and {notation.PitchContour.Count - 30} more notes");
+                }
+                break;
+            case "guitar":
+            case "other":
+                sb.AppendLine("Chord Progression:");
+                if (notation.ChordProgression != null)
+                {
+                    foreach (var c in notation.ChordProgression.Take(30))
+                        sb.AppendLine($"  {c.Time:F2}s: {c.Chord} (conf {c.Confidence:F2})");
+                    if (notation.ChordProgression.Count > 30)
+                        sb.AppendLine($"  ... and {notation.ChordProgression.Count - 30} more chords");
+                }
+                break;
+            case "vocals":
+                sb.AppendLine("Melody:");
+                if (notation.Melody != null)
+                {
+                    foreach (var m in notation.Melody.Take(30))
+                        sb.AppendLine($"  {m.Time:F2}s: {m.Note} ({m.Frequency:F1} Hz)");
+                    if (notation.Melody.Count > 30)
+                        sb.AppendLine($"  ... and {notation.Melody.Count - 30} more notes");
+                }
+                break;
         }
 
         return sb.ToString();
@@ -655,37 +765,51 @@ public class ChordDataModel
 
 public class NotationDataModel
 {
-    public string Type { get; set; } = string.Empty;
+    [System.Text.Json.Serialization.JsonPropertyName("notation_type")]
+    public string NotationType { get; set; } = string.Empty;
+    public List<DrumEvent>? Events { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("pitch_contour")]
+    public List<PitchItem>? PitchContour { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("chord_progression")]
+    public List<ChordEvent>? ChordProgression { get; set; }
+    public List<double>? Onsets { get; set; }
+    public List<MelodyNote>? Melody { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("total_events")]
+    public int? TotalEvents { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("total_notes")]
+    public int? TotalNotes { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("total_chords")]
+    public int? TotalChords { get; set; }
+    public double? Duration { get; set; }
+}
+
+public class DrumEvent
+{
+    public double Time { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("drum_type")]
+    public string DrumType { get; set; } = string.Empty;
+    public int Velocity { get; set; }
+}
+
+public class PitchItem
+{
+    public double Time { get; set; }
+    public double Frequency { get; set; }
+    public string Note { get; set; } = string.Empty;
     public double Confidence { get; set; }
-    public DrumPatternItem[]? DrumPattern { get; set; }
-    public TablatureItem[]? Tablature { get; set; }
-    public ChordShapeItem[]? ChordShapes { get; set; }
 }
 
-public class DrumPatternItem
-{
-    public int Beat { get; set; }
-    public int Kick { get; set; }
-    public int Snare { get; set; }
-    public int HiHat { get; set; }
-    public int Crash { get; set; }
-    public int Ride { get; set; }
-    public int Tom { get; set; }
-}
-
-public class TablatureItem
+public class ChordEvent
 {
     public double Time { get; set; }
-    public int String { get; set; }
-    public int Fret { get; set; }
-    public string Technique { get; set; } = string.Empty;
-    public double Duration { get; set; }
+    public string Chord { get; set; } = string.Empty;
+    public double Confidence { get; set; }
 }
 
-public class ChordShapeItem
+public class MelodyNote
 {
     public double Time { get; set; }
-    public string ChordName { get; set; } = string.Empty;
-    public int[] Frets { get; set; } = Array.Empty<int>();
-    public double Duration { get; set; }
+    public double Frequency { get; set; }
+    public string Note { get; set; } = string.Empty;
+    public double Confidence { get; set; }
 }

@@ -148,6 +148,8 @@ public class StemsController : ControllerBase
             ChordProgression = request.ChordProgression,
             Beats = request.Beats,
             Sections = request.Sections,
+            NotationData = request.NotationData,
+            FlamingoInsightsJson = request.FlamingoInsightsJson,
             
             // JAMS annotation URI
             JamsUri = request.JamsUri,
@@ -193,6 +195,8 @@ public class StemsController : ControllerBase
             ChordProgression = request.ChordProgression ?? stem.ChordProgression,
             Beats = request.Beats ?? stem.Beats,
             Sections = request.Sections ?? stem.Sections,
+            NotationData = request.NotationData ?? stem.NotationData,
+            FlamingoInsightsJson = request.FlamingoInsightsJson ?? stem.FlamingoInsightsJson,
             JamsUri = request.JamsUri ?? stem.JamsUri,
             AnalysisStatus = request.AnalysisStatus,
             AnalysisErrorMessage = request.AnalysisErrorMessage,
@@ -350,6 +354,8 @@ public record StemDto
     public string? ChordProgression { get; init; }
     public string? Beats { get; init; }
     public string? Sections { get; init; }
+    public string? NotationData { get; init; }
+    public string? FlamingoInsightsJson { get; init; }
     
     // JAMS annotation
     public string? JamsUri { get; init; }
@@ -386,6 +392,8 @@ public record StemDto
         ChordProgression = stem.ChordProgression,
         Beats = stem.Beats,
         Sections = stem.Sections,
+    NotationData = stem.NotationData,
+    FlamingoInsightsJson = stem.FlamingoInsightsJson,
         JamsUri = stem.JamsUri,
         AnalysisStatus = stem.AnalysisStatus.ToString(),
         AnalysisErrorMessage = stem.AnalysisErrorMessage,
@@ -419,6 +427,8 @@ public record CreateStemRequest
     public string? ChordProgression { get; init; }
     public string? Beats { get; init; }
     public string? Sections { get; init; }
+    public string? NotationData { get; init; }
+    public string? FlamingoInsightsJson { get; init; }
     public string? JamsUri { get; init; }
     public StemAnalysisStatus? AnalysisStatus { get; init; }
     public string? AnalysisErrorMessage { get; init; }
@@ -438,6 +448,8 @@ public record UpdateStemAnalysisRequest
     public string? ChordProgression { get; init; }
     public string? Beats { get; init; }
     public string? Sections { get; init; }
+    public string? NotationData { get; init; }
+    public string? FlamingoInsightsJson { get; init; }
     public string? JamsUri { get; init; }
     public StemAnalysisStatus AnalysisStatus { get; init; }
     public string? AnalysisErrorMessage { get; init; }

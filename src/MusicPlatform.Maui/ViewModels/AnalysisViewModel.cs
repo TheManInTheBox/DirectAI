@@ -17,18 +17,21 @@ public class AnalysisViewModel : INotifyPropertyChanged
     private AnalysisResultDto? _analysisResult;
     private AudioFileDto? _audioFile;
     private string? _audioFileId;
+    private AudioInsightsDto? _insights;
 
     public AnalysisViewModel(MusicPlatformApiClient apiClient)
     {
         _apiClient = apiClient;
         RefreshCommand = new Command(async () => await LoadAnalysisAsync());
         GenerateStemsCommand = new Command(async () => await NavigateToGenerationAsync(), () => IsAnalysisComplete);
+        ViewStemsCommand = new Command(async () => await NavigateToAudioFileDetailAsync());
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public ICommand RefreshCommand { get; }
     public ICommand GenerateStemsCommand { get; }
+    public ICommand ViewStemsCommand { get; }
 
     public string StatusMessage
     {
@@ -57,6 +60,11 @@ public class AnalysisViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(Tuning));
                 OnPropertyChanged(nameof(HasSections));
                 OnPropertyChanged(nameof(HasChords));
+                OnPropertyChanged(nameof(FlamingoDescription));
+                OnPropertyChanged(nameof(FlamingoGenre));
+                OnPropertyChanged(nameof(FlamingoMood));
+                OnPropertyChanged(nameof(FlamingoQuality));
+                OnPropertyChanged(nameof(FlamingoInstruments));
                 ((Command)GenerateStemsCommand).ChangeCanExecute();
             }
         }
@@ -65,10 +73,26 @@ public class AnalysisViewModel : INotifyPropertyChanged
     public bool IsAnalysisComplete => AnalysisResult?.Status == "Completed";
     public bool IsAnalysisPending => AnalysisResult?.Status == "Pending" || AnalysisResult?.Status == "Processing";
 
-    public string? Bpm => AnalysisResult?.Bpm?.ToString("F1") + " BPM";
-    public string? Key => AnalysisResult?.Key;
-    public string? TimeSignature => AnalysisResult?.TimeSignature;
+    public string? Bpm
+    {
+        get
+        {
+            var bpm = AnalysisResult?.Bpm ?? AudioFile?.Bpm;
+            return bpm.HasValue ? bpm.Value.ToString("F1") + " BPM" : null;
+        }
+    }
+    public string? Key => AnalysisResult?.Key ?? AudioFile?.Key;
+    public string? TimeSignature => AnalysisResult?.TimeSignature ?? AudioFile?.TimeSignature;
     public string? Tuning => AnalysisResult?.Tuning;
+    
+    // Flamingo/semantic insights
+    public string FlamingoDescription => _insights?.Description ?? "";
+    public string FlamingoGenre => _insights?.Genre ?? "";
+    public string FlamingoMood => _insights?.Mood ?? "";
+    public string FlamingoQuality => _insights?.Quality ?? "";
+    public string FlamingoInstruments => _insights?.Instruments != null && _insights.Instruments.Any()
+        ? string.Join(", ", _insights.Instruments)
+        : string.Empty;
     
     // Audio file metadata for display
     public AudioFileDto? AudioFile
@@ -187,11 +211,12 @@ public class AnalysisViewModel : INotifyPropertyChanged
             // Load both audio file metadata and analysis result
             var audioFileTask = _apiClient.GetAudioFileAsync(id);
             var analysisTask = _apiClient.GetAnalysisAsync(id);
-
-            await Task.WhenAll(audioFileTask, analysisTask);
+            var insightsTask = _apiClient.GetAudioInsightsAsync(id);
+            await Task.WhenAll(audioFileTask, analysisTask, insightsTask);
 
             AudioFile = await audioFileTask;
             var result = await analysisTask;
+            _insights = await insightsTask;
 
             if (result == null)
             {
@@ -217,6 +242,12 @@ public class AnalysisViewModel : INotifyPropertyChanged
         finally
         {
             IsLoading = false;
+            // Notify insights-bound properties even if analysis fails to ensure UI updates gracefully
+            OnPropertyChanged(nameof(FlamingoDescription));
+            OnPropertyChanged(nameof(FlamingoGenre));
+            OnPropertyChanged(nameof(FlamingoMood));
+            OnPropertyChanged(nameof(FlamingoQuality));
+            OnPropertyChanged(nameof(FlamingoInstruments));
         }
     }
 
@@ -233,6 +264,18 @@ public class AnalysisViewModel : INotifyPropertyChanged
         {
             await generationPage.InitializeWithAudioFileAsync(_audioFileId);
         }
+    }
+
+    private async Task NavigateToAudioFileDetailAsync()
+    {
+        if (string.IsNullOrEmpty(_audioFileId)) return;
+
+        var navigationParameter = new Dictionary<string, object>
+        {
+            { "AudioFileId", _audioFileId }
+        };
+
+        await Shell.Current.GoToAsync("AudioFileDetailPage", navigationParameter);
     }
 
     protected bool SetProperty<T>(ref T storage, T value, [CallerMemberName] string? propertyName = null)

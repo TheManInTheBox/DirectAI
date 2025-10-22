@@ -107,6 +107,7 @@ spec:
 ---
 # ========================================
 # Analysis Worker - Horizontal Pod Autoscaler
+# Scales based on CPU and memory utilization
 # ========================================
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
@@ -119,17 +120,38 @@ spec:
     kind: Deployment
     name: analysis-worker
   minReplicas: 1
-  maxReplicas: 5
+  maxReplicas: 10
   metrics:
   - type: Resource
     resource:
       name: cpu
       target:
         type: Utilization
-        averageUtilization: 70
+        averageUtilization: 60  # Scale up earlier (was 70)
   - type: Resource
     resource:
       name: memory
       target:
         type: Utilization
-        averageUtilization: 80
+        averageUtilization: 70  # Scale up when memory reaches 70%
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0  # Scale up immediately
+      policies:
+      - type: Percent
+        value: 100  # Double the number of pods
+        periodSeconds: 15
+      - type: Pods
+        value: 2  # Or add 2 pods at a time
+        periodSeconds: 15
+      selectPolicy: Max  # Use the policy that scales fastest
+    scaleDown:
+      stabilizationWindowSeconds: 300  # Wait 5 minutes before scaling down
+      policies:
+      - type: Percent
+        value: 50  # Remove 50% of pods
+        periodSeconds: 60
+      - type: Pods
+        value: 1  # Or remove 1 pod at a time
+        periodSeconds: 60
+      selectPolicy: Min  # Use the policy that scales slowest

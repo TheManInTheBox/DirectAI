@@ -72,24 +72,30 @@ services:
       - ./temp:/app/temp
 
   # Analysis Worker (Python)
+  # Supports horizontal scaling via docker-compose scale
   analysis-worker:
     build:
       context: ./workers/analysis
-      dockerfile: Dockerfile
-    container_name: music-analysis-worker
+      dockerfile: Dockerfile.gpu
+    # Note: container_name removed to support scaling
+    # When scaling, containers will be named: music-analysis-worker-1, music-analysis-worker-2, etc.
     environment:
       - AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
       - BLOB_CONTAINER_NAME=audio-files
       - DEMUCS_MODEL=htdemucs
       - API_BASE_URL=http://music-api:8080
     ports:
-      - "8001:8080"
+      - "8001-8005:8080"  # Port range to support up to 5 instances
     depends_on:
       - azurite
     networks:
       - music-network
     volumes:
       - analysis_temp:/tmp
+      # Mount local NVIDIA Audio-Flamingo weights (place files under ./models/audio-flamingo-2 on the host)
+      - ./models/audio-flamingo-2:/models/audio-flamingo-2:ro
+    # Request all GPUs for this service (requires Docker Desktop with GPU support / NVIDIA runtime)
+    gpus: all
     deploy:
       resources:
         limits:
@@ -100,17 +106,21 @@ services:
           memory: 4G       # Reserve 4GB memory
 
   # Generation Worker (Python)
+  # Supports horizontal scaling via docker-compose scale
   generation-worker:
     build:
       context: ./workers/generation
       dockerfile: Dockerfile
-    container_name: music-generation-worker
+    # Note: container_name removed to support scaling
+    # When scaling, containers will be named: music-generation-worker-1, music-generation-worker-2, etc.
     environment:
       - AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
       - BLOB_CONTAINER_NAME=audio-files
       - USE_GPU=false
-    ports:
-      - "8002:8080"
+    # No host port mapping needed; API reaches this via service name on the Docker network
+    # Expose ports only if you need to call generation-worker from the host machine
+    # ports:
+    #   - "8011-8015:8080"
     depends_on:
       - azurite
     networks:

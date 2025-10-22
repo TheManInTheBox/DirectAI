@@ -44,6 +44,8 @@ public class MusicPlatformDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.MusicalKey).IsRequired().HasMaxLength(10);
             entity.Property(e => e.Mode).IsRequired().HasMaxLength(20);
+            // Large JSON content for Flamingo insights
+            entity.Property(e => e.FlamingoInsightsJson).HasColumnType("text");
             entity.OwnsMany(e => e.Sections, section =>
             {
                 section.Property(s => s.Label).IsRequired().HasMaxLength(50);
@@ -180,6 +182,8 @@ public class MusicPlatformDbContext : DbContext
             entity.Property(e => e.ChordProgression).HasColumnType("text");
             entity.Property(e => e.Beats).HasColumnType("text");
             entity.Property(e => e.Sections).HasColumnType("text");
+            entity.Property(e => e.NotationData).HasColumnType("text");
+            entity.Property(e => e.FlamingoInsightsJson).HasColumnType("text");
             entity.Property(e => e.JamsUri).HasMaxLength(2000);
             entity.Property(e => e.AnalysisErrorMessage).HasMaxLength(1000);
             

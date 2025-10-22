@@ -36,10 +36,6 @@ mir_eval==0.7
 # JAMS format support
 jams==0.3.4
 
-# Audio understanding with Flamingo - Compatible versions
-transformers==4.35.2
-accelerate==0.24.1
-
 # Utilities
 python-dotenv==1.0.0
 aiofiles==23.2.1

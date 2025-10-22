@@ -116,6 +116,41 @@
                 </VerticalStackLayout>
             </Frame>
 
+            <!-- AI Insights (Flamingo) -->
+            <Frame BorderColor="{StaticResource Primary}"
+                   CornerRadius="10"
+                   Padding="20"
+                   HasShadow="True"
+                   IsVisible="{Binding FlamingoDescription, Converter={StaticResource IsNotNullOrEmptyConverter}}">
+                <VerticalStackLayout Spacing="12">
+                    <Label Text="AI insights"
+                           FontSize="20"
+                           FontAttributes="Bold"
+                           TextColor="{StaticResource Primary}" />
+
+                    <Label Text="{Binding FlamingoDescription}"
+                           FontSize="14"
+                           LineBreakMode="WordWrap" />
+
+                    <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="6">
+                        <Label Grid.Row="0" Grid.Column="0" Text="Style:" FontAttributes="Bold"/>
+                        <Label Grid.Row="0" Grid.Column="1" Text="{Binding FlamingoGenre}"/>
+
+                        <Label Grid.Row="1" Grid.Column="0" Text="Mood:" FontAttributes="Bold"/>
+                        <Label Grid.Row="1" Grid.Column="1" Text="{Binding FlamingoMood}"/>
+
+                        <Label Grid.Row="2" Grid.Column="0" Text="Quality:" FontAttributes="Bold"/>
+                        <Label Grid.Row="2" Grid.Column="1" Text="{Binding FlamingoQuality}"/>
+                    </Grid>
+
+                    <StackLayout Orientation="Horizontal"
+                                 IsVisible="{Binding FlamingoInstruments, Converter={StaticResource IsNotNullOrEmptyConverter}}">
+                        <Label Text="Instruments:" FontAttributes="Bold"/>
+                        <Label Text="{Binding FlamingoInstruments}"/>
+                    </StackLayout>
+                </VerticalStackLayout>
+            </Frame>
+
             <!-- Song Sections -->
             <Frame BorderColor="{StaticResource Primary}"
                    CornerRadius="10"
@@ -205,6 +240,16 @@
                     CornerRadius="25"
                     HeightRequest="50"
                     Margin="0,20,0,0" />
+
+        <!-- View Stems and Notation -->
+        <Button Text="View Stems and Notation"
+            Command="{Binding ViewStemsCommand}"
+            IsEnabled="{Binding IsAnalysisComplete}"
+            BackgroundColor="{StaticResource Secondary}"
+            TextColor="White"
+            FontSize="16"
+            CornerRadius="20"
+            HeightRequest="44" />
 
         </VerticalStackLayout>
         </Grid>

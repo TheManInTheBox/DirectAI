@@ -67,19 +67,22 @@ if (-not $env:SQL_ADMIN_PASSWORD) {
 
 # Deploy Bicep template
 Write-Host "Deploying Bicep infrastructure..." -ForegroundColor Yellow
-$deployment = az deployment group create `
+$deploymentOutput = az deployment group create `
     --resource-group $ResourceGroup `
     --template-file "infrastructure/main.bicep" `
     --parameters environment=$Environment `
     --parameters sqlAdminUsername=$sqlUsername `
     --parameters sqlAdminPassword=$sqlPasswordText `
     --parameters location=$Location `
-    --output json | ConvertFrom-Json
+    --output json 2>&1
 
 if ($LASTEXITCODE -ne 0) {
+    Write-Host "Deployment output: $deploymentOutput" -ForegroundColor Red
     Write-Error "Infrastructure deployment failed"
     exit 1
 }
+
+$deployment = $deploymentOutput | ConvertFrom-Json
 
 Write-Host "Infrastructure deployed successfully!" -ForegroundColor Green
 

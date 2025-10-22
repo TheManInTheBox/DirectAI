@@ -16,9 +16,6 @@ import jams
 # Import music theory analyzer
 from music_theory_analyzer import MusicTheoryAnalyzer
 
-# Import Audio Flamingo service
-from audio_flamingo_service import AudioFlamingoService
-
 # Add mutagen for MP3 metadata extraction
 try:
     from mutagen import File as MutagenFile
@@ -48,7 +45,6 @@ class AnalysisService:
         self.demucs_model = os.getenv("DEMUCS_MODEL", "htdemucs")
         self.sample_rate = 44100
         self.theory_analyzer = MusicTheoryAnalyzer()
-        self.flamingo_service = AudioFlamingoService()
         self._flamingo_initialized = False
     
     async def initialize_flamingo(self):
@@ -56,9 +52,17 @@ class AnalysisService:
         if not self._flamingo_initialized:
             try:
                 await self.flamingo_service.initialize_model()
-                self._flamingo_initialized = True
-                logger.info("Audio Flamingo service initialized successfully")
+                # Set initialized flag based on actual model load state
+                self._flamingo_initialized = bool(getattr(self.flamingo_service, "model_loaded", False))
+                if self._flamingo_initialized:
+                    logger.info("Audio Flamingo service initialized successfully")
+                else:
+                    logger.warning("Audio Flamingo not initialized (model not loaded)")
             except Exception as e:
+                # If Flamingo is required, propagate the failure to fail-fast per configuration
+                if bool(getattr(self.flamingo_service, "require_flamingo", False)):
+                    logger.error("Audio Flamingo is required but failed to initialize; aborting analysis")
+                    raise
                 logger.warning(f"Failed to initialize Audio Flamingo: {str(e)}")
                 self._flamingo_initialized = False
     
@@ -222,75 +226,33 @@ class AnalysisService:
             
             logger.info(f"Audio loaded: duration={duration:.2f}s, sr={sr}")
             
+            # === SIMPLIFIED ANALYSIS FOR MVP ===
+            # Only extract essential features: BPM, Key, basic metadata
+            logger.info("Running simplified analysis (MVP mode - optimized for performance)")
+            
             # Extract tempo (BPM)
             bpm = await self._extract_tempo(y, sr)
             
             # Extract key and tuning
             key, tuning = await self._extract_key_tuning(y, sr)
             
-            # Extract beats
-            logger.info("Starting beat extraction...")
+            # Simple beat extraction (minimal)
+            logger.info("Extracting basic beats...")
             beats = await self._extract_beats(y, sr)
             logger.info(f"Beat extraction complete: {len(beats)} beats extracted")
             
-            # Extract sections (structural segmentation)
-            logger.info("Starting section extraction...")
-            sections = await self._extract_sections(y, sr)
-            logger.info(f"Section extraction complete: {len(sections)} sections extracted")
-            
-            # Extract chords
-            logger.info("Starting chord extraction...")
-            chords = await self._extract_chords(y, sr)
-            logger.info(f"Chord extraction complete: {len(chords)} chords extracted")
-            
-            # Add music theory analysis
-            logger.info("Starting music theory analysis...")
-            harmonic_analysis = self.theory_analyzer.analyze_harmonic_progression(
-                chords, key, bpm
-            )
-            logger.info(f"Harmonic analysis complete: {len(harmonic_analysis)} features")
-            
-            rhythmic_analysis = self.theory_analyzer.analyze_rhythmic_complexity(
-                beats, bpm, duration
-            )
-            logger.info(f"Rhythmic analysis complete: complexity={rhythmic_analysis.get('complexity_score', 0):.2f}")
-            
-            # Detect genre based on musical characteristics
-            instrumentation = ["drums", "bass", "other", "vocals"]  # From Demucs stems
-            genre_analysis = self.theory_analyzer.detect_genre_conventions(
-                harmonic_analysis, rhythmic_analysis, instrumentation
-            )
-            logger.info(f"Genre analysis complete: primary={genre_analysis.get('primary_genre', 'unknown')}")
-            
-            # Initialize and run Audio Flamingo analysis
-            await self.initialize_flamingo()
+            # Skip intensive analysis features for MVP
+            logger.info("Skipping intensive analysis (sections, chords, theory, flamingo, technical, spectral, temporal)")
+            sections = []
+            chords = []
+            harmonic_analysis = {}
+            rhythmic_analysis = {"complexity_score": 0.0}
+            genre_analysis = {"primary_genre": "unknown"}
             flamingo_analysis = {}
-            if self._flamingo_initialized:
-                logger.info("Starting Audio Flamingo analysis...")
-                flamingo_analysis = await self.flamingo_service.analyze_audio_content(audio_path)
-                logger.info("Audio Flamingo analysis completed")
-            else:
-                logger.info("Audio Flamingo not available, skipping advanced audio understanding")
-            
-            # Extract comprehensive technical features
-            logger.info("Starting comprehensive technical analysis...")
-            technical_features = await self._extract_comprehensive_technical_features(y, sr)
-            logger.info("Technical analysis completed")
-            
-            # Extract psychoacoustic features
-            logger.info("Starting psychoacoustic analysis...")
-            psychoacoustic_features = await self._extract_psychoacoustic_features(y, sr)
-            logger.info("Psychoacoustic analysis completed")
-            
-            # Extract spectral features
-            logger.info("Starting spectral analysis...")
-            spectral_features = await self._extract_spectral_features(y, sr)
-            logger.info("Spectral analysis completed")
-            
-            # Extract temporal features
-            logger.info("Starting temporal analysis...")
-            temporal_features = await self._extract_temporal_features(y, sr, beats)
-            logger.info("Temporal analysis completed")
+            technical_features = {}
+            psychoacoustic_features = {}
+            spectral_features = {}
+            temporal_features = {}
             
             results = {
                 "bpm": bpm,
@@ -308,18 +270,154 @@ class AnalysisService:
                 "psychoacoustic_features": psychoacoustic_features,
                 "spectral_features": spectral_features,
                 "temporal_features": temporal_features,
-                "bark_training_data": await self._prepare_bark_training_data(
-                    audio_path, bpm, key, duration, flamingo_analysis, 
-                    technical_features, psychoacoustic_features, spectral_features, temporal_features
-                )
+                "bark_training_data": {}  # Skip Bark training data for MVP performance
             }
             
-            logger.info(f"Analysis complete: BPM={bpm}, Key={key}, Tuning={tuning}Hz")
+            logger.info(f"Simplified analysis complete: BPM={bpm}, Key={key}, Tuning={tuning}Hz, Duration={duration:.1f}s")
             return results
             
         except Exception as e:
             logger.error(f"Error in music analysis: {str(e)}", exc_info=True)
             raise
+
+    async def _extract_comprehensive_technical_features(self, y: np.ndarray, sr: int) -> Dict[str, Any]:
+        """Compute core technical audio features used by training/export.
+
+        Returns at least these fields:
+        - sample_rate (int)
+        - bit_depth (int, best-effort, default 16)
+        - dynamic_range (float, dB)
+        - peak_level (float, dBFS-like)
+        - rms_level (float, dBFS-like)
+        - crest_factor_db (float)
+        - zero_crossing_rate_mean (float)
+        """
+        try:
+            rms = librosa.feature.rms(y=y, frame_length=2048, hop_length=512)[0]
+            peak_amplitude = float(np.max(np.abs(y)) if len(y) > 0 else 0.0)
+            # Avoid log of zero
+            rms_mean = float(np.mean(rms)) if rms.size > 0 else 1e-10
+            rms_min = float(np.min(rms)) if rms.size > 0 else 1e-10
+
+            dynamic_range_db = float(20 * np.log10((np.max(rms) + 1e-10) / (rms_min + 1e-10))) if rms.size > 0 else 0.0
+            peak_db = float(20 * np.log10(peak_amplitude + 1e-10))
+            rms_db = float(20 * np.log10(rms_mean + 1e-10))
+            crest_factor_db = peak_db - rms_db
+            zcr_mean = float(np.mean(librosa.zero_crossings(y))) if len(y) > 0 else 0.0
+
+            return {
+                "sample_rate": int(sr),
+                "bit_depth": 16,  # best-effort default; original depth often unknown here
+                "dynamic_range": round(dynamic_range_db, 2),
+                "peak_level": round(peak_db, 2),
+                "rms_level": round(rms_db, 2),
+                "crest_factor_db": round(crest_factor_db, 2),
+                "zero_crossing_rate_mean": zcr_mean,
+            }
+        except Exception as e:
+            logger.warning(f"Technical feature extraction failed: {e}")
+            return {
+                "sample_rate": int(sr),
+                "bit_depth": 16,
+                "dynamic_range": 0.0,
+                "peak_level": 0.0,
+                "rms_level": 0.0,
+                "crest_factor_db": 0.0,
+                "zero_crossing_rate_mean": 0.0,
+            }
+
+    async def _extract_technical_features(self, y: np.ndarray, sr: int) -> Dict[str, Any]:
+        """Compatibility wrapper for stem analysis to compute technical features."""
+        return await self._extract_comprehensive_technical_features(y, sr)
+
+    async def _extract_psychoacoustic_features(self, y: np.ndarray, sr: int) -> Dict[str, Any]:
+        """Wrapper that returns concise psychoacoustic features derived from the detailed set."""
+        try:
+            # Run in executor to allow timeout to work with blocking CPU operations
+            loop = asyncio.get_event_loop()
+            detailed = await loop.run_in_executor(
+                None, 
+                self._extract_detailed_psychoacoustic_features,
+                y,
+                sr
+            )
+            loud = detailed.get("perceived_loudness", {})
+            sharp = detailed.get("sharpness", {})
+            rough = detailed.get("roughness", {})
+            return {
+                "loudness_mean": float(loud.get("loudness_mean", 0.0)),
+                "loudness_std": float(loud.get("loudness_std", 0.0)),
+                "loudness_range_lu": float(loud.get("loudness_range_lu", 0.0)),
+                "sharpness_coefficient": float(sharp.get("sharpness_coefficient", 0.0)),
+                "perceived_brightness": sharp.get("perceived_brightness", ""),
+                "overall_roughness": float(rough.get("overall_roughness", 0.0)),
+                "roughness_variation": float(rough.get("roughness_variation", 0.0)),
+            }
+        except Exception as e:
+            logger.warning(f"Psychoacoustic feature extraction failed: {e}")
+            return {}
+
+    async def _extract_spectral_features(self, y: np.ndarray, sr: int) -> Dict[str, Any]:
+        """Compute compact spectral features used downstream.
+
+        Produces keys expected by training/export helpers:
+        - spectral_centroid_mean, spectral_bandwidth_mean, spectral_contrast_mean (list), harmonic_ratio
+        """
+        try:
+            spectral_centroid = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
+            spectral_bandwidth = librosa.feature.spectral_bandwidth(y=y, sr=sr)[0]
+            spectral_contrast = librosa.feature.spectral_contrast(y=y, sr=sr)
+
+            # Harmonic content ratio via HPSS
+            harmonic, percussive = librosa.effects.hpss(y)
+            harmonic_energy = float(np.sum(harmonic ** 2))
+            total_energy = float(np.sum(y ** 2)) + 1e-10
+            harmonic_ratio = harmonic_energy / total_energy
+
+            return {
+                "spectral_centroid_mean": float(np.mean(spectral_centroid)) if spectral_centroid.size else 0.0,
+                "spectral_bandwidth_mean": float(np.mean(spectral_bandwidth)) if spectral_bandwidth.size else 0.0,
+                "spectral_contrast_mean": [float(np.mean(spectral_contrast[i])) for i in range(spectral_contrast.shape[0])] if spectral_contrast.size else [],
+                "harmonic_ratio": float(harmonic_ratio),
+            }
+        except Exception as e:
+            logger.warning(f"Spectral feature extraction failed: {e}")
+            return {
+                "spectral_centroid_mean": 0.0,
+                "spectral_bandwidth_mean": 0.0,
+                "spectral_contrast_mean": [],
+                "harmonic_ratio": 0.0,
+            }
+
+    async def _extract_temporal_features(self, y: np.ndarray, sr: int, beats: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Summarize temporal features; aligns with training data needs."""
+        try:
+            duration = float(len(y) / sr) if sr > 0 else 0.0
+            beat_times = [b.get("time", 0.0) for b in (beats or [])]
+            beat_count = len(beat_times)
+            ioi = np.diff(beat_times) if beat_count > 1 else np.array([])
+            onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+
+            return {
+                "duration_seconds": duration,
+                "beat_count": beat_count,
+                "beats_per_second": float(beat_count / duration) if duration > 0 else 0.0,
+                "inter_onset_interval_mean": float(np.mean(ioi)) if ioi.size else 0.0,
+                "inter_onset_interval_std": float(np.std(ioi)) if ioi.size else 0.0,
+                "onset_strength_mean": float(np.mean(onset_env)) if onset_env.size else 0.0,
+                "onset_strength_std": float(np.std(onset_env)) if onset_env.size else 0.0,
+            }
+        except Exception as e:
+            logger.warning(f"Temporal feature extraction failed: {e}")
+            return {
+                "duration_seconds": 0.0,
+                "beat_count": 0,
+                "beats_per_second": 0.0,
+                "inter_onset_interval_mean": 0.0,
+                "inter_onset_interval_std": 0.0,
+                "onset_strength_mean": 0.0,
+                "onset_strength_std": 0.0,
+            }
     
     async def _extract_tempo(self, y: np.ndarray, sr: int) -> float:
         """Extract tempo (BPM) using librosa with improved accuracy"""
@@ -827,7 +925,16 @@ class AnalysisService:
             # Technical features
             technical_features = await self._extract_technical_features(y, sr)
             spectral_features = await self._extract_spectral_features(y, sr)
-            psychoacoustic_features = await self._extract_psychoacoustic_features(y, sr)
+            
+            # Psychoacoustic features (with timeout)
+            try:
+                psychoacoustic_features = await asyncio.wait_for(
+                    self._extract_psychoacoustic_features(y, sr),
+                    timeout=30.0
+                )
+            except (asyncio.TimeoutError, Exception) as e:
+                logger.warning(f"Psychoacoustic analysis failed for stem: {e}")
+                psychoacoustic_features = {}
             
             # Stem-specific analysis
             stem_characteristics = await self._analyze_stem_characteristics(y, sr, stem_type)

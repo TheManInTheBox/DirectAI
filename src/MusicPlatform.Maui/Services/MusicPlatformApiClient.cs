@@ -130,6 +130,27 @@ public class MusicPlatformApiClient
     }
 
     /// <summary>
+    /// Gets AI insights (Flamingo semantic analysis) for an audio file
+    /// </summary>
+    public async Task<AudioInsightsDto?> GetAudioInsightsAsync(
+        Guid audioFileId,
+        CancellationToken cancellationToken = default
+    )
+    {
+        try
+        {
+            return await _httpClient.GetFromJsonAsync<AudioInsightsDto>(
+                $"/api/audio/{audioFileId}/insights",
+                cancellationToken
+            );
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Requests analysis for an audio file
     /// </summary>
     public async Task<AnalysisResultDto?> RequestAnalysisAsync(
@@ -159,8 +180,9 @@ public class MusicPlatformApiClient
         CancellationToken cancellationToken = default
     )
     {
+        // Server route is exposed by StemsController as /api/stems/audio/{audioFileId}
         return await _httpClient.GetFromJsonAsync<List<StemDto>>(
-            $"/api/audio/{audioFileId}/stems",
+            $"/api/stems/audio/{audioFileId}",
             cancellationToken
         );
     }
@@ -566,6 +588,17 @@ public record JobStatisticsDto(
     int AnalysisJobs,
     int GenerationJobs,
     double AverageCompletionTimeSeconds
+);
+
+/// <summary>
+/// Flamingo/semantic insights returned by the API
+/// </summary>
+public record AudioInsightsDto(
+    string? Description,
+    string? Genre,
+    string? Mood,
+    string? Quality,
+    List<string>? Instruments
 );
 
 #endregion

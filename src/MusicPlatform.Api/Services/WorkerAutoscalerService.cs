@@ -125,16 +125,16 @@ public class WorkerAutoscalerService : BackgroundService
         }
 
         // Scale analysis workers
-        await ScaleWorkerType("analysis", analysisQueueDepth, runningAnalysisJobs, 
-            ref _currentAnalysisWorkers, cancellationToken);
+        _currentAnalysisWorkers = await ScaleWorkerType("analysis", analysisQueueDepth, runningAnalysisJobs, 
+            _currentAnalysisWorkers, cancellationToken);
 
         // Scale generation workers
-        await ScaleWorkerType("generation", generationQueueDepth, runningGenerationJobs, 
-            ref _currentGenerationWorkers, cancellationToken);
+        _currentGenerationWorkers = await ScaleWorkerType("generation", generationQueueDepth, runningGenerationJobs, 
+            _currentGenerationWorkers, cancellationToken);
     }
 
-    private async Task ScaleWorkerType(string workerType, int queueDepth, int runningJobs,
-        ref int currentWorkers, CancellationToken cancellationToken)
+    private async Task<int> ScaleWorkerType(string workerType, int queueDepth, int runningJobs,
+        int currentWorkers, CancellationToken cancellationToken)
     {
         int desiredWorkers = currentWorkers;
 
@@ -167,6 +167,7 @@ public class WorkerAutoscalerService : BackgroundService
                 _lastScaleAction = DateTime.UtcNow;
             }
         }
+        return currentWorkers;
     }
 
     private async Task<bool> ScaleDockerWorkers(string workerType, int desiredReplicas, 
