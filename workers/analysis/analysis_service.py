@@ -226,9 +226,9 @@ class AnalysisService:
             
             logger.info(f"Audio loaded: duration={duration:.2f}s, sr={sr}")
             
-            # === SIMPLIFIED ANALYSIS FOR MVP ===
-            # Only extract essential features: BPM, Key, basic metadata
-            logger.info("Running simplified analysis (MVP mode - optimized for performance)")
+            # === MVP ANALYSIS ===
+            # Extract essential features: BPM, Key, Chords, basic metadata
+            logger.info("Running MVP analysis (optimized for performance)")
             
             # Extract tempo (BPM)
             bpm = await self._extract_tempo(y, sr)
@@ -236,19 +236,22 @@ class AnalysisService:
             # Extract key and tuning
             key, tuning = await self._extract_key_tuning(y, sr)
             
+            # Extract chords (has 30s timeout)
+            logger.info("Extracting chord progression...")
+            chords = await self._extract_chords(y, sr)
+            logger.info(f"Chord extraction complete: {len(chords)} chords extracted")
+            
             # Simple beat extraction (minimal)
             logger.info("Extracting basic beats...")
             beats = await self._extract_beats(y, sr)
             logger.info(f"Beat extraction complete: {len(beats)} beats extracted")
             
             # Skip intensive analysis features for MVP
-            logger.info("Skipping intensive analysis (sections, chords, theory, flamingo, technical, spectral, temporal)")
+            logger.info("Skipping intensive analysis (sections, theory, technical, spectral, temporal)")
             sections = []
-            chords = []
             harmonic_analysis = {}
             rhythmic_analysis = {"complexity_score": 0.0}
             genre_analysis = {"primary_genre": "unknown"}
-            flamingo_analysis = {}
             technical_features = {}
             psychoacoustic_features = {}
             spectral_features = {}
@@ -265,7 +268,6 @@ class AnalysisService:
                 "harmonic_analysis": harmonic_analysis,
                 "rhythmic_analysis": rhythmic_analysis,
                 "genre_analysis": genre_analysis,
-                "flamingo_analysis": flamingo_analysis,
                 "technical_features": technical_features,
                 "psychoacoustic_features": psychoacoustic_features,
                 "spectral_features": spectral_features,

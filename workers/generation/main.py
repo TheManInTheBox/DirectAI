@@ -97,7 +97,6 @@ async def health_check():
     gpu_available = torch.cuda.is_available()
     
     services_status = {
-        "stable_audio": "available" if generation_service.has_stable_audio else "not_loaded",
         "musicgen": "available" if generation_service.has_musicgen else "not_loaded",
         "storage": "connected" if storage_service.is_connected() else "disconnected",
         "device": "gpu" if gpu_available else "cpu"

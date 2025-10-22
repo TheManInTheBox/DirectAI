@@ -10,25 +10,24 @@
 The following intensive analysis features have been disabled for MVP performance:
 
 1. **Section Extraction** - Structural segmentation (was timing out after 60s)
-2. **Chord Extraction** - Chord progression analysis
-3. **Music Theory Analysis** - Harmonic and rhythmic complexity
-4. **Genre Detection** - Genre classification algorithms
-5. **Audio Flamingo** - Advanced audio understanding (model not available)
-6. **Technical Features** - Comprehensive technical analysis
-7. **Psychoacoustic Features** - Perceptual audio features (was hanging)
-8. **Spectral Features** - Spectral analysis (was causing crashes)
-9. **Temporal Features** - Temporal characteristic analysis
-10. **Bark Training Data** - Training dataset preparation
+2. **Music Theory Analysis** - Harmonic and rhythmic complexity
+3. **Genre Detection** - Genre classification algorithms
+4. **Technical Features** - Comprehensive technical analysis
+5. **Psychoacoustic Features** - Perceptual audio features (was hanging)
+6. **Spectral Features** - Spectral analysis (was causing crashes)
+7. **Temporal Features** - Temporal characteristic analysis
+8. **Bark Training Data** - Training dataset preparation
 
-#### Features Still Active (Core MVP)
+#### Features Active (Core MVP)
 Essential features that work reliably and quickly:
 
 1. ✅ **Demucs Source Separation** - Separates audio into stems (~30 seconds)
 2. ✅ **BPM Detection** - Tempo analysis (~2-3 seconds)
 3. ✅ **Key Detection** - Musical key and tuning (~2-3 seconds)
-4. ✅ **Beat Extraction** - Beat positions (~2-3 seconds)
-5. ✅ **MP3 Metadata** - ID3 tags, album art, basic info
-6. ✅ **Duration Calculation** - Audio length
+4. ✅ **Chord Extraction** - Chord progression analysis (~5-10 seconds, 30s timeout)
+5. ✅ **Beat Extraction** - Beat positions (~2-3 seconds)
+6. ✅ **MP3 Metadata** - ID3 tags, album artwork, technical info
+7. ✅ **Duration Calculation** - Audio length
 
 ### Expected Performance
 
@@ -38,7 +37,7 @@ Essential features that work reliably and quickly:
 - Success rate: Low
 
 **After Optimization:**
-- Analysis time: ~45-60 seconds
+- Analysis time: ~60-75 seconds
 - Memory usage: Moderate
 - Success rate: High
 
@@ -47,14 +46,15 @@ Essential features that work reliably and quickly:
 | Step | Time | Status |
 |------|------|--------|
 | Download audio | 1-2s | ✅ |
-| Extract metadata | 1s | ✅ |
+| Extract metadata + artwork | 1-2s | ✅ |
 | Demucs separation | 30-35s | ✅ |
 | BPM detection | 2-3s | ✅ |
 | Key detection | 2-3s | ✅ |
+| Chord extraction | 5-10s | ✅ |
 | Beat extraction | 2-3s | ✅ |
 | Save JAMS output | 1-2s | ✅ |
-| Upload to blob | 2-3s | ✅ |
-| **Total** | **~45-60s** | **✅** |
+| Upload artwork + stems | 3-5s | ✅ |
+| **Total** | **~60-75s** | **✅** |
 
 ## Testing Workflow
 
@@ -86,10 +86,13 @@ curl.exe http://localhost:5000/api/audio/{id}
 ### Expected Result
 ```json
 {
-  "bpm": 117.45,
+  "bpm": 117.5,
   "key": "D# major",
+  "tuningFrequency": 440.0,
   "duration": "00:03:00",
   "status": "Analyzed",
+  "albumArtworkUri": "http://azurite:10000/...",
+  "chords": [...],
   ...
 }
 ```
@@ -136,14 +139,15 @@ Audio Flamingo has been completely removed from the project:
 
 ## Known Limitations
 
-1. **No chord progressions** - Would need chord extraction re-enabled
+1. **No section detection** - Would need section extraction re-enabled
 2. **No genre detection** - Would need theory analysis re-enabled
-3. **No advanced features** - Would need full analysis re-enabled
-4. **Simplified JAMS output** - Contains only basic annotations
+3. **No advanced features** - Would need full analysis re-enabled (psychoacoustic, spectral, temporal)
+4. **Simplified JAMS output** - Contains core annotations only
 
 These limitations are acceptable for MVP testing focused on:
 - Upload workflow
-- Basic analysis (BPM/Key)
+- Core analysis (BPM/Key/Chords/Tuning)
+- Album artwork display
 - Stem generation
 - Download functionality
 

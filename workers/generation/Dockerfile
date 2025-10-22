@@ -19,23 +19,22 @@ SHELL ["conda", "run", "-n", "musicgen", "/bin/bash", "-c"]
 # Upgrade pip in the conda environment
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# Install PyTorch (required by Bark)
+# Install PyTorch for MusicGen
 RUN pip install --no-cache-dir torch==2.1.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cpu
 
 # Install dependencies from requirements.txt
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Bark and its dependencies
-# Transformers needs to be installed from git for Bark to work correctly
-RUN pip install --no-cache-dir git+https://github.com/huggingface/transformers.git
-RUN pip install --no-cache-dir git+https://github.com/suno-ai/bark.git
+# Install MusicGen dependencies (pin transformers 4.36.0 for PyTorch 2.1.0 compatibility)
+RUN pip install --no-cache-dir transformers==4.36.0 accelerate && \
+    pip install --no-cache-dir --no-deps audiocraft
 
 # Copy application code
 COPY . .
 
 # Expose FastAPI port
-EXPOSE 8002
+EXPOSE 8080
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
@@ -43,9 +42,9 @@ ENV USE_GPU=false
 
 # Health check (run inside conda environment)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD conda run -n musicgen python -c "import requests; requests.get('http://localhost:8002/health')"
+    CMD conda run -n musicgen python -c "import requests; requests.get('http://localhost:8080/health')"
 
 # Run FastAPI with uvicorn (inside conda environment)
-CMD ["conda", "run", "--no-capture-output", "-n", "musicgen", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002", "--workers", "1"]
+CMD ["conda", "run", "--no-capture-output", "-n", "musicgen", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1"]
 
 

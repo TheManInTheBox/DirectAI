@@ -36,6 +36,10 @@ mir_eval==0.7
 # JAMS format support
 jams==0.3.4
 
+# Transformers (required by PyTorch ONNX, used indirectly by Demucs)
+# Using version compatible with PyTorch 2.1.0
+transformers==4.36.0
+
 # Utilities
 python-dotenv==1.0.0
 aiofiles==23.2.1

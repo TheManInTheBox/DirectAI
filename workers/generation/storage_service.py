@@ -72,12 +72,14 @@ class StorageService:
             )
             
             # Upload file
+            from azure.storage.blob import ContentSettings
+            
             with open(local_path, "rb") as data:
                 await asyncio.to_thread(
                     blob_client.upload_blob,
                     data,
                     overwrite=True,
-                    content_settings={'content_type': 'audio/wav'}
+                    content_settings=ContentSettings(content_type='audio/wav')
                 )
             
             # Get blob URL

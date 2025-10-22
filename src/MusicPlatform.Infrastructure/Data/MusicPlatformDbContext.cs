@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using MusicPlatform.Domain.Models;
+using MusicPlatform.Domain.Entities;
 
 namespace MusicPlatform.Infrastructure.Data;
 
@@ -21,6 +22,11 @@ public class MusicPlatformDbContext : DbContext
     public DbSet<GeneratedStem> GeneratedStems { get; set; }
     public DbSet<Job> Jobs { get; set; }
     public DbSet<Stem> Stems { get; set; }
+    
+    // Training-related entities
+    public DbSet<TrainingDataset> TrainingDatasets { get; set; }
+    public DbSet<TrainingDatasetStem> TrainingDatasetStems { get; set; }
+    public DbSet<TrainedModel> TrainedModels { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -198,6 +204,67 @@ public class MusicPlatformDbContext : DbContext
             entity.HasIndex(e => e.SeparatedAt);
             entity.HasIndex(e => e.AnalysisStatus);
             entity.HasIndex(e => e.Key);
+        });
+
+        // TrainingDataset configuration
+        modelBuilder.Entity<TrainingDataset>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.Description).HasMaxLength(1000);
+            entity.Property(e => e.Status).HasConversion<string>().IsRequired();
+            entity.Property(e => e.Metadata).HasColumnType("text");
+            
+            entity.HasIndex(e => e.Status);
+            entity.HasIndex(e => e.CreatedAt);
+        });
+
+        // TrainingDatasetStem configuration
+        modelBuilder.Entity<TrainingDatasetStem>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Notes).HasMaxLength(500);
+            
+            // Many-to-One relationship with TrainingDataset
+            entity.HasOne(e => e.TrainingDataset)
+                  .WithMany(d => d.Stems)
+                  .HasForeignKey(e => e.TrainingDatasetId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            
+            // Many-to-One relationship with Stem
+            entity.HasOne(e => e.Stem)
+                  .WithMany()
+                  .HasForeignKey(e => e.StemId)
+                  .OnDelete(DeleteBehavior.Restrict); // Don't delete stem if used in training
+            
+            entity.HasIndex(e => e.TrainingDatasetId);
+            entity.HasIndex(e => e.StemId);
+            entity.HasIndex(e => e.Order);
+        });
+
+        // TrainedModel configuration
+        modelBuilder.Entity<TrainedModel>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.Description).HasMaxLength(1000);
+            entity.Property(e => e.ModelPath).IsRequired().HasMaxLength(2000);
+            entity.Property(e => e.BaseModel).HasMaxLength(100);
+            entity.Property(e => e.Status).HasConversion<string>().IsRequired();
+            entity.Property(e => e.TrainingConfig).HasColumnType("text");
+            entity.Property(e => e.TrainingMetrics).HasColumnType("text");
+            entity.Property(e => e.ErrorMessage).HasMaxLength(2000);
+            
+            // Many-to-One relationship with TrainingDataset
+            entity.HasOne(e => e.TrainingDataset)
+                  .WithMany(d => d.TrainedModels)
+                  .HasForeignKey(e => e.TrainingDatasetId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            
+            entity.HasIndex(e => e.TrainingDatasetId);
+            entity.HasIndex(e => e.Status);
+            entity.HasIndex(e => e.CreatedAt);
+            entity.HasIndex(e => e.LastUsedAt);
         });
     }
 }
