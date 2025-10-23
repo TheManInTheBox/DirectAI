@@ -830,7 +830,7 @@ public class GeneratedMusicItem : INotifyPropertyChanged
     public Guid StemId => _stem.Id;
     public string StemType => char.ToUpper(_stem.StemType[0]) + _stem.StemType.Substring(1);
     public string FileSizeFormatted => FormatFileSize(_stem.FileSizeBytes);
-    public string Duration => _stem.DurationSeconds.HasValue ? $"{_stem.DurationSeconds.Value:F1}s" : "Unknown";
+    public string Duration => _stem.DurationSeconds > 0 ? $"{_stem.DurationSeconds:F1}s" : "Unknown";
     public string CreatedAt => _stem.CreatedAt.ToString("g");
     public string DisplayInfo => $"{Duration} • {FileSizeFormatted} • {CreatedAt}";
 

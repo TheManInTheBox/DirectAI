@@ -141,8 +141,8 @@ public class StemItemViewModel : INotifyPropertyChanged
     public Guid Id => _stem.Id;
     public string StemType => _stem.StemType.ToUpper();
     public string FileSizeFormatted => FormatFileSize(_stem.FileSizeBytes);
-    public string Duration => _stem.DurationSeconds.HasValue 
-        ? $"{_stem.DurationSeconds.Value:F1}s" 
+    public string Duration => _stem.DurationSeconds > 0
+        ? $"{_stem.DurationSeconds:F1}s" 
         : "Unknown";
     public string CreatedAt => _stem.CreatedAt.ToString("g");
     

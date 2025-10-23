@@ -305,12 +305,27 @@ public class GenerationController : ControllerBase
             // Save generated track info
             if (result.Track != null)
             {
+                // Calculate duration from sample rate and file size
+                // WAV file: file_size_bytes / (sample_rate * channels * bytes_per_sample)
+                // Assuming 16-bit (2 bytes per sample)
+                float durationSeconds = 0;
+                if (result.Track.SampleRate > 0 && result.Track.Channels > 0 && result.Track.FileSizeBytes > 0)
+                {
+                    int bytesPerSample = 2; // 16-bit audio
+                    long dataBytes = result.Track.FileSizeBytes - 44; // WAV header is typically 44 bytes
+                    if (dataBytes > 0)
+                    {
+                        durationSeconds = (float)dataBytes / (result.Track.SampleRate * result.Track.Channels * bytesPerSample);
+                    }
+                }
+                
                 var generatedStem = new GeneratedStem
                 {
                     Id = Guid.NewGuid(),
                     GenerationRequestId = id,
                     Type = StemType.Other, // Use "Other" for full track
                     BlobUri = result.Track.BlobUrl,
+                    DurationSeconds = durationSeconds,
                     Format = result.Track.Format,
                     SampleRate = result.Track.SampleRate,
                     Channels = result.Track.Channels,
@@ -318,8 +333,8 @@ public class GenerationController : ControllerBase
                     Metadata = new GenerationMetadata()
                 };
                 _dbContext.GeneratedStems.Add(generatedStem);
-                _logger.LogInformation("Saved generated track for request {RequestId}: {BlobUrl}", 
-                    id, result.Track.BlobUrl);
+                _logger.LogInformation("Saved generated track for request {RequestId}: {BlobUrl}, Duration: {Duration}s, Size: {Size} bytes", 
+                    id, result.Track.BlobUrl, durationSeconds, result.Track.FileSizeBytes);
             }
 
             // Update job
