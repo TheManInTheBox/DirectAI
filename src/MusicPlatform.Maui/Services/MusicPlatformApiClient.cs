@@ -240,7 +240,7 @@ public class MusicPlatformApiClient
     }
 
     /// <summary>
-    /// Downloads a stem file
+    /// Downloads a stem file (for analyzed stems)
     /// </summary>
     public async Task<Stream?> DownloadStemAsync(
         Guid stemId,
@@ -249,6 +249,24 @@ public class MusicPlatformApiClient
     {
         var response = await _httpClient.GetAsync(
             $"/api/stems/{stemId}/download",
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken
+        );
+
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsStreamAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Downloads a generated stem file
+    /// </summary>
+    public async Task<Stream?> DownloadGeneratedStemAsync(
+        Guid stemId,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var response = await _httpClient.GetAsync(
+            $"/api/generation/stems/{stemId}/download",
             HttpCompletionOption.ResponseHeadersRead,
             cancellationToken
         );
@@ -561,7 +579,12 @@ public record GeneratedStemDto(
     public string StemType => Type;
     public string BlobPath => BlobUri;
     public DateTime CreatedAt => GeneratedAt;
-    public long FileSizeBytes => 0;  // Not provided by API for generated stems
+    
+    // Calculate approximate file size from duration and audio specs
+    // WAV file: duration * sample_rate * channels * (bit_depth / 8) + 44 bytes header
+    public long FileSizeBytes => DurationSeconds > 0 && SampleRate > 0 && Channels > 0
+        ? (long)(DurationSeconds * SampleRate * Channels * (BitDepth / 8.0f)) + 44
+        : 0;
     
     // Optional metadata properties (not provided by API but needed for UI compatibility)
     public string? AlbumArtworkUri => null;

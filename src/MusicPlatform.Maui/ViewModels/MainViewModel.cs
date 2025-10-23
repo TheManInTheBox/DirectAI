@@ -861,7 +861,8 @@ public class GeneratedMusicItem : INotifyPropertyChanged
             IsDownloading = true;
             StatusMessage = "Downloading...";
 
-            var stream = await _apiClient.DownloadStemAsync(_stem.Id);
+            // Use the correct download method for generated stems
+            var stream = await _apiClient.DownloadGeneratedStemAsync(_stem.Id);
             if (stream == null)
             {
                 StatusMessage = "Download failed";

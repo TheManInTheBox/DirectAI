@@ -203,6 +203,72 @@ public class GenerationController : ControllerBase
     }
 
     /// <summary>
+    /// Download a generated stem file.
+    /// </summary>
+    /// <param name="stemId">Generated stem ID</param>
+    /// <returns>Audio file stream</returns>
+    [HttpGet("stems/{stemId}/download")]
+    [ProducesResponseType(typeof(FileStreamResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DownloadGeneratedStem(Guid stemId)
+    {
+        var stem = await _dbContext.GeneratedStems.FindAsync(stemId);
+        if (stem == null)
+        {
+            return NotFound($"Generated stem with ID {stemId} not found");
+        }
+
+        try
+        {
+            // Get the blob service client from DI
+            using var scope = _serviceProvider.CreateScope();
+            var blobServiceClient = scope.ServiceProvider.GetRequiredService<Azure.Storage.Blobs.BlobServiceClient>();
+
+            // Parse the blob URI to extract container and blob name
+            var blobUri = new Uri(stem.BlobUri);
+            var pathParts = blobUri.AbsolutePath.TrimStart('/').Split('/', 3);
+            
+            if (pathParts.Length < 3)
+            {
+                return BadRequest("Invalid blob URI format");
+            }
+
+            var containerName = pathParts[1];  // "audio-files"
+            var blobName = pathParts[2];        // "generated/guid/track.wav"
+
+            _logger.LogInformation("Downloading generated stem {StemId}: container={Container}, blob={BlobName}", 
+                stemId, containerName, blobName);
+
+            // Get blob client
+            var containerClient = blobServiceClient.GetBlobContainerClient(containerName);
+            var blobClient = containerClient.GetBlobClient(blobName);
+
+            // Check if blob exists
+            var exists = await blobClient.ExistsAsync();
+            _logger.LogInformation("Blob exists check for {BlobName}: {Exists}", blobName, exists.Value);
+            
+            if (!exists.Value)
+            {
+                return NotFound("Generated stem file not found in storage");
+            }
+
+            // Download blob and stream to client
+            var download = await blobClient.DownloadStreamingAsync();
+            
+            // Set appropriate headers
+            var fileName = $"{stem.Type}_{stem.Id}.{stem.Format}";
+            Response.Headers.Append("Content-Disposition", $"attachment; filename=\"{fileName}\"");
+            
+            return File(download.Value.Content, $"audio/{stem.Format}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error downloading generated stem {StemId}", stemId);
+            return StatusCode(500, $"Error downloading generated stem: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Cancel a pending or running generation request.
     /// </summary>
     /// <param name="id">Generation request ID</param>
