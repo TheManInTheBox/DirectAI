@@ -157,12 +157,17 @@ public class JobOrchestrationService : BackgroundService
         
         var httpClient = httpClientFactory.CreateClient("AnalysisWorker");
 
+        // Get API base URL from configuration
+        var apiBaseUrl = _configuration.GetValue<string>("ApiBaseUrl") 
+            ?? Environment.GetEnvironmentVariable("API_BASE_URL")
+            ?? "http://localhost:5000";
+
         // Prepare analysis request
         var request = new
         {
             audio_file_id = job.EntityId.ToString(),
             blob_uri = job.Metadata.GetValueOrDefault("BlobUri")?.ToString(),
-            callback_url = $"http://music-api:8080/api/audio/{job.EntityId}/analysis-complete"
+            callback_url = $"{apiBaseUrl}/api/audio/{job.EntityId}/analysis-complete"
         };
 
         _logger.LogInformation("Sending analysis request for job {JobId} to worker", job.Id);
@@ -200,13 +205,18 @@ public class JobOrchestrationService : BackgroundService
         
         var httpClient = httpClientFactory.CreateClient("GenerationWorker");
 
+        // Get API base URL from configuration
+        var apiBaseUrl = _configuration.GetValue<string>("ApiBaseUrl") 
+            ?? Environment.GetEnvironmentVariable("API_BASE_URL")
+            ?? "http://localhost:5000";
+
         // Prepare generation request from job metadata
         var request = new
         {
             generation_request_id = job.EntityId.ToString(),
             prompt = job.Metadata.GetValueOrDefault("Prompt")?.ToString(),
             target_stems = job.Metadata.GetValueOrDefault("TargetStems")?.ToString(),
-            callback_url = $"http://music-api:8080/api/generation/{job.EntityId}/complete"
+            callback_url = $"{apiBaseUrl}/api/generation/{job.EntityId}/complete"
         };
 
         _logger.LogInformation("Sending generation request for job {JobId} to worker", job.Id);

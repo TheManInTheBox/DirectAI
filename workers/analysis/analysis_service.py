@@ -45,26 +45,6 @@ class AnalysisService:
         self.demucs_model = os.getenv("DEMUCS_MODEL", "htdemucs")
         self.sample_rate = 44100
         self.theory_analyzer = MusicTheoryAnalyzer()
-        self._flamingo_initialized = False
-    
-    async def initialize_flamingo(self):
-        """Initialize Audio Flamingo if not already done"""
-        if not self._flamingo_initialized:
-            try:
-                await self.flamingo_service.initialize_model()
-                # Set initialized flag based on actual model load state
-                self._flamingo_initialized = bool(getattr(self.flamingo_service, "model_loaded", False))
-                if self._flamingo_initialized:
-                    logger.info("Audio Flamingo service initialized successfully")
-                else:
-                    logger.warning("Audio Flamingo not initialized (model not loaded)")
-            except Exception as e:
-                # If Flamingo is required, propagate the failure to fail-fast per configuration
-                if bool(getattr(self.flamingo_service, "require_flamingo", False)):
-                    logger.error("Audio Flamingo is required but failed to initialize; aborting analysis")
-                    raise
-                logger.warning(f"Failed to initialize Audio Flamingo: {str(e)}")
-                self._flamingo_initialized = False
     
     async def extract_mp3_metadata(self, audio_path: Path) -> Dict[str, Any]:
         """
@@ -941,16 +921,10 @@ class AnalysisService:
             # Stem-specific analysis
             stem_characteristics = await self._analyze_stem_characteristics(y, sr, stem_type)
             
-            # Audio Flamingo analysis for the stem
-            await self.initialize_flamingo()
-            flamingo_analysis = {}
-            if self._flamingo_initialized:
-                flamingo_analysis = await self.flamingo_service.analyze_audio_content(stem_path)
-            
-            # Prepare Bark training data for this stem
+            # Prepare Bark training data for this stem (without Flamingo)
             bark_training_data = await self._prepare_stem_bark_training_data(
                 stem_path, stem_type, bpm, key, duration,
-                flamingo_analysis, technical_features, spectral_features, 
+                {}, technical_features, spectral_features, 
                 psychoacoustic_features, stem_characteristics
             )
             
@@ -965,7 +939,6 @@ class AnalysisService:
                 "spectral_features": spectral_features,
                 "psychoacoustic_features": psychoacoustic_features,
                 "stem_characteristics": stem_characteristics,
-                "flamingo_analysis": flamingo_analysis,
                 "bark_training_data": bark_training_data,
                 "notation_data": await self.extract_notation(stem_path, stem_type, sr)
             }

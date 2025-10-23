@@ -481,8 +481,12 @@ async def process_analysis(
         processing_time = (datetime.utcnow() - start_time).total_seconds()
         
         # Step 10: Send success callback with comprehensive results
-        if callback_url:
-            logger.info(f"Sending success callback to: {callback_url}")
+        # Use API_BASE_URL from environment instead of passed callback_url to avoid DNS issues
+        api_base_url = os.getenv("API_BASE_URL", "http://localhost:5000")
+        actual_callback_url = f"{api_base_url}/api/audio/{audio_file_id}/analysis-complete"
+        
+        if True:  # Always send callback when API_BASE_URL is configured
+            logger.info(f"Sending success callback to: {actual_callback_url}")
             success_payload = {
                 "success": True,
                 "error_message": None,
@@ -513,7 +517,7 @@ async def process_analysis(
             }
             try:
                 async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.post(callback_url, json=success_payload)
+                    response = await client.post(actual_callback_url, json=success_payload)
                     response.raise_for_status()
                     logger.info(f"Success callback sent: {response.status_code}")
             except Exception as callback_error:
@@ -527,14 +531,18 @@ async def process_analysis(
         logger.error(f"Error processing analysis for {audio_file_id}: {str(e)}", exc_info=True)
         
         # Send error callback if URL provided
-        if callback_url:
+        # Use API_BASE_URL from environment instead of passed callback_url
+        api_base_url = os.getenv("API_BASE_URL", "http://localhost:5000")
+        actual_callback_url = f"{api_base_url}/api/audio/{audio_file_id}/analysis-complete"
+        
+        if True:  # Always send callback
             error_payload = {
                 "success": False,
                 "error_message": str(e)
             }
             try:
                 async with httpx.AsyncClient(timeout=10.0) as client:
-                    await client.post(callback_url, json=error_payload)
+                    await client.post(actual_callback_url, json=error_payload)
                     logger.info("Error callback sent successfully")
             except Exception as callback_error:
                 logger.error(f"Failed to send error callback: {callback_error}")

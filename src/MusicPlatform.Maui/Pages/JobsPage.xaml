@@ -127,7 +127,7 @@
                                 <RoundRectangle CornerRadius="8"/>
                             </Border.StrokeShape>
 
-                            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto">
+                            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto">
                                 
                                 <!-- Status Icon & Main Info -->
                                 <Label Grid.Row="0" Grid.Column="0"
@@ -219,34 +219,14 @@
                                            IsVisible="{Binding IdempotencyKey, Converter={StaticResource IsNotNullConverter}}"/>
                                 </VerticalStackLayout>
 
-                                <!-- Worker & Heartbeat Info -->
-                                <Border Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2"
-                                        Padding="8"
-                                        Margin="0,5,0,0"
-                                        BackgroundColor="{AppThemeBinding Light=#F8F9FA, Dark=#2A2A2A}"
-                                        Stroke="{AppThemeBinding Light=#DEE2E6, Dark=#495057}"
-                                        StrokeThickness="1"
-                                        IsVisible="{Binding Status, Converter={StaticResource StringEqualsConverter}, ConverterParameter=Running}">
-                                    <Border.StrokeShape>
-                                        <RoundRectangle CornerRadius="4"/>
-                                    </Border.StrokeShape>
-                                    <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto">
-                                        <Label Grid.Row="0" Grid.Column="0"
-                                               Text="{Binding WorkerInfo}"
-                                               FontSize="11"
-                                               TextColor="Blue"/>
-                                        <Label Grid.Row="0" Grid.Column="1"
-                                               Text="{Binding HeartbeatStatus, StringFormat='Heartbeat: {0}'}"
-                                               FontSize="11"
-                                               TextColor="{Binding IsStale, Converter={StaticResource BoolToColorConverter}, ConverterParameter=Red|Green}"
-                                               HorizontalOptions="End"/>
-                                        <Label Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
-                                               Text="{Binding CurrentStep, StringFormat='Step: {0}'}"
-                                               FontSize="11"
-                                               TextColor="Purple"
-                                               IsVisible="{Binding CurrentStep, Converter={StaticResource IsNotNullConverter}}"/>
-                                    </Grid>
-                                </Border>
+                                <!-- Current Step (for Running Jobs) -->
+                                <Label Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2"
+                                       Text="{Binding CurrentStep, StringFormat='Current: {0}'}"
+                                       FontSize="12"
+                                       FontAttributes="Italic"
+                                       TextColor="Blue"
+                                       Margin="0,5,0,0"
+                                       IsVisible="{Binding CurrentStep, Converter={StaticResource IsNotNullConverter}}"/>
 
                                 <!-- Completed At -->
                                 <Label Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2"
@@ -256,25 +236,8 @@
                                        Margin="0,5,0,0"
                                        IsVisible="{Binding CompletedAt, Converter={StaticResource IsNotNullConverter}}"/>
 
-                                <!-- Stale Warning -->
-                                <Border Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="3"
-                                        Padding="10"
-                                        Margin="0,5,0,0"
-                                        BackgroundColor="{AppThemeBinding Light=#FFF8DC, Dark=#4A4A2A}"
-                                        Stroke="Orange"
-                                        StrokeThickness="1"
-                                        IsVisible="{Binding IsStale}">
-                                    <Border.StrokeShape>
-                                        <RoundRectangle CornerRadius="4"/>
-                                    </Border.StrokeShape>
-                                    <Label Text="⚠️ Warning: This job appears to be stale. The worker may have crashed or become unresponsive."
-                                           FontSize="12"
-                                           TextColor="Orange"
-                                           LineBreakMode="WordWrap"/>
-                                </Border>
-
                                 <!-- Comprehensive Analysis Success (for Analysis jobs only) -->
-                                <Border Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="3"
+                                <Border Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="3"
                                         Padding="10"
                                         Margin="0,5,0,0"
                                         BackgroundColor="{AppThemeBinding Light=#F0F8FF, Dark=#1E3A5F}"
@@ -317,7 +280,7 @@
                                 </Border>
 
                                 <!-- Error Message -->
-                                <Border Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="3"
+                                <Border Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="3"
                                         Padding="10"
                                         Margin="0,5,0,0"
                                         BackgroundColor="{AppThemeBinding Light=#FFF3F3, Dark=#3D1F1F}"

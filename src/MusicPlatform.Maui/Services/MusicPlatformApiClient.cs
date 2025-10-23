@@ -41,12 +41,15 @@ public class MusicPlatformApiClient
         try
         {
             Console.WriteLine($"🔼 Uploading {fileName} to {_httpClient.BaseAddress}/api/audio/upload");
+            Console.WriteLine($"🔍 HttpClient BaseAddress: {_httpClient.BaseAddress}");
+            Console.WriteLine($"🔍 HttpClient Timeout: {_httpClient.Timeout}");
             
             using var content = new MultipartFormDataContent();
             var streamContent = new StreamContent(audioStream);
             streamContent.Headers.ContentType = new MediaTypeHeaderValue("audio/mpeg");
             content.Add(streamContent, "file", fileName);
 
+            Console.WriteLine($"🌐 Sending POST request...");
             var response = await _httpClient.PostAsync(
                 "/api/audio/upload",
                 content,
@@ -65,9 +68,25 @@ public class MusicPlatformApiClient
             response.EnsureSuccessStatusCode();
             return await response.Content.ReadFromJsonAsync<AudioFileDto>(cancellationToken: cancellationToken);
         }
+        catch (TaskCanceledException ex)
+        {
+            Console.WriteLine($"❌ Upload timeout: {ex.Message}");
+            Console.WriteLine($"❌ Stack trace: {ex.StackTrace}");
+            throw new Exception($"Upload timed out after {_httpClient.Timeout.TotalSeconds} seconds", ex);
+        }
+        catch (HttpRequestException ex)
+        {
+            Console.WriteLine($"❌ HTTP request error: {ex.Message}");
+            Console.WriteLine($"❌ Inner exception: {ex.InnerException?.Message}");
+            Console.WriteLine($"❌ Stack trace: {ex.StackTrace}");
+            throw;
+        }
         catch (Exception ex)
         {
-            Console.WriteLine($"❌ Upload exception: {ex}");
+            Console.WriteLine($"❌ Upload exception type: {ex.GetType().Name}");
+            Console.WriteLine($"❌ Upload exception message: {ex.Message}");
+            Console.WriteLine($"❌ Inner exception: {ex.InnerException?.Message}");
+            Console.WriteLine($"❌ Stack trace: {ex.StackTrace}");
             throw;
         }
     }

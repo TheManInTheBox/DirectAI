@@ -32,6 +32,16 @@ public static class MauiProgram
 		{
 			client.BaseAddress = new Uri(apiSettings.BaseUrl);
 			client.Timeout = TimeSpan.FromSeconds(apiSettings.TimeoutSeconds);
+		})
+		.ConfigurePrimaryHttpMessageHandler(() =>
+		{
+			var handler = new HttpClientHandler();
+#if DEBUG
+			// For development only - bypass SSL certificate validation
+			handler.ServerCertificateCustomValidationCallback = 
+				HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
+#endif
+			return handler;
 		});
 
 		// Register HTTP client for image downloading

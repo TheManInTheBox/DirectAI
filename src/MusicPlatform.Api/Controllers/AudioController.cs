@@ -386,9 +386,11 @@ public class AudioController : ControllerBase
         return audioFile with
         {
             BlobUri = audioFile.BlobUri.Replace("http://azurite:10000", "http://localhost:10000"),
-            AlbumArtworkUri = !string.IsNullOrEmpty(audioFile.AlbumArtworkUri) 
-                ? $"http://localhost:5000/api/audio/{audioFile.Id}/artwork"
-                : null
+            // Only transform artwork URI if it's pointing to local storage emulator
+            // Otherwise keep the Azure blob storage URL as-is
+            AlbumArtworkUri = !string.IsNullOrEmpty(audioFile.AlbumArtworkUri) && audioFile.AlbumArtworkUri.Contains("azurite")
+                ? audioFile.AlbumArtworkUri.Replace("http://azurite:10000", "http://localhost:10000")
+                : audioFile.AlbumArtworkUri
         };
     }
 
@@ -1070,18 +1072,27 @@ public class AudioController : ControllerBase
             if (audioFile == null || string.IsNullOrEmpty(audioFile.AlbumArtworkUri))
                 return NotFound();
 
-            // Get the blob URI (with azurite hostname)
-            var blobUri = audioFile.AlbumArtworkUri.Replace("http://localhost:10000", "http://azurite:10000");
+            // Parse the blob URI to get container and blob name
+            var blobUri = new Uri(audioFile.AlbumArtworkUri);
+            var segments = blobUri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
             
-            // Download from blob storage
-            var containerName = _configuration["BlobStorage:ContainerName"] ?? "audio-files";
+            if (segments.Length < 2)
+                return NotFound();
+            
+            var containerName = segments[0]; // e.g., "audio-files"
+            var blobPath = string.Join("/", segments.Skip(1)); // e.g., "{id}/artwork.jpg"
+            
+            // Download from blob storage using managed identity
             var containerClient = _blobServiceClient.GetBlobContainerClient(containerName);
-            var blobName = $"{audioFile.Id}/artwork.jpg";
-            var blobClient = containerClient.GetBlobClient(blobName);
+            var blobClient = containerClient.GetBlobClient(blobPath);
+
+            if (!await blobClient.ExistsAsync())
+                return NotFound();
 
             var response = await blobClient.DownloadAsync();
+            var contentType = response.Value.Details.ContentType ?? "image/jpeg";
             
-            return File(response.Value.Content, "image/jpeg");
+            return File(response.Value.Content, contentType);
         }
         catch (Exception ex)
         {
