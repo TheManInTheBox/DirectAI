@@ -547,18 +547,23 @@ public record GenerationParametersDto(
 public record GeneratedStemDto(
     Guid Id,
     Guid GenerationRequestId,
-    string StemType,
-    string BlobPath,
-    long FileSizeBytes,
-    double? DurationSeconds,
-    string? Metadata,
-    DateTime CreatedAt,
-    // Audio File metadata for display
-    Guid? AudioFileId = null,
-    string? AudioFileTitle = null,
-    string? AudioFileArtist = null,
-    string? AudioFileAlbum = null,
-    string? AlbumArtworkUri = null
+    string Type,  // Changed from StemType to match API
+    string BlobUri,  // Changed from BlobPath to match API
+    float DurationSeconds,  // Changed from double? to float to match API
+    string Format,  // Added to match API
+    int SampleRate,  // Added to match API
+    int BitDepth,  // Added to match API
+    int Channels,  // Added to match API
+    DateTime GeneratedAt,  // Changed from CreatedAt to match API
+    // Legacy properties for backward compatibility
+    [System.Text.Json.Serialization.JsonIgnore]
+    string StemType => Type,
+    [System.Text.Json.Serialization.JsonIgnore]
+    string BlobPath => BlobUri,
+    [System.Text.Json.Serialization.JsonIgnore]
+    DateTime CreatedAt => GeneratedAt,
+    [System.Text.Json.Serialization.JsonIgnore]
+    long FileSizeBytes => 0  // Not provided by API for generated stems
 );
 
 /// <summary>

@@ -267,6 +267,110 @@ public class GenerationController : ControllerBase
     }
 
     /// <summary>
+    /// Callback endpoint for generation worker to report completion.
+    /// </summary>
+    /// <param name="id">Generation request ID</param>
+    /// <param name="result">Generation result payload from worker</param>
+    /// <returns>Accepted response</returns>
+    [HttpPost("{id}/complete")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GenerationComplete(Guid id, [FromBody] GenerationResultDto result)
+    {
+        _logger.LogInformation("Received generation completion callback for request {RequestId}, status: {Status}", 
+            id, result.Status);
+
+        // Find the generation request
+        var request = await _dbContext.GenerationRequests.FindAsync(id);
+        if (request == null)
+        {
+            _logger.LogWarning("Generation request {RequestId} not found for completion callback", id);
+            return NotFound($"Generation request with ID {id} not found");
+        }
+
+        // Find the associated job
+        var job = await _dbContext.Jobs
+            .FirstOrDefaultAsync(j => j.Type == JobType.Generation && j.EntityId == id);
+
+        if (result.Status == "completed")
+        {
+            // Update generation request
+            var completedRequest = request with
+            {
+                Status = GenerationStatus.Completed,
+                CompletedAt = DateTime.UtcNow
+            };
+            _dbContext.Entry(request).CurrentValues.SetValues(completedRequest);
+
+            // Save generated track info
+            if (result.Track != null)
+            {
+                var generatedStem = new GeneratedStem
+                {
+                    Id = Guid.NewGuid(),
+                    GenerationRequestId = id,
+                    Type = StemType.Other, // Use "Other" for full track
+                    BlobUri = result.Track.BlobUrl,
+                    Format = result.Track.Format,
+                    SampleRate = result.Track.SampleRate,
+                    Channels = result.Track.Channels,
+                    GeneratedAt = DateTime.UtcNow,
+                    Metadata = new GenerationMetadata()
+                };
+                _dbContext.GeneratedStems.Add(generatedStem);
+                _logger.LogInformation("Saved generated track for request {RequestId}: {BlobUrl}", 
+                    id, result.Track.BlobUrl);
+            }
+
+            // Update job
+            if (job != null)
+            {
+                var completedJob = job with
+                {
+                    Status = JobStatus.Completed,
+                    CurrentStep = "generation_complete",
+                    CompletedAt = DateTime.UtcNow,
+                    LastHeartbeat = DateTime.UtcNow
+                };
+                _dbContext.Entry(job).CurrentValues.SetValues(completedJob);
+            }
+
+            _logger.LogInformation("Generation request {RequestId} completed successfully in {ProcessingTime}s", 
+                id, result.ProcessingTimeSeconds);
+        }
+        else if (result.Status == "failed")
+        {
+            // Update generation request
+            var failedRequest = request with
+            {
+                Status = GenerationStatus.Failed,
+                CompletedAt = DateTime.UtcNow,
+                ErrorMessage = result.Error
+            };
+            _dbContext.Entry(request).CurrentValues.SetValues(failedRequest);
+
+            // Update job
+            if (job != null)
+            {
+                var failedJob = job with
+                {
+                    Status = JobStatus.Failed,
+                    ErrorMessage = result.Error,
+                    CompletedAt = DateTime.UtcNow,
+                    LastHeartbeat = DateTime.UtcNow
+                };
+                _dbContext.Entry(job).CurrentValues.SetValues(failedJob);
+            }
+
+            _logger.LogWarning("Generation request {RequestId} failed: {Error}", id, result.Error);
+        }
+
+        await _dbContext.SaveChangesAsync();
+
+        return Ok(new { message = "Generation completion processed successfully" });
+    }
+
+    /// <summary>
     /// Trigger generation workflow (internal use).
     /// </summary>
     private async Task TriggerGenerationAsync(Guid generationRequestId, Guid jobId)
@@ -415,4 +519,43 @@ public class GenerationParametersDto
     
     // For trained model generation
     public Guid? TrainedModelId { get; set; }  // Use custom trained model instead of base MusicGen
+}
+
+/// <summary>
+/// DTO for generation completion callback from worker.
+/// </summary>
+public class GenerationResultDto
+{
+    [System.Text.Json.Serialization.JsonPropertyName("status")]
+    public string Status { get; set; } = string.Empty;  // "completed" or "failed"
+    
+    [System.Text.Json.Serialization.JsonPropertyName("processing_time_seconds")]
+    public float? ProcessingTimeSeconds { get; set; }
+    
+    [System.Text.Json.Serialization.JsonPropertyName("track")]
+    public GeneratedTrackDto? Track { get; set; }
+    
+    [System.Text.Json.Serialization.JsonPropertyName("error")]
+    public string? Error { get; set; }
+}
+
+/// <summary>
+/// DTO for generated track info.
+/// </summary>
+public class GeneratedTrackDto
+{
+    [System.Text.Json.Serialization.JsonPropertyName("blob_url")]
+    public string BlobUrl { get; set; } = string.Empty;
+    
+    [System.Text.Json.Serialization.JsonPropertyName("file_size_bytes")]
+    public long FileSizeBytes { get; set; }
+    
+    [System.Text.Json.Serialization.JsonPropertyName("format")]
+    public string Format { get; set; } = "wav";
+    
+    [System.Text.Json.Serialization.JsonPropertyName("sample_rate")]
+    public int SampleRate { get; set; }
+    
+    [System.Text.Json.Serialization.JsonPropertyName("channels")]
+    public int Channels { get; set; }
 }

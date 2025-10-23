@@ -380,17 +380,23 @@ public class AudioController : ControllerBase
 
     /// <summary>
     /// Transform Docker internal URLs (azurite:10000) to localhost URLs for client access.
+    /// Also transforms artwork URLs to use API proxy endpoint.
     /// </summary>
     private AudioFile TransformUrlsForClient(AudioFile audioFile)
     {
+        // Get the API base URL from configuration or use default
+        var apiBaseUrl = _configuration["ApiBaseUrl"] 
+            ?? Environment.GetEnvironmentVariable("API_BASE_URL")
+            ?? "http://localhost:5000";
+
         return audioFile with
         {
             BlobUri = audioFile.BlobUri.Replace("http://azurite:10000", "http://localhost:10000"),
-            // Only transform artwork URI if it's pointing to local storage emulator
-            // Otherwise keep the Azure blob storage URL as-is
-            AlbumArtworkUri = !string.IsNullOrEmpty(audioFile.AlbumArtworkUri) && audioFile.AlbumArtworkUri.Contains("azurite")
-                ? audioFile.AlbumArtworkUri.Replace("http://azurite:10000", "http://localhost:10000")
-                : audioFile.AlbumArtworkUri
+            // Transform artwork to use API proxy endpoint for both local and Azure blob storage
+            // This allows the API to authenticate with managed identity
+            AlbumArtworkUri = !string.IsNullOrEmpty(audioFile.AlbumArtworkUri)
+                ? $"{apiBaseUrl}/api/audio/{audioFile.Id}/artwork"
+                : null
         };
     }
 

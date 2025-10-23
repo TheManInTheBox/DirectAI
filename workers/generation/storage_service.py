@@ -44,6 +44,52 @@ class StorageService:
         """Check if storage client is configured"""
         return self.blob_service_client is not None
     
+    async def upload_generated_track(
+        self,
+        generation_request_id: str,
+        local_path: Path
+    ) -> str:
+        """
+        Upload generated audio track to blob storage
+        
+        Path structure: generated/{generation_request_id}/track.wav
+        """
+        try:
+            if not self.blob_service_client:
+                raise RuntimeError("Blob storage client not configured")
+            
+            # Generate blob name
+            blob_name = f"generated/{generation_request_id}/track.wav"
+            
+            logger.info(f"Uploading generated track: {blob_name}")
+            
+            # Get blob client
+            blob_client = self.blob_service_client.get_blob_client(
+                container=self.container_name,
+                blob=blob_name
+            )
+            
+            # Upload file
+            from azure.storage.blob import ContentSettings
+            
+            with open(local_path, "rb") as data:
+                await asyncio.to_thread(
+                    blob_client.upload_blob,
+                    data,
+                    overwrite=True,
+                    content_settings=ContentSettings(content_type='audio/wav')
+                )
+            
+            # Get blob URL
+            blob_url = blob_client.url
+            logger.info(f"Uploaded generated track to {blob_url}")
+            
+            return blob_url
+            
+        except Exception as e:
+            logger.error(f"Error uploading generated track: {str(e)}", exc_info=True)
+            raise
+    
     async def upload_generated_stem(
         self,
         generation_request_id: str,
@@ -52,7 +98,7 @@ class StorageService:
         local_path: Path
     ) -> str:
         """
-        Upload generated stem file to blob storage
+        Legacy method - Upload generated stem file to blob storage
         
         Path structure: {audio_file_id}/generated/{generation_request_id}/{stem_type}.wav
         """

@@ -50,8 +50,7 @@ class GenerationParameters(BaseModel):
 class GenerateRequest(BaseModel):
     """Request model for generation endpoint"""
     generation_request_id: str = Field(..., description="GUID of the generation request")
-    audio_file_id: str = Field(..., description="GUID of the source audio file")
-    target_stems: List[str] = Field(..., description="Stem types to generate (vocals, drums, bass, guitar, etc.)")
+    audio_file_id: Optional[str] = Field(None, description="Optional GUID of the source audio file")
     parameters: GenerationParameters = Field(..., description="Generation parameters")
     callback_url: Optional[str] = Field(None, description="Optional callback URL for results")
     
@@ -60,7 +59,6 @@ class GenerateRequest(BaseModel):
             "example": {
                 "generation_request_id": "gen-123e4567-e89b-12d3-a456-426614174000",
                 "audio_file_id": "aud-123e4567-e89b-12d3-a456-426614174000",
-                "target_stems": ["guitar", "bass", "drums"],
                 "parameters": {
                     "target_bpm": 120.0,
                     "duration_seconds": 30.0,
@@ -111,40 +109,28 @@ async def health_check():
 
 
 @app.post("/generate", response_model=GenerationResponse)
-async def generate_stems(
+async def generate_track(
     request: GenerateRequest,
     background_tasks: BackgroundTasks
 ):
     """
-    Main generation endpoint - creates new audio stems using AI models
+    Main generation endpoint - creates a complete AI-generated audio track
     
     Process:
     1. Validate generation request
-    2. Load conditioning parameters (BPM, chords, style, prompt)
-    3. Generate stems using appropriate models:
-       - Stable Audio Open: General audio generation
-       - MusicGen: Music-specific generation
-    4. Upload generated stems to blob storage
+    2. Load conditioning parameters (BPM, key, style, prompt)
+    3. Generate complete track using MusicGen (optionally with trained model)
+    4. Upload generated track to blob storage
     5. Return results (or call callback URL)
     """
     logger.info(f"Received generation request: {request.generation_request_id}")
     
     try:
-        # Validate target stems
-        valid_stems = {"vocals", "drums", "bass", "guitar", "piano", "synth", "other"}
-        invalid_stems = set(request.target_stems) - valid_stems
-        if invalid_stems:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid stem types: {invalid_stems}. Valid: {valid_stems}"
-            )
-        
         # Start background generation task
         background_tasks.add_task(
             process_generation,
             request.generation_request_id,
             request.audio_file_id,
-            request.target_stems,
             request.parameters.model_dump(),
             request.callback_url
         )
@@ -152,7 +138,7 @@ async def generate_stems(
         return GenerationResponse(
             generation_request_id=request.generation_request_id,
             status="processing",
-            message="Generation started. Stems will be available shortly."
+            message="Generation started. Track will be available shortly."
         )
         
     except HTTPException:
@@ -164,13 +150,12 @@ async def generate_stems(
 
 async def process_generation(
     generation_request_id: str,
-    audio_file_id: str,
-    target_stems: List[str],
+    audio_file_id: Optional[str],
     parameters: Dict[str, Any],
     callback_url: Optional[str]
 ):
     """
-    Background task to process stem generation
+    Background task to process audio track generation
     """
     temp_dir = None
     start_time = datetime.utcnow()
@@ -182,71 +167,58 @@ async def process_generation(
         temp_dir = tempfile.mkdtemp(prefix=f"generation_{generation_request_id}_")
         temp_path = Path(temp_dir)
         
-        generated_stems = []
+        # Generate complete track using AI models
+        logger.info(f"Generating complete audio track with parameters: {parameters}")
         
-        # Generate each requested stem
-        for stem_type in target_stems:
-            logger.info(f"Generating stem: {stem_type}")
-            
-            try:
-                # Generate audio using AI models
-                audio_path = await generation_service.generate_stem(
-                    stem_type=stem_type,
-                    parameters=parameters,
-                    output_dir=temp_path
-                )
-                
-                if not audio_path or not audio_path.exists():
-                    logger.warning(f"Failed to generate stem: {stem_type}")
-                    continue
-                
-                logger.info(f"Generated {stem_type}: {audio_path.stat().st_size} bytes")
-                
-                # Upload to blob storage
-                blob_url = await storage_service.upload_generated_stem(
-                    generation_request_id=generation_request_id,
-                    audio_file_id=audio_file_id,
-                    stem_type=stem_type,
-                    local_path=audio_path
-                )
-                
-                generated_stems.append({
-                    "stem_type": stem_type,
-                    "blob_url": blob_url,
-                    "file_size_bytes": audio_path.stat().st_size,
-                    "format": "wav",
-                    "sample_rate": 44100,
-                    "channels": 2
-                })
-                
-                logger.info(f"Uploaded {stem_type} stem: {blob_url}")
-                
-            except Exception as stem_error:
-                logger.error(f"Error generating stem {stem_type}: {str(stem_error)}")
-                # Continue with other stems
+        audio_path = await generation_service.generate_track(
+            parameters=parameters,
+            output_dir=temp_path
+        )
         
-        if not generated_stems:
-            raise RuntimeError("No stems were successfully generated")
+        if not audio_path or not audio_path.exists():
+            raise RuntimeError("Failed to generate audio track")
+        
+        logger.info(f"Generated track: {audio_path.stat().st_size} bytes")
+        
+        # Upload to blob storage
+        blob_url = await storage_service.upload_generated_track(
+            generation_request_id=generation_request_id,
+            local_path=audio_path
+        )
+        
+        track_info = {
+            "blob_url": blob_url,
+            "file_size_bytes": audio_path.stat().st_size,
+            "format": "wav",
+            "sample_rate": 44100,
+            "channels": 2
+        }
         
         # Prepare final response
         processing_time = (datetime.utcnow() - start_time).total_seconds()
         
         result_payload = {
             "generation_request_id": generation_request_id,
-            "audio_file_id": audio_file_id,
             "status": "completed",
             "processing_time_seconds": processing_time,
-            "generated_stems": generated_stems,
+            "track": track_info,
             "parameters": parameters
         }
         
-        # Send results via callback or log
-        if callback_url:
-            logger.info(f"Sending results to callback URL: {callback_url}")
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(callback_url, json=result_payload)
-                response.raise_for_status()
-                logger.info(f"Callback successful: {response.status_code}")
+        # Construct callback URL from API_BASE_URL environment variable
+        api_base_url = os.getenv("API_BASE_URL", "http://localhost:5000")
+        actual_callback_url = f"{api_base_url}/api/generation/{generation_request_id}/complete"
+        
+        # Always send callback
+        if True:
+            logger.info(f"Sending success callback to: {actual_callback_url}")
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.post(actual_callback_url, json=result_payload)
+                    response.raise_for_status()
+                    logger.info(f"Callback successful: {response.status_code}")
+            except Exception as callback_error:
+                logger.error(f"Failed to send success callback: {callback_error}")
         else:
             logger.info(f"Generation complete for {generation_request_id}. No callback URL provided.")
             logger.info(f"Results: {result_payload}")
@@ -254,19 +226,22 @@ async def process_generation(
     except Exception as e:
         logger.error(f"Error processing generation for {generation_request_id}: {str(e)}", exc_info=True)
         
-        # Send error callback if URL provided
-        if callback_url:
-            error_payload = {
-                "generation_request_id": generation_request_id,
-                "audio_file_id": audio_file_id,
-                "status": "failed",
-                "error": str(e)
-            }
-            try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    await client.post(callback_url, json=error_payload)
-            except Exception as callback_error:
-                logger.error(f"Failed to send error callback: {callback_error}")
+        # Send error callback using API_BASE_URL
+        api_base_url = os.getenv("API_BASE_URL", "http://localhost:5000")
+        error_callback_url = f"{api_base_url}/api/generation/{generation_request_id}/complete"
+        
+        error_payload = {
+            "generation_request_id": generation_request_id,
+            "status": "failed",
+            "error": str(e)
+        }
+        
+        try:
+            logger.info(f"Sending error callback to: {error_callback_url}")
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                await client.post(error_callback_url, json=error_payload)
+        except Exception as callback_error:
+            logger.error(f"Failed to send error callback: {callback_error}")
     
     finally:
         # Cleanup temporary directory
