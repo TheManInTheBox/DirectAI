@@ -35,9 +35,9 @@ public class TrainedModel
     public long ModelSizeBytes { get; set; }
     
     /// <summary>
-    /// Base model that was fine-tuned (e.g., "facebook/MelodyFlow")
+    /// Base model that was fine-tuned (e.g., "facebook/musicgen-melody-large")
     /// </summary>
-    public string BaseModel { get; set; } = "facebook/MelodyFlow";
+    public string BaseModel { get; set; } = "facebook/musicgen-melody-large";
     
     /// <summary>
     /// Training configuration and hyperparameters (JSON)

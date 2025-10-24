@@ -24,23 +24,24 @@ public partial class MainPage : ContentPage
     {
         if (sender is MediaElement mediaElement)
         {
-            // BindingContext might not be set immediately in DataTemplates
-            // Wire up once it's available
+            // Always set the audio player reference when the MediaElement is loaded
+            // This ensures it's set even after navigation
             if (mediaElement.BindingContext is GeneratedMusicItem item)
             {
                 item.AudioPlayer = mediaElement;
             }
-            else
-            {
-                // Subscribe to BindingContextChanged as fallback
-                mediaElement.BindingContextChanged += (s, _) =>
-                {
-                    if (s is MediaElement me && me.BindingContext is GeneratedMusicItem musicItem)
-                    {
-                        musicItem.AudioPlayer = me;
-                    }
-                };
-            }
+            
+            // Also subscribe to BindingContextChanged to handle async binding scenarios
+            mediaElement.BindingContextChanged += OnMediaElementBindingContextChanged;
+        }
+    }
+    
+    private void OnMediaElementBindingContextChanged(object? sender, EventArgs e)
+    {
+        if (sender is MediaElement mediaElement && mediaElement.BindingContext is GeneratedMusicItem item)
+        {
+            // Set the audio player reference whenever the binding context changes
+            item.AudioPlayer = mediaElement;
         }
     }
 

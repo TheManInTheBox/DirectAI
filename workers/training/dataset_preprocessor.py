@@ -385,7 +385,7 @@ if __name__ == "__main__":
         
         # Load as dataset
         from transformers import AutoProcessor
-        processor = AutoProcessor.from_pretrained("facebook/musicgen-small")
+        processor = AutoProcessor.from_pretrained("facebook/musicgen-melody-large")
         
         dataset = MusicGenDataset.from_directory(
             data_dir=output_dir,

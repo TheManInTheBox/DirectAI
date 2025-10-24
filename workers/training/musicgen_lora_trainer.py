@@ -43,7 +43,7 @@ class MusicGenLoRATrainer:
     
     def __init__(
         self,
-        base_model_name: str = "facebook/musicgen-small",
+        base_model_name: str = "facebook/musicgen-melody-large",
         lora_r: int = 16,
         lora_alpha: int = 32,
         lora_dropout: float = 0.1,
@@ -295,7 +295,7 @@ class MusicGenLoRATrainer:
     @staticmethod
     def load_trained_model(
         checkpoint_path: Path,
-        base_model_name: str = "facebook/musicgen-small",
+        base_model_name: str = "facebook/musicgen-melody-large",
         device: str = "auto"
     ) -> PeftModel:
         """
@@ -537,7 +537,7 @@ if __name__ == "__main__":
     
     # Initialize trainer
     trainer = MusicGenLoRATrainer(
-        base_model_name="facebook/musicgen-small",
+        base_model_name="facebook/musicgen-melody-large",
         lora_r=16,
         lora_alpha=32
     )

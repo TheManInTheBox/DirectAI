@@ -47,9 +47,9 @@ class GenerationService:
             
             # Load MusicGen base model
             try:
-                logger.info("Loading MusicGen base model (facebook/musicgen-small)...")
-                self.processor = AutoProcessor.from_pretrained("facebook/musicgen-small")
-                self.base_model = MusicgenForConditionalGeneration.from_pretrained("facebook/musicgen-small")
+                logger.info("Loading MusicGen base model (facebook/musicgen-melody-large)...")
+                self.processor = AutoProcessor.from_pretrained("facebook/musicgen-melody-large")
+                self.base_model = MusicgenForConditionalGeneration.from_pretrained("facebook/musicgen-melody-large")
                 self.base_model.to(device)
                 self.has_musicgen = True
                 logger.info("MusicGen base model loaded successfully")

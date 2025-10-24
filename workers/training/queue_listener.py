@@ -128,7 +128,7 @@ class TrainingQueueListener:
             "job_id": "uuid",
             "dataset_id": "uuid",
             "model_name": "my-custom-model",
-            "base_model": "facebook/musicgen-small",
+            "base_model": "facebook/musicgen-melody-large",
             "epochs": 100,
             "learning_rate": 0.0001,
             "lora_rank": 8,

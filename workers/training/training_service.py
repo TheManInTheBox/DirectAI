@@ -73,8 +73,8 @@ class MusicGenTrainingService:
             logger.info("Using CPU (training will be slow)")
         
         # Load base model and processor
-        logger.info("Loading MusicGen-small base model...")
-        model_name = "facebook/musicgen-small"
+        logger.info("Loading MusicGen-melody-large base model...")
+        model_name = "facebook/musicgen-melody-large"
         
         self.processor = AutoProcessor.from_pretrained(model_name)
         self.base_model = MusicgenForConditionalGeneration.from_pretrained(
@@ -117,7 +117,7 @@ class MusicGenTrainingService:
             model_id = await self.db_service.create_trained_model(
                 dataset_id=dataset_id,
                 name=model_name,
-                base_model="facebook/musicgen-small"
+                base_model="facebook/musicgen-melody-large"
             )
             
             # Update status to Training

@@ -529,7 +529,7 @@ public class TrainingController : ControllerBase
             Id = Guid.NewGuid(),
             TrainingDatasetId = request.DatasetId,
             ModelName = request.ModelName,
-            BaseModel = request.BaseModel ?? "facebook/MelodyFlow",
+            BaseModel = request.BaseModel ?? "facebook/musicgen-melody-large",
             Status = TrainingJobStatus.Pending,
             TotalEpochs = request.Epochs ?? 100,
             Hyperparameters = JsonSerializer.Serialize(new

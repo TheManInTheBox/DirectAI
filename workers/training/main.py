@@ -68,8 +68,8 @@ async def lifespan(app: FastAPI):
     await db_service.close()
 
 app = FastAPI(
-    title="MusicGen Training Worker",
-    description="LoRA fine-tuning service for MusicGen models",
+    title="MusicGen-Melody-Large Training Worker",
+    description="LoRA fine-tuning service for MusicGen-Melody-Large models",
     version="1.0.0",
     lifespan=lifespan
 )

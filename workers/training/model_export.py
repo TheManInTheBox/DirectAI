@@ -316,7 +316,7 @@ class MusicGenExporter:
         # Save export metadata
         metadata = {
             "timestamp": torch.datetime.now().isoformat(),
-            "base_model": "facebook/musicgen-small",
+            "base_model": "facebook/musicgen-melody-large",
             "formats": list(exported_paths.keys()),
             "paths": {k: str(v) for k, v in exported_paths.items()}
         }
@@ -414,7 +414,7 @@ class ONNXInferenceEngine:
 def export_trained_model_from_checkpoint(
     checkpoint_path: Path,
     output_dir: Path,
-    base_model_name: str = "facebook/musicgen-small",
+    base_model_name: str = "facebook/musicgen-melody-large",
     formats: list = ["torchscript", "onnx"]
 ) -> Dict[str, Path]:
     """

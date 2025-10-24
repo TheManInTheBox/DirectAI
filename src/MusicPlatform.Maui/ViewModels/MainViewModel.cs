@@ -1063,11 +1063,18 @@ public class GeneratedMusicItem : INotifyPropertyChanged
                 await GenerateWaveformDataAsync(_localFilePath);
             }
             
-            // Create and play audio
+            // Check if audio player is initialized
             if (AudioPlayer == null)
             {
-                StatusMessage = "Audio player not initialized";
-                return;
+                // Wait briefly for UI to initialize MediaElement (can happen during navigation)
+                await Task.Delay(100);
+                
+                if (AudioPlayer == null)
+                {
+                    StatusMessage = "Audio player not ready. Try again.";
+                    System.Diagnostics.Debug.WriteLine($"AudioPlayer is null for stem {_stem.Id}. MediaElement may not be loaded yet.");
+                    return;
+                }
             }
             
             // If paused or stopped, resume from current position
