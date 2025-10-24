@@ -27,6 +27,7 @@ public class MusicPlatformDbContext : DbContext
     public DbSet<TrainingDataset> TrainingDatasets { get; set; }
     public DbSet<TrainingDatasetStem> TrainingDatasetStems { get; set; }
     public DbSet<TrainedModel> TrainedModels { get; set; }
+    public DbSet<TrainingJob> TrainingJobs { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -265,6 +266,36 @@ public class MusicPlatformDbContext : DbContext
             entity.HasIndex(e => e.Status);
             entity.HasIndex(e => e.CreatedAt);
             entity.HasIndex(e => e.LastUsedAt);
+        });
+
+        // TrainingJob configuration
+        modelBuilder.Entity<TrainingJob>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.ModelName).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.BaseModel).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.Status).HasConversion<string>().IsRequired();
+            entity.Property(e => e.Hyperparameters).HasColumnType("text");
+            entity.Property(e => e.Metadata).HasColumnType("text");
+            entity.Property(e => e.ErrorMessage).HasMaxLength(2000);
+            
+            // Many-to-One relationship with TrainingDataset
+            entity.HasOne(e => e.TrainingDataset)
+                  .WithMany()
+                  .HasForeignKey(e => e.TrainingDatasetId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            
+            // One-to-One relationship with TrainedModel
+            entity.HasOne(e => e.TrainedModel)
+                  .WithMany()
+                  .HasForeignKey(e => e.TrainedModelId)
+                  .OnDelete(DeleteBehavior.SetNull);
+            
+            entity.HasIndex(e => e.TrainingDatasetId);
+            entity.HasIndex(e => e.Status);
+            entity.HasIndex(e => e.CreatedAt);
+            entity.HasIndex(e => e.StartedAt);
+            entity.HasIndex(e => e.CompletedAt);
         });
     }
 }

@@ -1,4 +1,5 @@
 using MusicPlatform.Maui.ViewModels;
+using CommunityToolkit.Maui.Views;
 
 namespace MusicPlatform.Maui.Pages;
 
@@ -17,6 +18,15 @@ public partial class MainPage : ContentPage
     {
         base.OnAppearing();
         await _viewModel.InitializeAsync();
+    }
+    
+    private void OnMediaElementLoaded(object? sender, EventArgs e)
+    {
+        if (sender is MediaElement mediaElement && 
+            mediaElement.BindingContext is GeneratedMusicItem item)
+        {
+            item.AudioPlayer = mediaElement;
+        }
     }
 
     private void OnDragOver(object? sender, DragEventArgs e)

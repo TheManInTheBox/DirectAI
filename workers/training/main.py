@@ -1,6 +1,8 @@
 import os
+import asyncio
 import logging
 from contextlib import asynccontextmanager
+from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import uvicorn
@@ -8,6 +10,7 @@ import uvicorn
 from training_service import MusicGenTrainingService
 from storage_service import StorageService
 from database_service import DatabaseService
+from queue_listener import TrainingQueueListener
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -17,11 +20,12 @@ logger = logging.getLogger(__name__)
 training_service: MusicGenTrainingService = None
 storage_service: StorageService = None
 db_service: DatabaseService = None
+queue_listener: Optional[TrainingQueueListener] = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize services on startup"""
-    global training_service, storage_service, db_service
+    global training_service, storage_service, db_service, queue_listener
     
     logger.info("Initializing training worker services...")
     
@@ -46,12 +50,20 @@ async def lifespan(app: FastAPI):
     )
     await training_service.initialize()
     
+    # Start queue listener if enabled
+    if os.getenv("ENABLE_QUEUE_LISTENER", "true").lower() == "true":
+        queue_listener = TrainingQueueListener(training_service=training_service)
+        asyncio.create_task(queue_listener.start())
+        logger.info("Queue listener started")
+    
     logger.info("Training worker initialized successfully")
     
     yield
     
     # Cleanup
     logger.info("Shutting down training worker...")
+    if queue_listener:
+        await queue_listener.stop()
     await training_service.cleanup()
     await db_service.close()
 

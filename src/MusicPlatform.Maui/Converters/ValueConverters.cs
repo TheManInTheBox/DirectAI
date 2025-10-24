@@ -115,6 +115,30 @@ public class IsGreaterThanZeroConverter : IValueConverter
 }
 
 /// <summary>
+/// Converts numeric value to boolean (true if not zero)
+/// </summary>
+public class IsNotZeroConverter : IValueConverter
+{
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (value is int intValue)
+            return intValue != 0;
+        if (value is long longValue)
+            return longValue != 0;
+        if (value is double doubleValue)
+            return Math.Abs(doubleValue) > 0.001; // Account for floating point precision
+        if (value is float floatValue)
+            return Math.Abs(floatValue) > 0.001f;
+        return false;
+    }
+
+    public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        throw new NotImplementedException();
+    }
+}
+
+/// <summary>
 /// Converts boolean to color (Primary if true, Secondary if false)
 /// Supports parameter in format "TrueColor|FalseColor"
 /// </summary>

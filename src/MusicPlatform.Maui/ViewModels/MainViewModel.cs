@@ -3,6 +3,8 @@ using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using System.Collections.ObjectModel;
 using MusicPlatform.Maui.Services;
+using CommunityToolkit.Maui.Core.Primitives;
+using CommunityToolkit.Maui.Views;
 
 namespace MusicPlatform.Maui.ViewModels;
 
@@ -817,12 +819,21 @@ public class GeneratedMusicItem : INotifyPropertyChanged
     private readonly MusicPlatformApiClient _apiClient;
     private bool _isDownloading = false;
     private string _statusMessage = string.Empty;
+    private bool _isPlaying = false;
+    private bool _isLoading = false;
+    private double _currentPosition = 0;
+    private string? _localFilePath = null;
+    private MediaElement? _audioPlayer;
 
     public GeneratedMusicItem(GeneratedStemDto stem, GenerationRequestDto request, MusicPlatformApiClient apiClient)
     {
         _stem = stem;
         _request = request;
         _apiClient = apiClient;
+        
+        PlayCommand = new Command(async () => await PlayAsync(), () => !IsLoading);
+        PauseCommand = new Command(Pause, () => IsPlaying);
+        StopCommand = new Command(Stop, () => IsPlaying || _currentPosition > 0);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -833,6 +844,46 @@ public class GeneratedMusicItem : INotifyPropertyChanged
     public string Duration => _stem.DurationSeconds > 0 ? $"{_stem.DurationSeconds:F1}s" : "Unknown";
     public string CreatedAt => _stem.CreatedAt.ToString("g");
     public string DisplayInfo => $"{Duration} • {FileSizeFormatted} • {CreatedAt}";
+    
+    // Assign a unique color based on stem type
+    public Color StemColor => _stem.StemType.ToLower() switch
+    {
+        "vocals" => Color.FromArgb("#E91E63"),      // Pink
+        "drums" => Color.FromArgb("#9C27B0"),       // Purple
+        "bass" => Color.FromArgb("#FF6F00"),        // Orange
+        "instrumental" => Color.FromArgb("#2196F3"), // Blue
+        "piano" => Color.FromArgb("#FFEB3B"),       // Yellow
+        "guitar" => Color.FromArgb("#4CAF50"),      // Green
+        "other" => Color.FromArgb("#00BCD4"),       // Cyan
+        _ => Color.FromArgb("#9E9E9E")              // Gray
+    };
+    
+    public Command PlayCommand { get; }
+    public Command PauseCommand { get; }
+    public Command StopCommand { get; }
+    
+    public MediaElement? AudioPlayer
+    {
+        get => _audioPlayer;
+        set
+        {
+            if (_audioPlayer != null)
+            {
+                _audioPlayer.PositionChanged -= OnPositionChanged;
+                _audioPlayer.MediaEnded -= OnMediaEnded;
+            }
+            
+            _audioPlayer = value;
+            
+            if (_audioPlayer != null)
+            {
+                _audioPlayer.PositionChanged += OnPositionChanged;
+                _audioPlayer.MediaEnded += OnMediaEnded;
+            }
+            
+            OnPropertyChanged();
+        }
+    }
 
     public bool IsDownloading
     {
@@ -852,6 +903,134 @@ public class GeneratedMusicItem : INotifyPropertyChanged
             _statusMessage = value;
             OnPropertyChanged();
         }
+    }
+    
+    public bool IsPlaying
+    {
+        get => _isPlaying;
+        set
+        {
+            _isPlaying = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(PlayPauseIcon));
+            PauseCommand.ChangeCanExecute();
+            StopCommand.ChangeCanExecute();
+        }
+    }
+    
+    public bool IsLoading
+    {
+        get => _isLoading;
+        set
+        {
+            _isLoading = value;
+            OnPropertyChanged();
+            PlayCommand.ChangeCanExecute();
+        }
+    }
+    
+    public double CurrentPosition
+    {
+        get => _currentPosition;
+        set
+        {
+            _currentPosition = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(CurrentPositionFormatted));
+            StopCommand.ChangeCanExecute();
+        }
+    }
+    
+    public string CurrentPositionFormatted => $"{TimeSpan.FromSeconds(_currentPosition):mm\\:ss}";
+    public string PlayPauseIcon => IsPlaying ? "⏸" : "▶";
+    
+    private async Task PlayAsync()
+    {
+        try
+        {
+            // If already playing, pause instead
+            if (IsPlaying && AudioPlayer != null)
+            {
+                Pause();
+                return;
+            }
+            
+            // Download and cache the file if needed
+            if (_localFilePath == null || !File.Exists(_localFilePath))
+            {
+                IsLoading = true;
+                StatusMessage = "Loading...";
+                
+                var stream = await _apiClient.DownloadGeneratedStemAsync(_stem.Id);
+                if (stream == null)
+                {
+                    StatusMessage = "Failed to load audio";
+                    return;
+                }
+
+                // Cache to temp file
+                var tempPath = Path.Combine(Path.GetTempPath(), $"preview_{_stem.Id}.wav");
+                using (var fileStream = File.Create(tempPath))
+                {
+                    await stream.CopyToAsync(fileStream);
+                }
+                
+                _localFilePath = tempPath;
+            }
+            
+            // Create and play audio
+            if (AudioPlayer == null)
+            {
+                StatusMessage = "Audio player not initialized";
+                return;
+            }
+            
+            AudioPlayer.Source = MediaSource.FromFile(_localFilePath);
+            AudioPlayer.Play();
+            IsPlaying = true;
+            StatusMessage = "Playing";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+    
+    private void Pause()
+    {
+        if (AudioPlayer != null)
+        {
+            AudioPlayer.Pause();
+            IsPlaying = false;
+            StatusMessage = "Paused";
+        }
+    }
+    
+    private void Stop()
+    {
+        if (AudioPlayer != null)
+        {
+            AudioPlayer.Stop();
+            IsPlaying = false;
+            CurrentPosition = 0;
+            StatusMessage = string.Empty;
+        }
+    }
+    
+    private void OnPositionChanged(object? sender, MediaPositionChangedEventArgs e)
+    {
+        CurrentPosition = e.Position.TotalSeconds;
+    }
+    
+    private void OnMediaEnded(object? sender, EventArgs e)
+    {
+        IsPlaying = false;
+        CurrentPosition = 0;
+        StatusMessage = "Completed";
     }
 
     public async Task DownloadAsync()
@@ -918,6 +1097,26 @@ public class GeneratedMusicItem : INotifyPropertyChanged
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+    
+    public void Cleanup()
+    {
+        Stop();
+        
+        if (_localFilePath != null && File.Exists(_localFilePath))
+        {
+            try
+            {
+                File.Delete(_localFilePath);
+            }
+            catch { /* Ignore cleanup errors */ }
+        }
+        
+        if (AudioPlayer != null)
+        {
+            AudioPlayer.PositionChanged -= OnPositionChanged;
+            AudioPlayer.MediaEnded -= OnMediaEnded;
+        }
     }
 }
 

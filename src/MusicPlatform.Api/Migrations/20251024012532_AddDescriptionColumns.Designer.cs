@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MusicPlatform.Infrastructure.Data;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MusicPlatform.Api.Migrations
 {
     [DbContext(typeof(MusicPlatformDbContext))]
-    partial class MusicPlatformDbContextModelSnapshot : ModelSnapshot
+    [Migration("20251024012532_AddDescriptionColumns")]
+    partial class AddDescriptionColumns
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -176,85 +179,6 @@ namespace MusicPlatform.Api.Migrations
                     b.HasIndex("TrainingDatasetId");
 
                     b.ToTable("TrainingDatasetStems");
-                });
-
-            modelBuilder.Entity("MusicPlatform.Domain.Entities.TrainingJob", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("BaseModel")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<DateTime?>("CompletedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("CurrentEpoch")
-                        .HasColumnType("integer");
-
-                    b.Property<float?>("CurrentLoss")
-                        .HasColumnType("real");
-
-                    b.Property<float?>("DurationSeconds")
-                        .HasColumnType("real");
-
-                    b.Property<string>("ErrorMessage")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.Property<string>("Hyperparameters")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Metadata")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("ModelName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<float>("Progress")
-                        .HasColumnType("real");
-
-                    b.Property<DateTime?>("StartedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int>("TotalEpochs")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid?>("TrainedModelId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("TrainingDatasetId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CompletedAt");
-
-                    b.HasIndex("CreatedAt");
-
-                    b.HasIndex("StartedAt");
-
-                    b.HasIndex("Status");
-
-                    b.HasIndex("TrainedModelId");
-
-                    b.HasIndex("TrainingDatasetId");
-
-                    b.ToTable("TrainingJobs");
                 });
 
             modelBuilder.Entity("MusicPlatform.Domain.Models.AnalysisResult", b =>
@@ -743,24 +667,6 @@ namespace MusicPlatform.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("Stem");
-
-                    b.Navigation("TrainingDataset");
-                });
-
-            modelBuilder.Entity("MusicPlatform.Domain.Entities.TrainingJob", b =>
-                {
-                    b.HasOne("MusicPlatform.Domain.Entities.TrainedModel", "TrainedModel")
-                        .WithMany()
-                        .HasForeignKey("TrainedModelId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.HasOne("MusicPlatform.Domain.Entities.TrainingDataset", "TrainingDataset")
-                        .WithMany()
-                        .HasForeignKey("TrainingDatasetId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("TrainedModel");
 
                     b.Navigation("TrainingDataset");
                 });

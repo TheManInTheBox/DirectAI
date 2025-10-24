@@ -17,6 +17,7 @@
             <converters:IsNotNullConverter x:Key="IsNotNullConverter" />
             <converters:PercentToProgressConverter x:Key="PercentToProgressConverter" />
             <converters:IsZeroConverter x:Key="IsZeroConverter" />
+            <converters:IsNotZeroConverter x:Key="IsNotZeroConverter" />
             <converters:IsGreaterThanZeroConverter x:Key="IsGreaterThanZeroConverter" />
             <converters:BoolToColorConverter x:Key="BoolToColorConverter" />
             <converters:StringEqualsConverter x:Key="StringEqualsConverter" />

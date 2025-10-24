@@ -2,6 +2,7 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:viewmodels="clr-namespace:MusicPlatform.Maui.ViewModels"
+             xmlns:toolkit="http://schemas.microsoft.com/dotnet/2022/maui/toolkit"
              x:Class="MusicPlatform.Maui.Pages.MainPage"
              x:DataType="viewmodels:MainViewModel"
              Title="Music Platform">
@@ -375,60 +376,180 @@
                                       ItemsLayout="HorizontalList">
                             <CollectionView.ItemTemplate>
                                 <DataTemplate x:DataType="viewmodels:GeneratedMusicItem">
-                                    <Frame BorderColor="{StaticResource Success}"
-                                           CornerRadius="15"
-                                           Padding="20"
+                                    <Frame BorderColor="#333333"
+                                           CornerRadius="12"
+                                           Padding="0"
                                            Margin="5"
-                                           WidthRequest="280"
+                                           WidthRequest="320"
                                            HasShadow="True"
-                                           BackgroundColor="{StaticResource SuccessLight}">
-                                        <VerticalStackLayout Spacing="10">
-                                            <!-- Stem Icon -->
-                                            <Label Text="🎸"
-                                                   FontSize="40"
-                                                   HorizontalOptions="Center" />
-                                            
-                                            <!-- Stem Type -->
-                                            <Label Text="{Binding StemType}"
-                                                   FontSize="18"
-                                                   FontAttributes="Bold"
-                                                   HorizontalOptions="Center"
-                                                   TextColor="{StaticResource Success}" />
-                                            
-                                            <!-- Info -->
-                                            <Label Text="{Binding DisplayInfo}"
-                                                   FontSize="11"
-                                                   TextColor="{StaticResource Gray600}"
-                                                   HorizontalOptions="Center"
-                                                   HorizontalTextAlignment="Center"
-                                                   LineBreakMode="WordWrap" />
+                                           BackgroundColor="#1a1a1a">
+                                        <Grid RowDefinitions="Auto,*,Auto" RowSpacing="0">
+                                            <!-- Audio Player (Hidden, for playback) -->
+                                            <toolkit:MediaElement Grid.Row="0"
+                                                                 ShouldAutoPlay="False"
+                                                                 ShouldShowPlaybackControls="False"
+                                                                 IsVisible="False"
+                                                                 BindingContext="{Binding .}"
+                                                                 Loaded="OnMediaElementLoaded" />
 
-                                            <!-- Download Button -->
-                                            <Button Text="⬇ Download"
-                                                   Command="{Binding Source={RelativeSource AncestorType={x:Type viewmodels:MainViewModel}}, Path=DownloadStemCommand}"
-                                                   CommandParameter="{Binding .}"
-                                                   IsEnabled="{Binding IsDownloading, Converter={StaticResource InvertedBoolConverter}}"
-                                                   BackgroundColor="{StaticResource Success}"
-                                                   TextColor="White"
-                                                   FontSize="14"
-                                                   FontAttributes="Bold"
-                                                   CornerRadius="10"
-                                                   HeightRequest="40" />
+                                            <!-- Header with Icon and Controls -->
+                                            <HorizontalStackLayout Grid.Row="0" 
+                                                                 Spacing="15"
+                                                                 Padding="15,10">
+                                                <!-- Stem Type Icon -->
+                                                <Border BackgroundColor="#1a1a1a"
+                                                       WidthRequest="50"
+                                                       HeightRequest="50"
+                                                       StrokeThickness="0"
+                                                       VerticalOptions="Center">
+                                                    <Border.StrokeShape>
+                                                        <RoundRectangle CornerRadius="8" />
+                                                    </Border.StrokeShape>
+                                                    <Label Text="🎵"
+                                                          FontSize="24"
+                                                          HorizontalOptions="Center"
+                                                          VerticalOptions="Center" />
+                                                </Border>
 
-                                            <!-- Download Status -->
-                                            <HorizontalStackLayout Spacing="5" 
-                                                                 IsVisible="{Binding StatusMessage, Converter={StaticResource IsNotNullOrEmptyConverter}}"
-                                                                 HorizontalOptions="Center">
-                                                <ActivityIndicator IsRunning="{Binding IsDownloading}"
-                                                                 IsVisible="{Binding IsDownloading}"
-                                                                 WidthRequest="15"
-                                                                 HeightRequest="15"
-                                                                 Color="{StaticResource Success}" />
-                                                <Label Text="{Binding StatusMessage}"
-                                                      FontSize="11"
-                                                      VerticalOptions="Center" />
+                                                <!-- Info and Controls -->
+                                                <VerticalStackLayout Spacing="5" 
+                                                                   VerticalOptions="Center"
+                                                                   HorizontalOptions="FillAndExpand">
+                                                    <Label Text="{Binding StemType}"
+                                                          FontSize="16"
+                                                          FontAttributes="Bold"
+                                                          TextColor="White" />
+                                                    <Label Text="{Binding DisplayInfo}"
+                                                          FontSize="11"
+                                                          TextColor="#999999" />
+                                                </VerticalStackLayout>
+
+                                                <!-- Playback Control Button -->
+                                                <Button Text="{Binding PlayPauseIcon}"
+                                                       Command="{Binding PlayCommand}"
+                                                       IsEnabled="{Binding IsLoading, Converter={StaticResource InvertedBoolConverter}}"
+                                                       BackgroundColor="Transparent"
+                                                       TextColor="White"
+                                                       FontSize="20"
+                                                       WidthRequest="40"
+                                                       HeightRequest="40"
+                                                       CornerRadius="20"
+                                                       Padding="0"
+                                                       BorderWidth="1"
+                                                       BorderColor="#444444"
+                                                       VerticalOptions="Center" />
                                             </HorizontalStackLayout>
-                                        </VerticalStackLayout>
+
+                                            <!-- Waveform Visualization Area -->
+                                            <Border Grid.Row="1"
+                                                   BackgroundColor="{Binding StemColor}"
+                                                   HeightRequest="80"
+                                                   Margin="0"
+                                                   StrokeThickness="0">
+                                                <Grid>
+                                                    <!-- Simulated Waveform -->
+                                                    <HorizontalStackLayout Spacing="2" 
+                                                                         HorizontalOptions="FillAndExpand"
+                                                                         VerticalOptions="Center"
+                                                                         Padding="10,0">
+                                                        <!-- Generate waveform bars -->
+                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="20" VerticalOptions="Center" />
+                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="35" VerticalOptions="Center" />
+                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="50" VerticalOptions="Center" />
+                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="40" VerticalOptions="Center" />
+                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="25" VerticalOptions="Center" />
+                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="45" VerticalOptions="Center" />
+                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="60" VerticalOptions="Center" />
+                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="35" VerticalOptions="Center" />
+                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="30" VerticalOptions="Center" />
+                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="50" VerticalOptions="Center" />
+                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="40" VerticalOptions="Center" />
+                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="55" VerticalOptions="Center" />
+                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="35" VerticalOptions="Center" />
+                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="30" VerticalOptions="Center" />
+                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="45" VerticalOptions="Center" />
+                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="25" VerticalOptions="Center" />
+                                                    </HorizontalStackLayout>
+
+                                                    <!-- Playback Position Overlay -->
+                                                    <Label Text="{Binding CurrentPositionFormatted}"
+                                                          FontSize="12"
+                                                          FontAttributes="Bold"
+                                                          TextColor="#000000"
+                                                          BackgroundColor="#FFFFFF88"
+                                                          Padding="8,4"
+                                                          HorizontalOptions="End"
+                                                          VerticalOptions="Start"
+                                                          Margin="10"
+                                                          IsVisible="{Binding CurrentPosition, Converter={StaticResource IsNotZeroConverter}}">
+                                                        <Label.Shadow>
+                                                            <Shadow Brush="Black" Opacity="0.3" Radius="4" Offset="0,2" />
+                                                        </Label.Shadow>
+                                                    </Label>
+
+                                                    <!-- Loading Indicator -->
+                                                    <ActivityIndicator IsRunning="{Binding IsLoading}"
+                                                                     IsVisible="{Binding IsLoading}"
+                                                                     Color="White"
+                                                                     WidthRequest="30"
+                                                                     HeightRequest="30"
+                                                                     HorizontalOptions="Center"
+                                                                     VerticalOptions="Center" />
+                                                </Grid>
+                                            </Border>
+
+                                            <!-- Bottom Controls -->
+                                            <HorizontalStackLayout Grid.Row="2" 
+                                                                 Spacing="10"
+                                                                 Padding="15,10"
+                                                                 HorizontalOptions="FillAndExpand">
+                                                <!-- Download Button -->
+                                                <Button Text="⬇"
+                                                       Command="{Binding Source={RelativeSource AncestorType={x:Type viewmodels:MainViewModel}}, Path=DownloadStemCommand}"
+                                                       CommandParameter="{Binding .}"
+                                                       IsEnabled="{Binding IsDownloading, Converter={StaticResource InvertedBoolConverter}}"
+                                                       BackgroundColor="Transparent"
+                                                       TextColor="White"
+                                                       FontSize="18"
+                                                       WidthRequest="40"
+                                                       HeightRequest="40"
+                                                       CornerRadius="20"
+                                                       Padding="0"
+                                                       BorderWidth="1"
+                                                       BorderColor="#444444"
+                                                       HorizontalOptions="Start" />
+
+                                                <!-- Status Message -->
+                                                <HorizontalStackLayout Spacing="5" 
+                                                                     VerticalOptions="Center"
+                                                                     HorizontalOptions="FillAndExpand"
+                                                                     IsVisible="{Binding StatusMessage, Converter={StaticResource IsNotNullOrEmptyConverter}}">
+                                                    <ActivityIndicator IsRunning="{Binding IsDownloading}"
+                                                                     IsVisible="{Binding IsDownloading}"
+                                                                     WidthRequest="15"
+                                                                     HeightRequest="15"
+                                                                     Color="White" />
+                                                    <Label Text="{Binding StatusMessage}"
+                                                          FontSize="11"
+                                                          TextColor="#999999"
+                                                          VerticalOptions="Center" />
+                                                </HorizontalStackLayout>
+
+                                                <!-- Stop Button -->
+                                                <Button Text="⏹"
+                                                       Command="{Binding StopCommand}"
+                                                       BackgroundColor="Transparent"
+                                                       TextColor="White"
+                                                       FontSize="16"
+                                                       WidthRequest="40"
+                                                       HeightRequest="40"
+                                                       CornerRadius="20"
+                                                       Padding="0"
+                                                       BorderWidth="1"
+                                                       BorderColor="#444444"
+                                                       HorizontalOptions="End" />
+                                            </HorizontalStackLayout>
+                                        </Grid>
                                     </Frame>
                                 </DataTemplate>
                             </CollectionView.ItemTemplate>

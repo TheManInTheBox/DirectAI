@@ -4,10 +4,12 @@ uvicorn[standard]==0.27.0
 python-multipart==0.0.6
 pydantic==2.5.3
 httpx==0.26.0
+aiohttp==3.9.1
 
 # Azure Storage for blob access
 azure-storage-blob==12.19.0
 azure-identity==1.15.0
+azure-servicebus==7.11.4
 
 # ML/Audio generation
 torch==2.1.0

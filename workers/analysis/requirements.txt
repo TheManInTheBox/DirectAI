@@ -13,6 +13,9 @@ httpx==0.26.0
 azure-storage-blob==12.19.0
 azure-identity==1.15.0
 
+# AI description generation with Azure AI Foundry
+azure-ai-inference==1.0.0b1
+
 # Audio processing and source separation
 demucs==4.0.1
 torch==2.1.0

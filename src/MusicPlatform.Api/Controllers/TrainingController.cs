@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using MusicPlatform.Domain.Entities;
 using MusicPlatform.Infrastructure.Data;
 using System.Text.Json;
+using Azure.Messaging.ServiceBus;
 
 namespace MusicPlatform.Api.Controllers;
 
@@ -12,13 +13,22 @@ public class TrainingController : ControllerBase
 {
     private readonly MusicPlatformDbContext _context;
     private readonly ILogger<TrainingController> _logger;
+    private readonly ServiceBusSender? _trainingJobSender;
 
     public TrainingController(
         MusicPlatformDbContext context,
-        ILogger<TrainingController> logger)
+        ILogger<TrainingController> logger,
+        ServiceBusClient? serviceBusClient = null)
     {
         _context = context;
         _logger = logger;
+        
+        // Initialize Service Bus sender if client is available
+        if (serviceBusClient != null)
+        {
+            var queueName = Environment.GetEnvironmentVariable("TRAINING_QUEUE_NAME") ?? "training-jobs";
+            _trainingJobSender = serviceBusClient.CreateSender(queueName);
+        }
     }
 
     // Dataset Management
@@ -377,6 +387,7 @@ public class TrainingController : ControllerBase
     
     // Training Operations
     
+    // Legacy HTTP-based training endpoint (deprecated in favor of job-based system)
     [HttpPost("train")]
     public async Task<IActionResult> StartTraining([FromBody] StartTrainingRequest request)
     {
@@ -454,6 +465,247 @@ public class TrainingController : ControllerBase
             return StatusCode(503, $"Training worker unavailable: {ex.Message}");
         }
     }
+    
+    // New Queue-Based Training Job System
+    
+    /// <summary>
+    /// Get all training jobs
+    /// </summary>
+    [HttpGet("jobs")]
+    public async Task<ActionResult<IEnumerable<TrainingJobDto>>> GetTrainingJobs()
+    {
+        var jobs = await _context.TrainingJobs
+            .Include(j => j.TrainingDataset)
+            .Include(j => j.TrainedModel)
+            .OrderByDescending(j => j.CreatedAt)
+            .Select(j => MapToDto(j))
+            .ToListAsync();
+
+        return Ok(jobs);
+    }
+
+    /// <summary>
+    /// Get a specific training job by ID
+    /// </summary>
+    [HttpGet("jobs/{id}")]
+    public async Task<ActionResult<TrainingJobDto>> GetTrainingJob(Guid id)
+    {
+        var job = await _context.TrainingJobs
+            .Include(j => j.TrainingDataset)
+            .Include(j => j.TrainedModel)
+            .FirstOrDefaultAsync(j => j.Id == id);
+
+        if (job == null)
+        {
+            return NotFound();
+        }
+
+        return Ok(MapToDto(job));
+    }
+
+    /// <summary>
+    /// Create and queue a new training job
+    /// </summary>
+    [HttpPost("jobs")]
+    public async Task<ActionResult<TrainingJobDto>> CreateTrainingJob([FromBody] CreateTrainingJobRequest request)
+    {
+        // Validate dataset exists and is ready
+        var dataset = await _context.TrainingDatasets
+            .FirstOrDefaultAsync(d => d.Id == request.DatasetId);
+
+        if (dataset == null)
+        {
+            return NotFound($"Training dataset {request.DatasetId} not found");
+        }
+
+        if (dataset.Status != TrainingDatasetStatus.Ready)
+        {
+            return BadRequest($"Dataset must be in Ready status. Current status: {dataset.Status}");
+        }
+
+        // Create training job
+        var job = new TrainingJob
+        {
+            Id = Guid.NewGuid(),
+            TrainingDatasetId = request.DatasetId,
+            ModelName = request.ModelName,
+            BaseModel = request.BaseModel ?? "facebook/musicgen-small",
+            Status = TrainingJobStatus.Pending,
+            TotalEpochs = request.Epochs ?? 100,
+            Hyperparameters = JsonSerializer.Serialize(new
+            {
+                learning_rate = request.LearningRate ?? 1e-4f,
+                lora_rank = request.LoraRank ?? 8,
+                lora_alpha = request.LoraAlpha ?? 16,
+                batch_size = request.BatchSize ?? 1
+            }),
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.TrainingJobs.Add(job);
+        await _context.SaveChangesAsync();
+
+        // Queue the training job in Service Bus
+        if (_trainingJobSender != null)
+        {
+            try
+            {
+                var message = new ServiceBusMessage(JsonSerializer.Serialize(new
+                {
+                    job_id = job.Id.ToString(),
+                    dataset_id = dataset.Id.ToString(),
+                    model_name = request.ModelName,
+                    base_model = job.BaseModel,
+                    epochs = request.Epochs ?? 100,
+                    learning_rate = request.LearningRate ?? 1e-4f,
+                    lora_rank = request.LoraRank ?? 8,
+                    lora_alpha = request.LoraAlpha ?? 16,
+                    batch_size = request.BatchSize ?? 1,
+                    callback_url = $"{Request.Scheme}://{Request.Host}/api/training/callback"
+                }));
+
+                await _trainingJobSender.SendMessageAsync(message);
+
+                // Update job status to queued
+                job.Status = TrainingJobStatus.Queued;
+                await _context.SaveChangesAsync();
+
+                _logger.LogInformation($"Training job {job.Id} queued successfully");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Failed to queue training job: {ex.Message}");
+                // Keep job in Pending status if queuing fails
+            }
+        }
+        else
+        {
+            _logger.LogWarning("Service Bus client not configured, job will remain in Pending status");
+        }
+
+        return CreatedAtAction(nameof(GetTrainingJob), new { id = job.Id }, MapToDto(job));
+    }
+
+    /// <summary>
+    /// Callback endpoint for training worker to update job status
+    /// </summary>
+    [HttpPost("callback")]
+    public async Task<IActionResult> TrainingCallback([FromBody] TrainingCallbackRequest request)
+    {
+        var job = await _context.TrainingJobs.FirstOrDefaultAsync(j => j.Id == Guid.Parse(request.JobId));
+
+        if (job == null)
+        {
+            return NotFound();
+        }
+
+        job.Status = request.Status switch
+        {
+            "completed" => TrainingJobStatus.Completed,
+            "failed" => TrainingJobStatus.Failed,
+            "running" => TrainingJobStatus.Running,
+            _ => job.Status
+        };
+
+        if (request.Status == "running" && job.StartedAt == null)
+        {
+            job.StartedAt = DateTime.UtcNow;
+        }
+
+        if (request.Status == "completed" && !string.IsNullOrEmpty(request.ModelPath))
+        {
+            // Create trained model record
+            var trainedModel = new TrainedModel
+            {
+                Id = Guid.NewGuid(),
+                Name = job.ModelName,
+                TrainingDatasetId = job.TrainingDatasetId,
+                ModelPath = request.ModelPath,
+                BaseModel = job.BaseModel,
+                Status = TrainedModelStatus.Ready,
+                TrainingConfig = job.Hyperparameters,
+                TrainingMetrics = JsonSerializer.Serialize(new
+                {
+                    final_loss = request.FinalLoss,
+                    training_time = request.TrainingTime
+                }),
+                CreatedAt = DateTime.UtcNow,
+                TrainingStartedAt = job.StartedAt,
+                TrainingCompletedAt = DateTime.UtcNow
+            };
+
+            _context.TrainedModels.Add(trainedModel);
+            job.TrainedModelId = trainedModel.Id;
+        }
+
+        if (request.Status == "failed")
+        {
+            job.ErrorMessage = request.ErrorMessage;
+        }
+
+        if (request.Status == "completed" || request.Status == "failed")
+        {
+            job.CompletedAt = DateTime.UtcNow;
+            job.DurationSeconds = request.TrainingTime;
+        }
+
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation($"Updated training job {job.Id} to status {request.Status}");
+
+        return Ok();
+    }
+
+    /// <summary>
+    /// Cancel a training job
+    /// </summary>
+    [HttpPost("jobs/{id}/cancel")]
+    public async Task<IActionResult> CancelTrainingJob(Guid id)
+    {
+        var job = await _context.TrainingJobs.FirstOrDefaultAsync(j => j.Id == id);
+
+        if (job == null)
+        {
+            return NotFound();
+        }
+
+        if (job.Status == TrainingJobStatus.Completed || job.Status == TrainingJobStatus.Failed)
+        {
+            return BadRequest("Cannot cancel a completed or failed job");
+        }
+
+        job.Status = TrainingJobStatus.Cancelled;
+        job.CompletedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation($"Cancelled training job {id}");
+
+        return Ok();
+    }
+
+    private static TrainingJobDto MapToDto(TrainingJob job)
+    {
+        return new TrainingJobDto
+        {
+            Id = job.Id,
+            DatasetId = job.TrainingDatasetId,
+            DatasetName = job.TrainingDataset?.Name,
+            ModelName = job.ModelName,
+            BaseModel = job.BaseModel,
+            Status = job.Status.ToString(),
+            Progress = job.Progress,
+            CurrentEpoch = job.CurrentEpoch,
+            TotalEpochs = job.TotalEpochs,
+            CurrentLoss = job.CurrentLoss,
+            ErrorMessage = job.ErrorMessage,
+            CreatedAt = job.CreatedAt,
+            StartedAt = job.StartedAt,
+            CompletedAt = job.CompletedAt,
+            DurationSeconds = job.DurationSeconds,
+            TrainedModelId = job.TrainedModelId
+        };
+    }
 }
 
 // DTOs
@@ -482,3 +734,47 @@ public record StartTrainingRequest(
     int? LoraRank = 8,
     int? LoraAlpha = 16,
     int? BatchSize = 1);
+
+// Training Job DTOs
+
+public record CreateTrainingJobRequest(
+    Guid DatasetId,
+    string ModelName,
+    string? BaseModel = null,
+    int? Epochs = null,
+    float? LearningRate = null,
+    int? LoraRank = null,
+    int? LoraAlpha = null,
+    int? BatchSize = null
+);
+
+public record TrainingCallbackRequest(
+    string JobId,
+    string Status,
+    string? ModelId = null,
+    string? ModelPath = null,
+    float? TrainingTime = null,
+    float? FinalLoss = null,
+    string? ErrorMessage = null
+);
+
+public record TrainingJobDto
+{
+    public Guid Id { get; init; }
+    public Guid DatasetId { get; init; }
+    public string? DatasetName { get; init; }
+    public string ModelName { get; init; } = string.Empty;
+    public string BaseModel { get; init; } = string.Empty;
+    public string Status { get; init; } = string.Empty;
+    public float Progress { get; init; }
+    public int CurrentEpoch { get; init; }
+    public int TotalEpochs { get; init; }
+    public float? CurrentLoss { get; init; }
+    public string? ErrorMessage { get; init; }
+    public DateTime CreatedAt { get; init; }
+    public DateTime? StartedAt { get; init; }
+    public DateTime? CompletedAt { get; init; }
+    public float? DurationSeconds { get; init; }
+    public Guid? TrainedModelId { get; init; }
+}
+

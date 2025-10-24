@@ -5,9 +5,11 @@ Generates new audio stems using AI models (Stable Audio Open, MusicGen)
 import os
 import tempfile
 import logging
+import asyncio
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from datetime import datetime
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
@@ -16,6 +18,7 @@ import httpx
 
 from generation_service import GenerationService
 from storage_service import StorageService
+from queue_listener import GenerationQueueListener
 
 # Configure logging
 logging.basicConfig(
@@ -24,11 +27,48 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize FastAPI app
+# Global queue listener instance
+queue_listener: Optional[GenerationQueueListener] = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    FastAPI lifespan context manager
+    Starts the Service Bus queue listener on startup
+    """
+    global queue_listener
+    
+    # Check if Service Bus is configured
+    enable_queue_listener = os.getenv("ENABLE_QUEUE_LISTENER", "true").lower() == "true"
+    service_bus_namespace = os.getenv("SERVICE_BUS_NAMESPACE") or os.getenv("SERVICEBUS_NAMESPACE")
+    servicebus_connection_string = os.getenv("SERVICEBUS_CONNECTION_STRING")
+    
+    if enable_queue_listener and (service_bus_namespace or servicebus_connection_string):
+        logger.info("Service Bus queue listener is enabled - starting...")
+        try:
+            queue_listener = GenerationQueueListener(process_generation_callback=process_generation)
+            # Start listener in background task
+            asyncio.create_task(queue_listener.start())
+            logger.info("Service Bus queue listener started successfully")
+        except Exception as e:
+            logger.error(f"Failed to start queue listener: {str(e)}", exc_info=True)
+            logger.warning("Worker will continue with HTTP endpoint only")
+    else:
+        logger.info("Service Bus queue listener is disabled - HTTP endpoint only")
+    
+    yield  # Server is running
+    
+    # Shutdown
+    if queue_listener:
+        logger.info("Stopping queue listener...")
+        await queue_listener.stop()
+
+# Initialize FastAPI app with lifespan
 app = FastAPI(
     title="Music Generation Worker",
     description="AI-powered audio stem generation service",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # Initialize services

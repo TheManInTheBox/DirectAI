@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Azure.Storage.Blobs;
 using Azure.Identity;
+using Azure.Messaging.ServiceBus;
 using MusicPlatform.Api.Services;
 using MusicPlatform.Api.Hubs;
 
@@ -39,6 +40,28 @@ else
     // Local: Azurite connection string
     var blobConnectionString = builder.Configuration["BlobStorage:ConnectionString"];
     builder.Services.AddSingleton(new BlobServiceClient(blobConnectionString));
+}
+
+// 2.1 Service Bus (for training job queue)
+var serviceBusNamespace = builder.Configuration["ServiceBus:Namespace"];
+if (!string.IsNullOrEmpty(serviceBusNamespace))
+{
+    if (useManagedIdentity)
+    {
+        // Azure: Managed Identity
+        builder.Services.AddSingleton(new ServiceBusClient(
+            $"{serviceBusNamespace}.servicebus.windows.net",
+            new DefaultAzureCredential()));
+    }
+    else
+    {
+        // Local: Connection string (if provided)
+        var serviceBusConnectionString = builder.Configuration["ServiceBus:ConnectionString"];
+        if (!string.IsNullOrEmpty(serviceBusConnectionString))
+        {
+            builder.Services.AddSingleton(new ServiceBusClient(serviceBusConnectionString));
+        }
+    }
 }
 
 // 3. Worker Client Configuration

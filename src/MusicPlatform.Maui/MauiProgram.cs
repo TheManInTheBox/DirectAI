@@ -3,6 +3,7 @@ using MusicPlatform.Maui.Services;
 using MusicPlatform.Maui.Pages;
 using MusicPlatform.Maui.ViewModels;
 using MusicPlatform.Maui.Converters;
+using CommunityToolkit.Maui;
 
 namespace MusicPlatform.Maui;
 
@@ -13,6 +14,8 @@ public static class MauiProgram
 		var builder = MauiApp.CreateBuilder();
 		builder
 			.UseMauiApp<App>()
+			.UseMauiCommunityToolkit()
+			.UseMauiCommunityToolkitMediaElement()
 			.ConfigureFonts(fonts =>
 			{
 				fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");

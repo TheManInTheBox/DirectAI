@@ -266,7 +266,7 @@ public class MusicPlatformApiClient
     )
     {
         var response = await _httpClient.GetAsync(
-            $"/api/generation/stems/{stemId}/download",
+            $"/api/generation/download-stem/{stemId}",
             HttpCompletionOption.ResponseHeadersRead,
             cancellationToken
         );

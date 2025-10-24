@@ -18,6 +18,7 @@ import httpx
 
 from analysis_service import AnalysisService
 from storage_service import StorageService
+from description_service import DescriptionService
 
 # Configure logging
 logging.basicConfig(
@@ -36,6 +37,7 @@ app = FastAPI(
 # Initialize services
 storage_service = StorageService()
 analysis_service = AnalysisService()
+description_service = DescriptionService()
 
 # Request/Response models
 class AnalyzeRequest(BaseModel):
@@ -200,7 +202,19 @@ async def process_analysis(
             f"Bark training dataset exported. Total samples: {export_summary.get('total_training_samples', 0)}"
         )
         
-        # Step 5: Generate JAMS annotation
+        # Step 5: Generate AI descriptions for song
+        logger.info("Generating AI description for song...")
+        song_description = None
+        try:
+            song_description = description_service.generate_song_description(
+                analysis_results=analysis_results,
+                audio_metadata=mp3_metadata
+            )
+            logger.info(f"Generated song description: {song_description[:100]}...")
+        except Exception as desc_error:
+            logger.warning(f"Failed to generate song description: {desc_error}")
+        
+        # Step 6: Generate JAMS annotation
         logger.info("Generating JAMS annotation...")
         jams_data = analysis_service.create_jams_annotation(
             audio_file_id,
@@ -211,7 +225,7 @@ async def process_analysis(
         analysis_service.save_jams(jams_data, jams_path)
         logger.info(f"JAMS annotation saved: {jams_path}")
         
-        # Step 5.5: Save analysis results to database via API
+        # Step 7: Save analysis results to database via API (including AI description)
         logger.info("Saving analysis results to database...")
         analysis_results_payload = {
             "bpm": analysis_results.get("bpm", 0.0),
@@ -219,6 +233,7 @@ async def process_analysis(
             "mode": analysis_results.get("key", "").split()[1] if len(analysis_results.get("key", "").split()) > 1 else "major",  # Extract mode
             "tuningFrequency": analysis_results.get("tuning_frequency", 440.0),
             "flamingoInsightsJson": json.dumps(analysis_results.get("flamingo_analysis", {})),
+            "description": song_description,  # Add AI-generated description
             "chords": [
                 {
                     "startTime": chord.get("start_time", 0.0),
@@ -261,7 +276,7 @@ async def process_analysis(
         except Exception as api_error:
             logger.error(f"Error saving analysis results to database: {api_error}")
         
-        # Step 6: Upload stems and JAMS to blob storage
+        # Step 8: Upload stems and JAMS to blob storage
         logger.info("Uploading stems and JAMS to blob storage...")
         uploaded_stems = []
         
@@ -320,6 +335,24 @@ async def process_analysis(
                 spectral_centroid = float(np.mean(librosa.feature.spectral_centroid(y=y_stem, sr=sr_stem)))
                 zero_crossing_rate = float(np.mean(librosa.feature.zero_crossing_rate(y_stem)))
                 
+                # Generate AI description for this stem
+                stem_description = None
+                try:
+                    stem_metrics = {
+                        "rms_level": rms_level,
+                        "peak_level": peak_level,
+                        "spectral_centroid": spectral_centroid,
+                        "zero_crossing_rate": zero_crossing_rate
+                    }
+                    stem_description = description_service.generate_stem_description(
+                        stem_type=stem_type,
+                        stem_analysis=stem_metrics,
+                        song_analysis=analysis_results
+                    )
+                    logger.info(f"Generated {stem_type} stem description: {stem_description[:80]}...")
+                except Exception as desc_error:
+                    logger.warning(f"Failed to generate {stem_type} stem description: {desc_error}")
+                
                 # Attempt to find per-stem Flamingo analysis from comprehensive results
                 stem_flamingo = None
                 try:
@@ -351,6 +384,9 @@ async def process_analysis(
                     "peakLevel": peak_level,
                     "spectralCentroid": spectral_centroid,
                     "zeroCrossingRate": zero_crossing_rate,
+                    
+                    # AI-generated description
+                    "description": stem_description,
                     
                     # Musical structure as JSON strings
                     "chordProgression": json.dumps(stem_analysis.get("chords", [])),

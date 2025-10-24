@@ -62,6 +62,8 @@
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.5" />
+		<PackageReference Include="CommunityToolkit.Maui" Version="9.2.2" />
+		<PackageReference Include="CommunityToolkit.Maui.MediaElement" Version="4.2.0" />
 		<!-- Override Directory.Build.props to use .NET 9 versions required by MAUI -->
 		<PackageReference Update="Microsoft.Extensions.Logging" Version="9.0.5" />
 		<PackageReference Update="Microsoft.Extensions.Configuration" Version="9.0.5" />
