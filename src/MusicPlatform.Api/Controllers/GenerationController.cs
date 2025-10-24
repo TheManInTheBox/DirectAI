@@ -207,7 +207,10 @@ public class GenerationController : ControllerBase
     /// </summary>
     /// <param name="stemId">Generated stem ID</param>
     /// <returns>Audio file stream</returns>
-    [HttpGet("stems/{stemId}/download")]
+    /// <summary>
+    /// Download a generated stem file from blob storage.
+    /// </summary>
+    [HttpGet("download-stem/{stemId}")]
     [ProducesResponseType(typeof(FileStreamResult), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DownloadGeneratedStem(Guid stemId)
@@ -226,15 +229,15 @@ public class GenerationController : ControllerBase
 
             // Parse the blob URI to extract container and blob name
             var blobUri = new Uri(stem.BlobUri);
-            var pathParts = blobUri.AbsolutePath.TrimStart('/').Split('/', 3);
+            var pathParts = blobUri.AbsolutePath.TrimStart('/').Split('/', 2);
             
-            if (pathParts.Length < 3)
+            if (pathParts.Length < 2)
             {
                 return BadRequest("Invalid blob URI format");
             }
 
-            var containerName = pathParts[1];  // "audio-files"
-            var blobName = pathParts[2];        // "generated/guid/track.wav"
+            var containerName = pathParts[0];  // "audio-files"
+            var blobName = pathParts[1];        // "generated/guid/track.wav"
 
             _logger.LogInformation("Downloading generated stem {StemId}: container={Container}, blob={BlobName}", 
                 stemId, containerName, blobName);
@@ -495,19 +498,18 @@ public class GenerationController : ControllerBase
             var payload = new
             {
                 generation_request_id = generationRequestId.ToString(),
-                job_id = jobId.ToString(),
                 audio_file_id = request.AudioFileId.ToString(),
-                target_stems = request.TargetStems.Select(s => s.ToString().ToLower()).ToList(),
                 parameters = new
                 {
                     target_bpm = request.Parameters?.TargetBpm,
-                    duration_seconds = request.Parameters?.DurationSeconds,
+                    duration_seconds = request.Parameters?.DurationSeconds ?? 10.0,
                     style = request.Parameters?.Style,
                     chord_progression = request.Parameters?.ChordProgression,
                     prompt = request.Parameters?.Prompt,
-                    temperature = request.Parameters?.Temperature,
+                    temperature = request.Parameters?.Temperature ?? 1.0,
                     random_seed = request.Parameters?.RandomSeed
-                }
+                },
+                callback_url = $"{Request.Scheme}://{Request.Host}/api/generation/callback"
             };
 
             var response = await httpClient.PostAsJsonAsync("/generate", payload);
