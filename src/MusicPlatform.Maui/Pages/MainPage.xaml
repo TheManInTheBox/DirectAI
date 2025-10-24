@@ -206,7 +206,7 @@
                                  HeightRequest="30" />
 
                 <!-- Carousel of Source Materials -->
-                <ScrollView Orientation="Horizontal" HeightRequest="250">
+                <ScrollView Orientation="Horizontal" HeightRequest="200">
                     <HorizontalStackLayout Spacing="15" Padding="5">
                         <CollectionView ItemsSource="{Binding SourceMaterialLibrary}"
                                       ItemsLayout="HorizontalList">
@@ -216,7 +216,7 @@
                                            CornerRadius="20"
                                            Padding="0"
                                            Margin="10,5"
-                                           WidthRequest="320"
+                                           WidthRequest="260"
                                            HasShadow="True"
                                            IsClippedToBounds="True"
                                            BackgroundColor="White">
@@ -226,12 +226,12 @@
                                                 CommandParameter="{Binding .}" />
                                         </Frame.GestureRecognizers>
                                         
-                                        <Grid HeightRequest="280" WidthRequest="320">
+                                        <Grid HeightRequest="220" WidthRequest="260">
                                             <!-- Album Artwork Background -->
                                             <Image Source="{Binding AlbumArtworkUri, Converter={StaticResource HttpImageSourceConverter}}"
                                                    Aspect="AspectFill"
-                                                   HeightRequest="280"
-                                                   WidthRequest="320"
+                                                   HeightRequest="220"
+                                                   WidthRequest="260"
                                                    IsVisible="{Binding HasAlbumArtwork}" />
                                             
                                             <!-- Fallback gradient background for files without artwork -->
@@ -440,50 +440,53 @@
                                                        VerticalOptions="Center" />
                                             </HorizontalStackLayout>
 
-                                            <!-- Waveform Visualization Area -->
+                                            <!-- Waveform Visualization -->
                                             <Border Grid.Row="1"
                                                    BackgroundColor="{Binding StemColor}"
                                                    HeightRequest="80"
                                                    Margin="0"
                                                    StrokeThickness="0">
                                                 <Grid>
-                                                    <!-- Simulated Waveform -->
-                                                    <HorizontalStackLayout Spacing="2" 
-                                                                         HorizontalOptions="FillAndExpand"
+                                                    <!-- Waveform bars -->
+                                                    <HorizontalStackLayout x:Name="WaveformContainer"
+                                                                         Spacing="2" 
+                                                                         HorizontalOptions="Center"
                                                                          VerticalOptions="Center"
-                                                                         Padding="10,0">
-                                                        <!-- Generate waveform bars -->
-                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="20" VerticalOptions="Center" />
-                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="35" VerticalOptions="Center" />
-                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="50" VerticalOptions="Center" />
-                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="40" VerticalOptions="Center" />
-                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="25" VerticalOptions="Center" />
-                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="45" VerticalOptions="Center" />
-                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="60" VerticalOptions="Center" />
-                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="35" VerticalOptions="Center" />
-                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="30" VerticalOptions="Center" />
-                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="50" VerticalOptions="Center" />
-                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="40" VerticalOptions="Center" />
-                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="55" VerticalOptions="Center" />
-                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="35" VerticalOptions="Center" />
-                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="30" VerticalOptions="Center" />
-                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="45" VerticalOptions="Center" />
-                                                        <BoxView Color="#00000033" WidthRequest="3" HeightRequest="25" VerticalOptions="Center" />
+                                                                         Padding="10,0"
+                                                                         BindableLayout.ItemsSource="{Binding WaveformData}">
+                                                        <BindableLayout.ItemTemplate>
+                                                            <DataTemplate x:DataType="x:Double">
+                                                                <BoxView Color="#00000040" 
+                                                                        WidthRequest="2.5">
+                                                                    <BoxView.HeightRequest>
+                                                                        <Binding Path=".">
+                                                                            <Binding.Converter>
+                                                                                <toolkit:MathExpressionConverter>
+                                                                                    <x:Arguments>
+                                                                                        <x:String>x * 60</x:String>
+                                                                                    </x:Arguments>
+                                                                                </toolkit:MathExpressionConverter>
+                                                                            </Binding.Converter>
+                                                                        </Binding>
+                                                                    </BoxView.HeightRequest>
+                                                                </BoxView>
+                                                            </DataTemplate>
+                                                        </BindableLayout.ItemTemplate>
                                                     </HorizontalStackLayout>
 
                                                     <!-- Playback Position Overlay -->
                                                     <Label Text="{Binding CurrentPositionFormatted}"
                                                           FontSize="12"
                                                           FontAttributes="Bold"
-                                                          TextColor="#000000"
-                                                          BackgroundColor="#FFFFFF88"
+                                                          TextColor="White"
+                                                          BackgroundColor="#00000066"
                                                           Padding="8,4"
                                                           HorizontalOptions="End"
                                                           VerticalOptions="Start"
                                                           Margin="10"
                                                           IsVisible="{Binding CurrentPosition, Converter={StaticResource IsNotZeroConverter}}">
                                                         <Label.Shadow>
-                                                            <Shadow Brush="Black" Opacity="0.3" Radius="4" Offset="0,2" />
+                                                            <Shadow Brush="Black" Opacity="0.5" Radius="4" Offset="0,2" />
                                                         </Label.Shadow>
                                                     </Label>
 

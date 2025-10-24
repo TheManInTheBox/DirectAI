@@ -824,6 +824,7 @@ public class GeneratedMusicItem : INotifyPropertyChanged
     private double _currentPosition = 0;
     private string? _localFilePath = null;
     private MediaElement? _audioPlayer;
+    private List<double> _waveformData = new();
 
     public GeneratedMusicItem(GeneratedStemDto stem, GenerationRequestDto request, MusicPlatformApiClient apiClient)
     {
@@ -844,6 +845,16 @@ public class GeneratedMusicItem : INotifyPropertyChanged
     public string Duration => _stem.DurationSeconds > 0 ? $"{_stem.DurationSeconds:F1}s" : "Unknown";
     public string CreatedAt => _stem.CreatedAt.ToString("g");
     public string DisplayInfo => $"{Duration} • {FileSizeFormatted} • {CreatedAt}";
+    
+    public List<double> WaveformData
+    {
+        get => _waveformData;
+        set
+        {
+            _waveformData = value;
+            OnPropertyChanged();
+        }
+    }
     
     // Assign a unique color based on stem type
     public Color StemColor => _stem.StemType.ToLower() switch
@@ -978,6 +989,12 @@ public class GeneratedMusicItem : INotifyPropertyChanged
                 _localFilePath = tempPath;
             }
             
+            // Generate waveform data if not already done
+            if (_waveformData.Count == 0 && _localFilePath != null)
+            {
+                await GenerateWaveformDataAsync(_localFilePath);
+            }
+            
             // Create and play audio
             if (AudioPlayer == null)
             {
@@ -1028,9 +1045,16 @@ public class GeneratedMusicItem : INotifyPropertyChanged
     
     private void OnMediaEnded(object? sender, EventArgs e)
     {
+        // Don't clear the source, just reset state so it can be played again
         IsPlaying = false;
         CurrentPosition = 0;
         StatusMessage = "Completed";
+        
+        // Reset to beginning for replay
+        if (AudioPlayer != null)
+        {
+            AudioPlayer.SeekTo(TimeSpan.Zero);
+        }
     }
 
     public async Task DownloadAsync()
@@ -1097,6 +1121,73 @@ public class GeneratedMusicItem : INotifyPropertyChanged
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+    
+    private async Task GenerateWaveformDataAsync(string audioFilePath)
+    {
+        await Task.Run(() =>
+        {
+            try
+            {
+                // Read WAV file and extract amplitude data
+                using var fileStream = File.OpenRead(audioFilePath);
+                using var reader = new BinaryReader(fileStream);
+
+                // Skip WAV header (44 bytes for standard WAV)
+                reader.ReadBytes(44);
+
+                // Read audio samples
+                var samples = new List<short>();
+                while (fileStream.Position < fileStream.Length)
+                {
+                    try
+                    {
+                        samples.Add(reader.ReadInt16());
+                    }
+                    catch
+                    {
+                        break;
+                    }
+                }
+
+                // Downsample to ~100 points for visualization
+                int targetPoints = 100;
+                int samplesPerPoint = Math.Max(1, samples.Count / targetPoints);
+                var waveform = new List<double>();
+
+                for (int i = 0; i < samples.Count; i += samplesPerPoint)
+                {
+                    // Get RMS (root mean square) for this chunk
+                    double sum = 0;
+                    int count = 0;
+                    for (int j = 0; j < samplesPerPoint && i + j < samples.Count; j++)
+                    {
+                        double normalized = samples[i + j] / 32768.0; // Normalize to -1.0 to 1.0
+                        sum += normalized * normalized;
+                        count++;
+                    }
+                    double rms = Math.Sqrt(sum / count);
+                    waveform.Add(Math.Min(1.0, rms * 2.0)); // Scale and clamp
+                }
+
+                // Update on main thread
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    WaveformData = waveform;
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Waveform generation error: {ex.Message}");
+                // Create default waveform on error
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    WaveformData = Enumerable.Range(0, 50)
+                        .Select(i => 0.3 + Math.Sin(i * 0.3) * 0.2)
+                        .ToList();
+                });
+            }
+        });
     }
     
     public void Cleanup()
