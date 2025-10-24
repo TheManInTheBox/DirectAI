@@ -22,10 +22,25 @@ public partial class MainPage : ContentPage
     
     private void OnMediaElementLoaded(object? sender, EventArgs e)
     {
-        if (sender is MediaElement mediaElement && 
-            mediaElement.BindingContext is GeneratedMusicItem item)
+        if (sender is MediaElement mediaElement)
         {
-            item.AudioPlayer = mediaElement;
+            // BindingContext might not be set immediately in DataTemplates
+            // Wire up once it's available
+            if (mediaElement.BindingContext is GeneratedMusicItem item)
+            {
+                item.AudioPlayer = mediaElement;
+            }
+            else
+            {
+                // Subscribe to BindingContextChanged as fallback
+                mediaElement.BindingContextChanged += (s, _) =>
+                {
+                    if (s is MediaElement me && me.BindingContext is GeneratedMusicItem musicItem)
+                    {
+                        musicItem.AudioPlayer = me;
+                    }
+                };
+            }
         }
     }
 

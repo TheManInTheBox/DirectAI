@@ -100,7 +100,7 @@ public class GenerationController : ControllerBase
             metadata);
 
         // Capture callback URL before fire-and-forget task (to avoid IFeatureCollection disposal)
-        var callbackUrl = $"{Request.Scheme}://{Request.Host}/api/generation/callback";
+        var callbackUrl = $"{Request.Scheme}://{Request.Host}/api/generation/{generationRequest.Id}/complete";
 
         // Trigger generation workflow asynchronously
         if (job.Status == JobStatus.Pending || job.Status == JobStatus.Retrying)
