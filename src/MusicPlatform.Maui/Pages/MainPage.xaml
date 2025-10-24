@@ -457,17 +457,10 @@
                                                         <BindableLayout.ItemTemplate>
                                                             <DataTemplate x:DataType="x:Double">
                                                                 <BoxView Color="#00000040" 
-                                                                        WidthRequest="2.5">
+                                                                        WidthRequest="2.5"
+                                                                        VerticalOptions="Center">
                                                                     <BoxView.HeightRequest>
-                                                                        <Binding Path=".">
-                                                                            <Binding.Converter>
-                                                                                <toolkit:MathExpressionConverter>
-                                                                                    <x:Arguments>
-                                                                                        <x:String>x * 60</x:String>
-                                                                                    </x:Arguments>
-                                                                                </toolkit:MathExpressionConverter>
-                                                                            </Binding.Converter>
-                                                                        </Binding>
+                                                                        <Binding Path="." Converter="{StaticResource DoubleToHeightConverter}" />
                                                                     </BoxView.HeightRequest>
                                                                 </BoxView>
                                                             </DataTemplate>

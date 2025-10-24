@@ -245,3 +245,24 @@ public class AllTrueConverter : IMultiValueConverter
         throw new NotImplementedException();
     }
 }
+
+/// <summary>
+/// Converts normalized waveform amplitude (0.0-1.0) to pixel height for visualization
+/// </summary>
+public class DoubleToHeightConverter : IValueConverter
+{
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (value is double amplitude)
+        {
+            // Scale amplitude to pixel height: 0.0 = 5px (minimum), 1.0 = 60px (maximum)
+            return Math.Max(5, amplitude * 60);
+        }
+        return 20; // Fallback height
+    }
+
+    public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        throw new NotImplementedException();
+    }
+}

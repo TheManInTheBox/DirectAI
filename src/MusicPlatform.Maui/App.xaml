@@ -23,6 +23,7 @@
             <converters:StringEqualsConverter x:Key="StringEqualsConverter" />
             <converters:AllTrueConverter x:Key="AllTrueConverter" />
             <converters:HttpImageSourceConverter x:Key="HttpImageSourceConverter" />
+            <converters:DoubleToHeightConverter x:Key="DoubleToHeightConverter" />
             
             <!-- Additional Colors -->
             <Color x:Key="Success">#28a745</Color>
