@@ -99,10 +99,13 @@ public class GenerationController : ControllerBase
             generationRequest.Id,
             metadata);
 
+        // Capture callback URL before fire-and-forget task (to avoid IFeatureCollection disposal)
+        var callbackUrl = $"{Request.Scheme}://{Request.Host}/api/generation/callback";
+
         // Trigger generation workflow asynchronously
         if (job.Status == JobStatus.Pending || job.Status == JobStatus.Retrying)
         {
-            _ = Task.Run(async () => await TriggerGenerationAsync(generationRequest.Id, job.Id));
+            _ = Task.Run(async () => await TriggerGenerationAsync(generationRequest.Id, job.Id, callbackUrl));
             _logger.LogInformation("Generation job {JobId} triggered for request {RequestId}", 
                 job.Id, generationRequest.Id);
         }
@@ -457,7 +460,7 @@ public class GenerationController : ControllerBase
     /// <summary>
     /// Trigger generation workflow (internal use).
     /// </summary>
-    private async Task TriggerGenerationAsync(Guid generationRequestId, Guid jobId)
+    private async Task TriggerGenerationAsync(Guid generationRequestId, Guid jobId, string callbackUrl)
     {
         // Create a new scope to avoid DbContext disposal issues
         using var scope = _serviceProvider.CreateScope();
@@ -509,7 +512,7 @@ public class GenerationController : ControllerBase
                     temperature = request.Parameters?.Temperature ?? 1.0,
                     random_seed = request.Parameters?.RandomSeed
                 },
-                callback_url = $"{Request.Scheme}://{Request.Host}/api/generation/callback"
+                callback_url = callbackUrl
             };
 
             var response = await httpClient.PostAsJsonAsync("/generate", payload);
