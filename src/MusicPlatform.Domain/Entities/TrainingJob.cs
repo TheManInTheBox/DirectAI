@@ -21,9 +21,9 @@ public class TrainingJob
     public string ModelName { get; set; } = string.Empty;
     
     /// <summary>
-    /// Base model to fine-tune (e.g., "facebook/musicgen-small")
+    /// Base model to fine-tune (e.g., "facebook/MelodyFlow")
     /// </summary>
-    public string BaseModel { get; set; } = "facebook/musicgen-small";
+    public string BaseModel { get; set; } = "facebook/MelodyFlow";
     
     /// <summary>
     /// Current status of the training job

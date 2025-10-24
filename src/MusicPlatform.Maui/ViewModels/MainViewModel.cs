@@ -824,7 +824,7 @@ public class GeneratedMusicItem : INotifyPropertyChanged
     private double _currentPosition = 0;
     private string? _localFilePath = null;
     private MediaElement? _audioPlayer;
-    private List<double> _waveformData = new();
+    private ObservableCollection<double> _waveformData = new();
 
     public GeneratedMusicItem(GeneratedStemDto stem, GenerationRequestDto request, MusicPlatformApiClient apiClient)
     {
@@ -835,6 +835,35 @@ public class GeneratedMusicItem : INotifyPropertyChanged
         PlayCommand = new Command(async () => await PlayAsync(), () => !IsLoading);
         PauseCommand = new Command(Pause, () => IsPlaying);
         StopCommand = new Command(Stop, () => IsPlaying || _currentPosition > 0);
+        
+        // Load waveform in background
+        _ = Task.Run(async () => await LoadWaveformAsync());
+    }
+    
+    private async Task LoadWaveformAsync()
+    {
+        try
+        {
+            // Download file to temp location
+            var stream = await _apiClient.DownloadGeneratedStemAsync(_stem.Id);
+            if (stream == null) return;
+
+            var tempPath = Path.Combine(Path.GetTempPath(), $"waveform_{_stem.Id}.wav");
+            using (var fileStream = File.Create(tempPath))
+            {
+                await stream.CopyToAsync(fileStream);
+            }
+
+            // Generate waveform from file
+            await GenerateWaveformDataAsync(tempPath);
+
+            // Clean up temp file
+            try { File.Delete(tempPath); } catch { }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Background waveform load error: {ex.Message}");
+        }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -844,9 +873,48 @@ public class GeneratedMusicItem : INotifyPropertyChanged
     public string FileSizeFormatted => FormatFileSize(_stem.FileSizeBytes);
     public string Duration => _stem.DurationSeconds > 0 ? $"{_stem.DurationSeconds:F1}s" : "Unknown";
     public string CreatedAt => _stem.CreatedAt.ToString("g");
-    public string DisplayInfo => $"{Duration} • {FileSizeFormatted} • {CreatedAt}";
     
-    public List<double> WaveformData
+    public string DisplayInfo
+    {
+        get
+        {
+            var parts = new List<string>();
+            
+            // Add BPM if available
+            if (_request.Parameters?.TargetBpm != null)
+            {
+                parts.Add($"{_request.Parameters.TargetBpm:F0} BPM");
+            }
+            
+            // Add key/chord progression if available
+            if (_request.Parameters?.ChordProgression != null && _request.Parameters.ChordProgression.Any())
+            {
+                var firstChord = _request.Parameters.ChordProgression.First();
+                // Extract root note (e.g., "C" from "Cmaj7")
+                var key = new string(firstChord.TakeWhile(c => char.IsLetter(c) || c == '#' || c == 'b').ToArray());
+                if (!string.IsNullOrEmpty(key))
+                {
+                    parts.Add($"Key: {key}");
+                }
+            }
+            
+            // Add style if available
+            if (!string.IsNullOrEmpty(_request.Parameters?.Style))
+            {
+                parts.Add(_request.Parameters.Style);
+            }
+            
+            // Fallback to duration if no musical info
+            if (parts.Count == 0)
+            {
+                parts.Add(Duration);
+            }
+            
+            return string.Join(" • ", parts);
+        }
+    }
+    
+    public ObservableCollection<double> WaveformData
     {
         get => _waveformData;
         set
@@ -1196,8 +1264,12 @@ public class GeneratedMusicItem : INotifyPropertyChanged
                 // Update on main thread
                 MainThread.BeginInvokeOnMainThread(() =>
                 {
-                    WaveformData = waveform;
-                    System.Diagnostics.Debug.WriteLine($"WaveformData property set with {WaveformData.Count} points");
+                    _waveformData.Clear();
+                    foreach (var value in waveform)
+                    {
+                        _waveformData.Add(value);
+                    }
+                    System.Diagnostics.Debug.WriteLine($"WaveformData updated with {_waveformData.Count} points");
                 });
             }
             catch (Exception ex)
@@ -1209,8 +1281,12 @@ public class GeneratedMusicItem : INotifyPropertyChanged
                     var defaultWaveform = Enumerable.Range(0, 50)
                         .Select(i => 0.3 + Math.Sin(i * 0.3) * 0.2)
                         .ToList();
-                    WaveformData = defaultWaveform;
-                    System.Diagnostics.Debug.WriteLine($"Set default waveform with {defaultWaveform.Count} points");
+                    _waveformData.Clear();
+                    foreach (var value in defaultWaveform)
+                    {
+                        _waveformData.Add(value);
+                    }
+                    System.Diagnostics.Debug.WriteLine($"Set default waveform with {_waveformData.Count} points");
                 });
             }
         });

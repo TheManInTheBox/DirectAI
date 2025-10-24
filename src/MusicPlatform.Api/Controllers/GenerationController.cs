@@ -604,7 +604,7 @@ public class GenerationParametersDto
     public int? Bars { get; set; }  // Number of bars to generate
     
     // For trained model generation
-    public Guid? TrainedModelId { get; set; }  // Use custom trained model instead of base MusicGen
+    public Guid? TrainedModelId { get; set; }  // Use custom trained model instead of base MelodyFlow
 }
 
 /// <summary>

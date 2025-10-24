@@ -456,8 +456,8 @@
                                                                          BindableLayout.ItemsSource="{Binding WaveformData}">
                                                         <BindableLayout.ItemTemplate>
                                                             <DataTemplate x:DataType="x:Double">
-                                                                <BoxView Color="#00000040" 
-                                                                        WidthRequest="2.5"
+                                                                <BoxView Color="White" 
+                                                                        WidthRequest="3"
                                                                         VerticalOptions="Center">
                                                                     <BoxView.HeightRequest>
                                                                         <Binding Path="." Converter="{StaticResource DoubleToHeightConverter}" />
