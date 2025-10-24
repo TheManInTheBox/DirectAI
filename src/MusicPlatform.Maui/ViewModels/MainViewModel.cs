@@ -1002,8 +1002,24 @@ public class GeneratedMusicItem : INotifyPropertyChanged
                 return;
             }
             
-            AudioPlayer.Source = MediaSource.FromFile(_localFilePath);
-            AudioPlayer.Play();
+            // If paused or stopped, resume from current position
+            if (AudioPlayer.CurrentState == CommunityToolkit.Maui.Core.Primitives.MediaElementState.Paused ||
+                AudioPlayer.CurrentState == CommunityToolkit.Maui.Core.Primitives.MediaElementState.Stopped)
+            {
+                // If stopped (at end), reset to beginning
+                if (AudioPlayer.CurrentState == CommunityToolkit.Maui.Core.Primitives.MediaElementState.Stopped)
+                {
+                    AudioPlayer.SeekTo(TimeSpan.Zero);
+                }
+                AudioPlayer.Play();
+            }
+            else
+            {
+                // First time playing or needs to reload
+                AudioPlayer.Source = MediaSource.FromFile(_localFilePath);
+                AudioPlayer.Play();
+            }
+            
             IsPlaying = true;
             StatusMessage = "Playing";
         }
@@ -1045,15 +1061,15 @@ public class GeneratedMusicItem : INotifyPropertyChanged
     
     private void OnMediaEnded(object? sender, EventArgs e)
     {
-        // Don't clear the source, just reset state so it can be played again
+        // Stop playback and reset to beginning
         IsPlaying = false;
         CurrentPosition = 0;
         StatusMessage = "Completed";
         
-        // Reset to beginning for replay
+        // Stop the player so it's ready to play again from the start
         if (AudioPlayer != null)
         {
-            AudioPlayer.SeekTo(TimeSpan.Zero);
+            AudioPlayer.Stop();
         }
     }
 
@@ -1129,6 +1145,8 @@ public class GeneratedMusicItem : INotifyPropertyChanged
         {
             try
             {
+                System.Diagnostics.Debug.WriteLine($"Generating waveform for: {audioFilePath}");
+                
                 // Read WAV file and extract amplitude data
                 using var fileStream = File.OpenRead(audioFilePath);
                 using var reader = new BinaryReader(fileStream);
@@ -1150,6 +1168,8 @@ public class GeneratedMusicItem : INotifyPropertyChanged
                     }
                 }
 
+                System.Diagnostics.Debug.WriteLine($"Read {samples.Count} audio samples");
+
                 // Downsample to ~100 points for visualization
                 int targetPoints = 100;
                 int samplesPerPoint = Math.Max(1, samples.Count / targetPoints);
@@ -1170,10 +1190,14 @@ public class GeneratedMusicItem : INotifyPropertyChanged
                     waveform.Add(Math.Min(1.0, rms * 2.0)); // Scale and clamp
                 }
 
+                System.Diagnostics.Debug.WriteLine($"Generated {waveform.Count} waveform points");
+                System.Diagnostics.Debug.WriteLine($"Sample waveform values: {string.Join(", ", waveform.Take(10).Select(v => v.ToString("F3")))}");
+
                 // Update on main thread
                 MainThread.BeginInvokeOnMainThread(() =>
                 {
                     WaveformData = waveform;
+                    System.Diagnostics.Debug.WriteLine($"WaveformData property set with {WaveformData.Count} points");
                 });
             }
             catch (Exception ex)
@@ -1182,9 +1206,11 @@ public class GeneratedMusicItem : INotifyPropertyChanged
                 // Create default waveform on error
                 MainThread.BeginInvokeOnMainThread(() =>
                 {
-                    WaveformData = Enumerable.Range(0, 50)
+                    var defaultWaveform = Enumerable.Range(0, 50)
                         .Select(i => 0.3 + Math.Sin(i * 0.3) * 0.2)
                         .ToList();
+                    WaveformData = defaultWaveform;
+                    System.Diagnostics.Debug.WriteLine($"Set default waveform with {defaultWaveform.Count} points");
                 });
             }
         });
