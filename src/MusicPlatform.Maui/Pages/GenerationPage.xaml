@@ -201,28 +201,34 @@
                                MinimumTrackColor="{StaticResource Primary}" />
                     </VerticalStackLayout>
 
-                    <!-- Max Quality Length -->
-                    <VerticalStackLayout Spacing="5">
-                        <Label Text="{Binding MaxQualityLength, StringFormat='Max Quality Length: {0:F0} seconds'}" 
-                               FontAttributes="Bold" />
-                        <Slider Minimum="10" 
-                               Maximum="180" 
-                               Value="{Binding MaxQualityLength}"
-                               MinimumTrackColor="{StaticResource Primary}" />
-                        <Label Text="Higher values produce better quality but take longer to generate"
-                               FontSize="11"
-                               TextColor="{StaticResource Gray600}"
-                               LineBreakMode="WordWrap" />
-                    </VerticalStackLayout>
+              <!-- Time Signature -->
+              <VerticalStackLayout Spacing="5">
+               <Label Text="Time Signature:" FontAttributes="Bold" />
+               <Picker ItemsSource="{Binding AvailableTimeSignatures}"
+                    SelectedItem="{Binding TimeSignature}"
+                    FontSize="16" />
+              </VerticalStackLayout>
+
+              <!-- Song Section Type -->
+              <VerticalStackLayout Spacing="5">
+               <Label Text="Song Section:" FontAttributes="Bold" />
+               <Picker ItemsSource="{Binding AvailableSectionTypes}"
+                    SelectedItem="{Binding SectionType}"
+                    FontSize="16" />
+              </VerticalStackLayout>
 
                     <!-- Duration -->
                     <VerticalStackLayout Spacing="5">
                         <Label Text="{Binding DurationSeconds, StringFormat='Duration: {0:F0} seconds'}" 
                                FontAttributes="Bold" />
-                        <Slider Minimum="5" 
-                               Maximum="30" 
+               <Slider Minimum="5" 
+                   Maximum="60" 
                                Value="{Binding DurationSeconds}"
                                MinimumTrackColor="{StaticResource Primary}" />
+                        <Label Text="Longer durations require more processing time"
+                               FontSize="11"
+                               TextColor="{StaticResource Gray600}"
+                               LineBreakMode="WordWrap" />
                     </VerticalStackLayout>
 
                     <!-- Style -->

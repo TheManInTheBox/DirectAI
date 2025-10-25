@@ -74,7 +74,12 @@ public class GenerationController : ControllerBase
                 ChordProgression = request.Parameters?.ChordProgression,
                 Prompt = request.Parameters?.Prompt,
                 Temperature = request.Parameters?.Temperature ?? 1.0f,
-                RandomSeed = request.Parameters?.RandomSeed
+                RandomSeed = request.Parameters?.RandomSeed,
+                Key = request.Parameters?.Key,
+                Scale = request.Parameters?.Scale,
+                TimeSignature = request.Parameters?.TimeSignature,
+                Bars = request.Parameters?.Bars,
+                SectionType = request.Parameters?.SectionType
             },
             RequestedAt = DateTime.UtcNow,
             Status = GenerationStatus.Pending
@@ -510,7 +515,15 @@ public class GenerationController : ControllerBase
                     chord_progression = request.Parameters?.ChordProgression,
                     prompt = request.Parameters?.Prompt,
                     temperature = request.Parameters?.Temperature ?? 1.0,
-                    random_seed = request.Parameters?.RandomSeed
+                    random_seed = request.Parameters?.RandomSeed,
+                    key = request.Parameters?.Key,
+                    scale = request.Parameters?.Scale,
+                    time_signature = request.Parameters?.TimeSignature,
+                    bars = request.Parameters?.Bars,
+                    section_type = request.Parameters?.SectionType,
+                    guidance_scale = request.Parameters?.GuidanceScale,
+                    top_k = request.Parameters?.TopK,
+                    top_p = request.Parameters?.TopP
                 },
                 callback_url = callbackUrl
             };
@@ -570,6 +583,20 @@ public class GenerationController : ControllerBase
                 dbContext.Entry(job).CurrentValues.SetValues(failedJob);
                 await dbContext.SaveChangesAsync();
             }
+
+            // Also update the generation request status to Failed so it doesn't remain Pending
+            var request = await dbContext.GenerationRequests.FindAsync(generationRequestId);
+            if (request != null)
+            {
+                var failedRequest = request with
+                {
+                    Status = GenerationStatus.Failed,
+                    CompletedAt = DateTime.UtcNow,
+                    ErrorMessage = $"Worker trigger exception: {ex.Message}"
+                };
+                dbContext.Entry(request).CurrentValues.SetValues(failedRequest);
+                await dbContext.SaveChangesAsync();
+            }
         }
     }
 }
@@ -602,6 +629,12 @@ public class GenerationParametersDto
     public string? Scale { get; set; }  // e.g., "major", "minor", "dorian", "mixolydian"
     public string? TimeSignature { get; set; }  // e.g., "4/4", "3/4", "6/8", "7/8"
     public int? Bars { get; set; }  // Number of bars to generate
+    public string? SectionType { get; set; }  // e.g., "Intro", "Verse", "Chorus", "Bridge"
+    
+    // Quality control parameters
+    public float? GuidanceScale { get; set; }  // 1.0-15.0, default 3.0 (higher = stronger prompt adherence)
+    public int? TopK { get; set; }  // 0-250, default 250 (higher = more variety)
+    public float? TopP { get; set; }  // 0.0-1.0, default 0.0 (nucleus sampling, 0=disabled)
     
     // For trained model generation
     public Guid? TrainedModelId { get; set; }  // Use custom trained model instead of base musicgen-melody-large

@@ -61,6 +61,7 @@ public static class MauiProgram
 		builder.Services.AddTransient<StemsViewModel>();
 		builder.Services.AddTransient<JobsViewModel>();
 		builder.Services.AddTransient<AudioFileDetailViewModel>();
+		builder.Services.AddTransient<MixingViewModel>();
 
 		// Register Pages
 		builder.Services.AddTransient<MainPage>();
@@ -70,6 +71,7 @@ public static class MauiProgram
 		builder.Services.AddTransient<StemsPage>();
 		builder.Services.AddTransient<JobsPage>();
 		builder.Services.AddTransient<AudioFileDetailPage>();
+		builder.Services.AddTransient<MixingPage>();
 
 		// Converters
 		builder.Services.AddSingleton<IsNotNullOrEmptyConverter>();

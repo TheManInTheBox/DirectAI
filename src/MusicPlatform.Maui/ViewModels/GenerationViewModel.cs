@@ -22,6 +22,8 @@ public class GenerationViewModel : INotifyPropertyChanged
     private string _prompt = string.Empty;
     private double _durationSeconds = 10;
     private double _maxQualityLength = 30;
+    private string _timeSignature = "4/4";
+    private string _sectionType = "Chorus";
     private GenerationRequestDto? _generationRequest;
 
     public GenerationViewModel(MusicPlatformApiClient apiClient)
@@ -57,6 +59,16 @@ public class GenerationViewModel : INotifyPropertyChanged
             "A# major", "A# minor", "B major", "B minor"
         };
 
+        AvailableTimeSignatures = new ObservableCollection<string>
+        {
+            "4/4", "3/4", "6/8", "7/8", "5/4"
+        };
+
+        AvailableSectionTypes = new ObservableCollection<string>
+        {
+            "Intro", "Verse", "Chorus", "Bridge", "Solo", "Breakdown", "Drop", "Outro"
+        };
+
         GenerateCommand = new Command(
             execute: async () =>
             {
@@ -86,6 +98,8 @@ public class GenerationViewModel : INotifyPropertyChanged
     public ObservableCollection<StemOption> AvailableStems { get; }
     public ObservableCollection<string> AvailableStyles { get; }
     public ObservableCollection<string> AvailableKeys { get; }
+    public ObservableCollection<string> AvailableTimeSignatures { get; }
+    public ObservableCollection<string> AvailableSectionTypes { get; }
 
     public string StatusMessage
     {
@@ -139,6 +153,18 @@ public class GenerationViewModel : INotifyPropertyChanged
     {
         get => _durationSeconds;
         set => SetProperty(ref _durationSeconds, value);
+    }
+
+    public string TimeSignature
+    {
+        get => _timeSignature;
+        set => SetProperty(ref _timeSignature, value);
+    }
+
+    public string SectionType
+    {
+        get => _sectionType;
+        set => SetProperty(ref _sectionType, value);
     }
 
     public GenerationRequestDto? GenerationRequest
@@ -290,22 +316,52 @@ public class GenerationViewModel : INotifyPropertyChanged
                 WriteIndented = false 
             });
 
-            var parameters = new Dictionary<string, object>
+            // Parse key/scale from selection like "C major"
+            string? key = null;
+            string? scale = null;
+            if (!string.IsNullOrWhiteSpace(TargetKey))
             {
-                { "target_bpm", TargetBpm },
-                { "target_key", TargetKey },
-                { "max_quality_length", MaxQualityLength },
-                { "duration_seconds", DurationSeconds },
-                { "style", Style },
-                { "reference_stem_ids", selectedReferenceStems },
-                { "musical_context", musicalContextJson },  // Send as JSON string
-                { "use_realistic_generation", true }
-            };
-
-            if (!string.IsNullOrWhiteSpace(Prompt))
-            {
-                parameters.Add("prompt", Prompt);
+                var parts = TargetKey.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                if (parts.Length >= 1) key = parts[0];
+                if (parts.Length >= 2) scale = parts[1];
             }
+
+            // Calculate bars from duration and BPM
+            // Parse time signature to get beats per bar
+            int beatsPerBar = 4; // Default
+            if (!string.IsNullOrWhiteSpace(TimeSignature))
+            {
+                var parts = TimeSignature.Split('/');
+                if (parts.Length >= 1 && int.TryParse(parts[0], out int beats))
+                {
+                    beatsPerBar = beats;
+                }
+            }
+            
+            int? bars = null;
+            if (DurationSeconds > 0 && TargetBpm > 0)
+            {
+                double secondsPerBeat = 60.0 / TargetBpm;
+                double secondsPerBar = secondsPerBeat * beatsPerBar;
+                bars = (int)Math.Ceiling(DurationSeconds / secondsPerBar);
+            }
+
+            // Use typed parameter shape to match API DTO binding
+            var parameters = new
+            {
+                TargetBpm = (double?)TargetBpm,
+                DurationSeconds = (double?)DurationSeconds,
+                Style = Style,
+                ChordProgression = (List<string>?)null,
+                Prompt = string.IsNullOrWhiteSpace(Prompt) ? null : Prompt,
+                Temperature = 1.0, // Use default temperature for creative generation
+                RandomSeed = (int?)null, // Null = random generation; set for reproducibility
+                Key = key,
+                Scale = scale,
+                TimeSignature = TimeSignature,
+                Bars = bars,
+                SectionType = SectionType
+            };
 
             // Use first audio file ID from reference stems for the request
             var audioId = referenceStemDetails.First().AudioFileId;

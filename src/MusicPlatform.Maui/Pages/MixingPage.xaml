@@ -1,0 +1,323 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:viewmodels="clr-namespace:MusicPlatform.Maui.ViewModels"
+             x:Class="MusicPlatform.Maui.Pages.MixingPage"
+             x:DataType="viewmodels:MixingViewModel"
+             Title="Mixing Workspace"
+             BackgroundColor="{StaticResource Gray950}">
+
+    <Grid RowDefinitions="Auto,*,Auto">
+        
+        <!-- Toolbar -->
+        <Border Grid.Row="0" 
+                BackgroundColor="{StaticResource Gray900}"
+                Padding="15,10">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
+                
+                <!-- Project Info -->
+                <VerticalStackLayout Grid.Column="0" Spacing="2">
+                    <Label Text="{Binding ProjectName}" 
+                           FontSize="18" 
+                           FontAttributes="Bold"
+                           TextColor="White" />
+                    <Label Text="{Binding TimePosition, StringFormat='Position: {0:mm\\:ss\\.ff}'}" 
+                           FontSize="12"
+                           TextColor="{StaticResource Gray400}" />
+                </VerticalStackLayout>
+                
+                <!-- Spacer -->
+                <BoxView Grid.Column="1" />
+                
+                <!-- BPM Control -->
+                <HorizontalStackLayout Grid.Column="2" Spacing="10" Padding="10,0">
+                    <Label Text="BPM:" 
+                           VerticalOptions="Center"
+                           TextColor="White" />
+                    <Entry Text="{Binding ProjectBpm}" 
+                           WidthRequest="60"
+                           Keyboard="Numeric"
+                           BackgroundColor="{StaticResource Gray800}"
+                           TextColor="White"
+                           HorizontalTextAlignment="Center" />
+                </HorizontalStackLayout>
+                
+                <!-- Key Control -->
+                <HorizontalStackLayout Grid.Column="3" Spacing="10" Padding="10,0">
+                    <Label Text="Key:" 
+                           VerticalOptions="Center"
+                           TextColor="White" />
+                    <Picker ItemsSource="{Binding AvailableKeys}"
+                           SelectedItem="{Binding ProjectKey}"
+                           WidthRequest="120"
+                           BackgroundColor="{StaticResource Gray800}"
+                           TextColor="White" />
+                </HorizontalStackLayout>
+                
+                <!-- Add Track Menu Button -->
+                <Button Grid.Column="4"
+                        Text="+ Add Track"
+                        Command="{Binding ShowAddTrackMenuCommand}"
+                        BackgroundColor="{StaticResource Success}"
+                        TextColor="White"
+                        Padding="20,8" />
+                
+                <!-- Export Button -->
+                <Button Grid.Column="5"
+                        Text="💾 Export"
+                        Command="{Binding ExportMixCommand}"
+                        BackgroundColor="#FF6B35"
+                        TextColor="White"
+                        Margin="10,0,0,0"
+                        Padding="20,8" />
+            </Grid>
+        </Border>
+
+        <!-- Main Mixing Area -->
+        <ScrollView Grid.Row="1" Orientation="Both">
+            <Grid>
+                <!-- Timeline Ruler -->
+                <Border BackgroundColor="{StaticResource Gray900}"
+                       HeightRequest="40"
+                       VerticalOptions="Start"
+                       ZIndex="100">
+                    <Grid x:Name="TimelineRuler" Padding="200,0,0,0">
+                        <!-- Time markers will be drawn here -->
+                        <HorizontalStackLayout Spacing="0">
+                            <Label Text="0:00" FontSize="12" TextColor="{StaticResource Gray400}" WidthRequest="100" HorizontalTextAlignment="Center" />
+                            <Label Text="0:30" FontSize="12" TextColor="{StaticResource Gray400}" WidthRequest="100" HorizontalTextAlignment="Center" />
+                            <Label Text="1:00" FontSize="12" TextColor="{StaticResource Gray400}" WidthRequest="100" HorizontalTextAlignment="Center" />
+                            <Label Text="1:30" FontSize="12" TextColor="{StaticResource Gray400}" WidthRequest="100" HorizontalTextAlignment="Center" />
+                            <Label Text="2:00" FontSize="12" TextColor="{StaticResource Gray400}" WidthRequest="100" HorizontalTextAlignment="Center" />
+                            <Label Text="2:30" FontSize="12" TextColor="{StaticResource Gray400}" WidthRequest="100" HorizontalTextAlignment="Center" />
+                            <Label Text="3:00" FontSize="12" TextColor="{StaticResource Gray400}" WidthRequest="100" HorizontalTextAlignment="Center" />
+                            <Label Text="3:30" FontSize="12" TextColor="{StaticResource Gray400}" WidthRequest="100" HorizontalTextAlignment="Center" />
+                            <Label Text="4:00" FontSize="12" TextColor="{StaticResource Gray400}" WidthRequest="100" HorizontalTextAlignment="Center" />
+                        </HorizontalStackLayout>
+                    </Grid>
+                </Border>
+
+                <!-- Tracks Container -->
+                <VerticalStackLayout Margin="0,40,0,0" Spacing="0">
+                    <CollectionView ItemsSource="{Binding Tracks}">
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate x:DataType="viewmodels:MixingTrackViewModel">
+                                <!-- Track Row -->
+                                <Grid ColumnDefinitions="200,*" 
+                                      HeightRequest="100"
+                                      BackgroundColor="{StaticResource Gray900}">
+                                    
+                                    <Grid.GestureRecognizers>
+                                        <TapGestureRecognizer Command="{Binding SelectTrackCommand}" />
+                                    </Grid.GestureRecognizers>
+                                    
+                                    <!-- Track Header -->
+                                    <Border Grid.Column="0" 
+                                           BackgroundColor="{StaticResource Gray800}"
+                                           Padding="10"
+                                           StrokeThickness="0,0,1,1"
+                                           Stroke="{StaticResource Gray700}">
+                                        <Grid RowDefinitions="Auto,Auto,*,Auto">
+                                            <!-- Track Name -->
+                                            <Entry Grid.Row="0"
+                                                  Text="{Binding TrackName}"
+                                                  FontSize="14"
+                                                  FontAttributes="Bold"
+                                                  BackgroundColor="Transparent"
+                                                  TextColor="White"
+                                                  Margin="0,0,0,5" />
+                                            
+                                            <!-- Instrument Icon & Type -->
+                                            <HorizontalStackLayout Grid.Row="1" Spacing="5">
+                                                <Label Text="{Binding InstrumentIcon}" FontSize="16" />
+                                                <Label Text="{Binding InstrumentType}" 
+                                                      FontSize="11" 
+                                                      TextColor="{StaticResource Gray400}"
+                                                      VerticalOptions="Center" />
+                                            </HorizontalStackLayout>
+                                            
+                                            <!-- Volume Controls -->
+                                            <Grid Grid.Row="3" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                                <Label Grid.Column="0" 
+                                                      Text="🔊" 
+                                                      FontSize="14"
+                                                      VerticalOptions="Center" />
+                                                <Slider Grid.Column="1"
+                                                       Value="{Binding Volume}"
+                                                       Minimum="0"
+                                                       Maximum="1"
+                                                       MinimumTrackColor="{StaticResource Primary}"
+                                                       VerticalOptions="Center" />
+                                                <Label Grid.Column="2"
+                                                      Text="{Binding Volume, StringFormat='{0:P0}'}"
+                                                      FontSize="11"
+                                                      TextColor="{StaticResource Gray400}"
+                                                      WidthRequest="35"
+                                                      VerticalOptions="Center" />
+                                            </Grid>
+                                        </Grid>
+                                    </Border>
+                                    
+                                    <!-- Track Timeline Area -->
+                                    <Grid Grid.Column="1" 
+                                         BackgroundColor="#1E1E1E">
+                                        <Grid.GestureRecognizers>
+                                            <TapGestureRecognizer Command="{Binding Source={RelativeSource AncestorType={x:Type viewmodels:MixingViewModel}}, Path=ShowStemLibraryCommand}"
+                                                                 CommandParameter="{Binding .}" />
+                                        </Grid.GestureRecognizers>
+                                        
+                                        <!-- Grid Lines (bars) -->
+                                        <Grid x:Name="TrackGrid">
+                                            <HorizontalStackLayout Spacing="0">
+                                                <BoxView Color="{StaticResource Gray700}" WidthRequest="1" />
+                                                <BoxView Color="Transparent" WidthRequest="99" />
+                                                <BoxView Color="{StaticResource Gray700}" WidthRequest="1" />
+                                                <BoxView Color="Transparent" WidthRequest="99" />
+                                                <BoxView Color="{StaticResource Gray700}" WidthRequest="1" />
+                                                <BoxView Color="Transparent" WidthRequest="99" />
+                                                <BoxView Color="{StaticResource Gray700}" WidthRequest="1" />
+                                                <BoxView Color="Transparent" WidthRequest="99" />
+                                                <BoxView Color="{StaticResource Gray700}" WidthRequest="1" />
+                                                <BoxView Color="Transparent" WidthRequest="99" />
+                                                <BoxView Color="{StaticResource Gray700}" WidthRequest="1" />
+                                                <BoxView Color="Transparent" WidthRequest="99" />
+                                                <BoxView Color="{StaticResource Gray700}" WidthRequest="1" />
+                                                <BoxView Color="Transparent" WidthRequest="99" />
+                                                <BoxView Color="{StaticResource Gray700}" WidthRequest="1" />
+                                                <BoxView Color="Transparent" WidthRequest="99" />
+                                                <BoxView Color="{StaticResource Gray700}" WidthRequest="1" />
+                                            </HorizontalStackLayout>
+                                        </Grid>
+                                        
+                                        <!-- Stems/Clips on Track -->
+                                        <CollectionView ItemsSource="{Binding Clips}"
+                                                       SelectionMode="Single">
+                                            <CollectionView.ItemsLayout>
+                                                <LinearItemsLayout Orientation="Horizontal" ItemSpacing="0" />
+                                            </CollectionView.ItemsLayout>
+                                            <CollectionView.ItemTemplate>
+                                                <DataTemplate x:DataType="viewmodels:MixingClipViewModel">
+                                                    <Border BackgroundColor="{Binding Color}"
+                                                           Padding="8,4"
+                                                           Margin="2,10"
+                                                           StrokeThickness="1"
+                                                           Stroke="#FFFFFF40"
+                                                           WidthRequest="{Binding WidthPixels}"
+                                                           HeightRequest="80">
+                                                        <Border.StrokeShape>
+                                                            <RoundRectangle CornerRadius="4" />
+                                                        </Border.StrokeShape>
+                                                        <Grid>
+                                                            <!-- Waveform placeholder -->
+                                                            <BoxView Color="#FFFFFF20" />
+                                                            <VerticalStackLayout Spacing="2" VerticalOptions="Start">
+                                                                <Label Text="{Binding ClipName}" 
+                                                                      FontSize="11" 
+                                                                      FontAttributes="Bold"
+                                                                      TextColor="White" />
+                                                                <Label Text="{Binding Duration, StringFormat='{0:mm\\:ss}'}" 
+                                                                      FontSize="9"
+                                                                      TextColor="#FFFFFFCC" />
+                                                            </VerticalStackLayout>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </CollectionView.ItemTemplate>
+                                        </CollectionView>
+                                        
+                                        <!-- Drop Target Indicator -->
+                                        <Label Text="🎵 Tap to add stems or drag and drop here"
+                                              FontSize="12"
+                                              TextColor="{StaticResource Gray500}"
+                                              HorizontalOptions="Center"
+                                              VerticalOptions="Center"
+                                              IsVisible="{Binding HasNoClips}" />
+                                    </Grid>
+                                </Grid>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                    </CollectionView>
+                </VerticalStackLayout>
+            </Grid>
+        </ScrollView>
+
+        <!-- Transport Controls -->
+        <Border Grid.Row="2"
+               BackgroundColor="{StaticResource Gray900}"
+               Padding="20,15"
+               StrokeThickness="0,1,0,0"
+               Stroke="{StaticResource Gray700}">
+            <Grid ColumnDefinitions="*,Auto,*">
+                
+                <!-- Left Side - Status -->
+                <HorizontalStackLayout Grid.Column="0" Spacing="15">
+                    <Label Text="{Binding StatusMessage}" 
+                           FontSize="12"
+                           TextColor="{StaticResource Gray400}"
+                           VerticalOptions="Center" />
+                </HorizontalStackLayout>
+                
+                <!-- Center - Transport Controls -->
+                <HorizontalStackLayout Grid.Column="1" 
+                                      Spacing="10" 
+                                      HorizontalOptions="Center">
+                    <!-- Skip to Start -->
+                    <Button Text="⏮"
+                           Command="{Binding SkipToStartCommand}"
+                           FontSize="20"
+                           BackgroundColor="{StaticResource Gray700}"
+                           TextColor="White"
+                           WidthRequest="50"
+                           HeightRequest="50" />
+                    
+                    <!-- Play/Pause -->
+                    <Button Text="{Binding PlayButtonText}"
+                           Command="{Binding PlayPauseCommand}"
+                           FontSize="24"
+                           BackgroundColor="{StaticResource Primary}"
+                           TextColor="White"
+                           WidthRequest="60"
+                           HeightRequest="60"
+                           CornerRadius="30" />
+                    
+                    <!-- Stop -->
+                    <Button Text="⏹"
+                           Command="{Binding StopCommand}"
+                           FontSize="20"
+                           BackgroundColor="{StaticResource Gray700}"
+                           TextColor="White"
+                           WidthRequest="50"
+                           HeightRequest="50" />
+                    
+                    <!-- Export Mix -->
+                    <Button Text="💾 Export"
+                           Command="{Binding ExportMixCommand}"
+                           BackgroundColor="{StaticResource Success}"
+                           TextColor="White"
+                           Margin="20,0,0,0"
+                           Padding="20,10" />
+                </HorizontalStackLayout>
+                
+                <!-- Right Side - Master Volume -->
+                <HorizontalStackLayout Grid.Column="2" 
+                                      HorizontalOptions="End"
+                                      Spacing="10">
+                    <Label Text="Master:" 
+                          VerticalOptions="Center"
+                          TextColor="White" />
+                    <Slider Value="{Binding MasterVolume}"
+                           Minimum="0"
+                           Maximum="1"
+                           WidthRequest="150"
+                           MinimumTrackColor="{StaticResource Primary}"
+                           VerticalOptions="Center" />
+                    <Label Text="{Binding MasterVolume, StringFormat='{0:P0}'}"
+                          WidthRequest="45"
+                          TextColor="White"
+                          VerticalOptions="Center" />
+                </HorizontalStackLayout>
+            </Grid>
+        </Border>
+    </Grid>
+
+</ContentPage>

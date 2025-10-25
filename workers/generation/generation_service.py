@@ -104,20 +104,11 @@ class GenerationService:
             else:
                 raise RuntimeError("MusicGen not available. Generation worker not properly initialized.")
             
-            # Resample to 44.1kHz for compatibility
-            if audio.shape[0] > 0:
-                audio_resampled = librosa.resample(
-                    audio.T, 
-                    orig_sr=self.sample_rate, 
-                    target_sr=44100
-                ).T
-                sf.write(output_path, audio_resampled, 44100)
-            else:
-                sf.write(output_path, audio, self.sample_rate)
+            # Save audio at native 32kHz for best quality
+            # (avoid resampling artifacts from 32kHz → 44.1kHz)
+            sf.write(output_path, audio, self.sample_rate)
             
-            logger.info(f"Saved generated track: {output_path}")
-            
-            logger.info(f"Saved generated track: {output_path}")
+            logger.info(f"Saved generated track at {self.sample_rate}Hz: {output_path}")
             
             return output_path
             
@@ -250,18 +241,29 @@ class GenerationService:
         device = next(model.parameters()).device
         inputs = {k: v.to(device) for k, v in inputs.items()}
         
+        # Quality parameters from request (defaults for best quality)
+        temperature = parameters.get("temperature", 1.0)  # 1.0 = balanced creativity
+        guidance_scale = parameters.get("guidance_scale", 3.0)  # 3.0 = balanced prompt adherence
+        top_k = parameters.get("top_k", 250)  # Higher = more variety, lower = safer/coherent
+        top_p = parameters.get("top_p", 0.0)  # 0.0 = disabled (use top_k instead)
+        
         # Generate
         with torch.no_grad():
             audio_values = model.generate(
                 **inputs,
                 max_new_tokens=max_new_tokens,
                 do_sample=True,
-                guidance_scale=3.0
+                temperature=temperature,
+                guidance_scale=guidance_scale,
+                top_k=top_k,
+                top_p=top_p
             )
         
         # Convert to numpy and squeeze
         audio = audio_values.cpu().squeeze().numpy()
         
+        # Return at native 32kHz for best quality
+        # (avoid unnecessary resampling artifacts)
         return audio
     
     def _build_prompt_from_parameters(self, parameters: Dict[str, Any]) -> str:
@@ -309,6 +311,13 @@ class GenerationService:
                 parts.append("six-eight time")
             elif time_sig in ["5/4", "7/8"]:
                 parts.append("complex rhythm")
+
+        # Song section type
+        section = parameters.get("section_type")
+        if section:
+            section_lower = str(section).lower()
+            if section_lower in ["intro", "verse", "chorus", "bridge", "outro", "breakdown", "drop", "solo"]:
+                parts.append(f"{section_lower} section")
         
         # Base description
         if not parts:

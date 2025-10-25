@@ -12,6 +12,11 @@
         Route="MainPage" />
 
     <ShellContent
+        Title="Mixing Workspace"
+        ContentTemplate="{DataTemplate pages:MixingPage}"
+        Route="MixingPage" />
+
+    <ShellContent
         Title="Background Jobs"
         ContentTemplate="{DataTemplate pages:JobsPage}"
         Route="JobsPage" />
