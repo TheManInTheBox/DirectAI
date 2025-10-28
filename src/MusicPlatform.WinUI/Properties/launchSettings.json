@@ -1,0 +1,16 @@
+{
+  "profiles": {
+    "MusicPlatform.WinUI (Package)": {
+      "commandName": "MsixPackage",
+      "environmentVariables": {
+        "DIRECTAI_API_BASEURL": "https://api-mo6rlbmgpkrs4.livelymushroom-0aa872a5.eastus2.azurecontainerapps.io"
+      }
+    },
+    "MusicPlatform.WinUI (Unpackaged)": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "DIRECTAI_API_BASEURL": "https://api-mo6rlbmgpkrs4.livelymushroom-0aa872a5.eastus2.azurecontainerapps.io"
+      }
+    }
+  }
+}

@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="MusicPlatform.WinUI.Views.GenerationPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <ScrollViewer Padding="20">
+        <StackPanel Spacing="12">
+            <TextBlock Text="Generation" FontSize="32" FontWeight="Bold"/>
+
+            <TextBlock Text="Prompt"/>
+            <TextBox Text="{Binding Prompt, Mode=TwoWay}" PlaceholderText="Describe the music to generate..."/>
+
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <StackPanel Width="200">
+                    <TextBlock Text="Duration (s)"/>
+                    <NumberBox Value="{Binding Duration, Mode=TwoWay}" Minimum="1" Maximum="120"/>
+                </StackPanel>
+                <StackPanel Width="200">
+                    <TextBlock Text="Key"/>
+                    <TextBox Text="{Binding Key, Mode=TwoWay}"/>
+                </StackPanel>
+                <StackPanel Width="200">
+                    <TextBlock Text="BPM"/>
+                    <NumberBox Value="{Binding Bpm, Mode=TwoWay}" Minimum="40" Maximum="220"/>
+                </StackPanel>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <StackPanel Width="200">
+                    <TextBlock Text="Temperature"/>
+                    <Slider Minimum="0" Maximum="2" Value="{Binding Temperature, Mode=TwoWay}"/>
+                </StackPanel>
+                <StackPanel Width="200">
+                    <TextBlock Text="Top K"/>
+                    <NumberBox Value="{Binding TopK, Mode=TwoWay}" Minimum="0" Maximum="500"/>
+                </StackPanel>
+                <StackPanel Width="200">
+                    <TextBlock Text="Top P"/>
+                    <Slider Minimum="0" Maximum="1" Value="{Binding TopP, Mode=TwoWay}"/>
+                </StackPanel>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button Content="Generate" Command="{Binding GenerateCommand}"/>
+                <ProgressRing IsActive="{Binding IsGenerating}" Width="24" Height="24"/>
+                <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center"/>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+
+</Page>

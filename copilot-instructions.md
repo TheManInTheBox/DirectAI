@@ -3,9 +3,35 @@
 These instructions help Copilot (and contributors) work effectively in this codebase. Prefer concrete, incremental changes, keep public APIs stable, and validate via build/tests before concluding work.
 
 ## Project overview
+- **DirectAI**: A Generative Audio Workstation (GAW) combining AI-powered music generation with professional DAW functionality
 - Solution: `DirectML.AI.Platform.sln`
-- Architecture: API (.NET), Workers (Python), Client (MAUI), Infrastructure (Bicep/K8s), local dev via Docker Compose.
+- Architecture: API (.NET), Workers (Python), WinUI Client, Infrastructure (Bicep/K8s), local dev via Docker Compose.
 - Local stack: API + Postgres + Azurite + analysis/generation workers + pgAdmin.
+
+## Vision: Generative Audio Workstation
+Building a next-generation audio production platform that combines:
+1. **DAW-like Interface**: Multitrack timeline with drag-and-drop stems, visual waveform editing, tempo-aligned grid
+2. **AI Generation**: Transformer-based models (MusicGen, MelodyFlow) for stem generation, variation engine for creative options
+3. **Professional Audio**: Stem extraction (Demucs), beat detection, mixdown with compression/EQ/reverb, mastering presets
+4. **Workflow Integration**: Prompt-to-music composer, stem editor with pitch/timing control, recording module for live input
+
+### Core Architecture
+**Frontend (WinUI 3):**
+- Multitrack timeline with SUNO Studio-style dark UI
+- Drag-and-drop stem management with visual waveforms
+- Prompt composer for text-to-music generation
+- Genre/style selectors and variation browser
+
+**Generative Engine (Python Workers):**
+- Model orchestration: MusicGen, diffusion models for high-fidelity stems
+- Stem generator modules: bassline, percussion, melody, vocal synthesis
+- Variation engine: multiple stem variants per prompt with user refinement
+
+**Audio Processing Pipeline:**
+- Stem extraction via Demucs (vocals, drums, bass, other)
+- Beat detection and grid alignment (tempo-aware)
+- Mixdown engine with professional effects chain
+- Recording integration for live input capture
 
 ## Tech stack by area
 - API: ASP.NET Core (C#), EF Core (Npgsql), SignalR hubs, REST controllers.
@@ -20,8 +46,9 @@ These instructions help Copilot (and contributors) work effectively in this code
 - Business logic/services: `src/MusicPlatform.Api/Services/`.
 - DB models/entities: `src/MusicPlatform.Domain/Models/`; update migrations in API project.
 - Worker analysis pipeline: `workers/analysis/` (main.py, analysis_service.py).
-- Worker generation pipeline: `workers/generation/`.
-- Client UI/ViewModels: `src/MusicPlatform.Maui/`.
+- Worker generation pipeline: `workers/generation/` - AI model integration for stem generation.
+- WinUI Client UI/ViewModels: `src/MusicPlatform.WinUI/` - DAW interface, mixing page, timeline controls.
+- Audio services: `src/MusicPlatform.WinUI/Services/` - AudioPlaybackService, AudioCacheService.
 - Infra changes: `infrastructure/` and `infrastructure/kubernetes/`.
 
 ## Coding conventions
@@ -40,7 +67,7 @@ These instructions help Copilot (and contributors) work effectively in this code
 - Validate before finishing work:
   - API: build `MusicPlatform.Api` and run the container; hit `/health` (if present) and controller endpoints.
   - Workers: rebuild the worker image if Python code changed; ensure container health is OK.
-  - Client: build `MusicPlatform.Maui` for `net9.0-windows10.0.19041.0` if UI changes are involved.
+  - WinUI Client: build `MusicPlatform.WinUI` for `net9.0-windows10.0.19041.0`; test mixing page and audio playback.
 
 ## Data and jobs
 - Analysis results persist BPM/Key/Mode/Tuning, beats/sections/chords, and Flamingo insights JSON.
@@ -60,6 +87,21 @@ These instructions help Copilot (and contributors) work effectively in this code
 ## Client (MAUI) guidelines
 - Use existing API client services; keep routes consistent with `src/MusicPlatform.Api`.
 - Notation models align with worker schema (events/pitch_contour/chord_progression/melody).
+
+## Audio Caching
+- **AudioCacheService**: Provides local file caching (up to 500MB) with LRU eviction.
+- Cache location: `ApplicationData.Current.LocalCacheFolder/AudioCache/`
+- Cache keys: Use format `audio_{audioFileId}` for originals, `stem_{stemId}` for stems.
+- **AudioPlaybackService**: Automatically caches audio files on first load; subsequent loads are served from cache.
+- Use `LoadTrackFromCacheAsync()` instead of `LoadTrackAsync()` to leverage caching.
+- Cache is persistent across app sessions and survives restarts.
+
+## WinUI 3 XAML guidelines
+- **CRITICAL:** WinUI 3 does NOT support `RelativeSource` binding syntax (e.g., `RelativeSource={RelativeSource AncestorType=Page}`).
+- Use `ElementName` binding instead: Add `x:Name="Root"` to the Page element, then use `ElementName=Root` in bindings.
+- Example: `Command="{Binding DataContext.MyCommand, ElementName=Root}"` instead of `Command="{Binding DataContext.MyCommand, RelativeSource={RelativeSource AncestorType=Page}}"`
+- **BorderDashArray is NOT supported** in WinUI 3. Use solid borders only.
+- This is a common source of silent XAML compiler failures with exit code 1.
 
 ## Testing and quality gates
 - API tests: `tests/DirectML.AI.Tests/` (extend when changing public behavior).

@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="MusicPlatform.WinUI.Views.LoadingWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="DirectAI Music Platform">
+
+    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Logo/Title -->
+        <StackPanel Grid.Row="1" HorizontalAlignment="Center" Margin="0,20">
+            <TextBlock Text="DirectAI" 
+                       FontSize="32" 
+                       FontWeight="Bold" 
+                       HorizontalAlignment="Center"
+                       Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+            <TextBlock Text="Music Platform" 
+                       FontSize="16" 
+                       HorizontalAlignment="Center"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       Margin="0,4,0,0"/>
+        </StackPanel>
+
+        <!-- Loading Progress -->
+        <StackPanel Grid.Row="2" Margin="40,30">
+            <ProgressRing IsActive="True" 
+                          Width="40" 
+                          Height="40" 
+                          HorizontalAlignment="Center"/>
+            
+            <TextBlock x:Name="LoadingStatusText"
+                       Text="Initializing..."
+                       HorizontalAlignment="Center"
+                       Margin="0,16,0,0"
+                       FontSize="14"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+        </StackPanel>
+
+        <!-- Loading Steps -->
+        <StackPanel Grid.Row="3" Margin="40,0,40,20">
+            <TextBlock x:Name="Step1Text" 
+                       Text="• Configuring services..." 
+                       FontSize="12" 
+                       Margin="0,2"
+                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+            <TextBlock x:Name="Step2Text" 
+                       Text="• Connecting to API..." 
+                       FontSize="12" 
+                       Margin="0,2"
+                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+            <TextBlock x:Name="Step3Text" 
+                       Text="• Loading audio library..." 
+                       FontSize="12" 
+                       Margin="0,2"
+                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+            <TextBlock x:Name="Step4Text" 
+                       Text="• Initializing ViewModels..." 
+                       FontSize="12" 
+                       Margin="0,2"
+                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+        </StackPanel>
+    </Grid>
+</Window>

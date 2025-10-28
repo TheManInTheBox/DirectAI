@@ -1,0 +1,183 @@
+<UserControl
+    x:Class="MusicPlatform.WinUI.Controls.AudioTrackControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:canvas="using:Microsoft.Graphics.Canvas.UI.Xaml"
+    mc:Ignorable="d"
+    Height="120">
+    
+    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            CornerRadius="8"
+            Margin="0,4">
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <!-- Left: Track Controls (Fixed Width) -->
+            <ColumnDefinition Width="240"/>
+            <!-- Right: Waveform Canvas (Fills remaining) -->
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- LEFT PANEL: Track Controls -->
+        <Border Grid.Column="0" 
+                Background="{ThemeResource LayerFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="0,0,1,0"
+                Padding="12">
+            <Grid RowSpacing="8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/> <!-- Track Name -->
+                    <RowDefinition Height="Auto"/> <!-- Volume -->
+                    <RowDefinition Height="Auto"/> <!-- Pan -->
+                    <RowDefinition Height="*"/>    <!-- Spacer -->
+                    <RowDefinition Height="Auto"/> <!-- Buttons -->
+                </Grid.RowDefinitions>
+
+                <!-- Track Name -->
+                <TextBlock Grid.Row="0"
+                           x:Name="TrackNameText"
+                           Text="Track Name"
+                           FontSize="14"
+                           FontWeight="SemiBold"
+                           TextTrimming="CharacterEllipsis"/>
+
+                <!-- Volume Control -->
+                <StackPanel Grid.Row="1" Spacing="4">
+                    <TextBlock Text="Volume" 
+                               FontSize="12" 
+                               Opacity="0.8"/>
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="20"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="35"/>
+                        </Grid.ColumnDefinitions>
+                        
+                        <FontIcon Grid.Column="0" 
+                                  Glyph="&#xE767;" 
+                                  FontSize="14"
+                                  Opacity="0.6"/>
+                        <Slider Grid.Column="1"
+                                x:Name="VolumeSlider"
+                                Minimum="0"
+                                Maximum="100"
+                                Value="75"
+                                ValueChanged="VolumeSlider_ValueChanged"/>
+                        <TextBlock Grid.Column="2"
+                                   x:Name="VolumeText"
+                                   Text="75%"
+                                   FontSize="11"
+                                   VerticalAlignment="Center"
+                                   Opacity="0.7"/>
+                    </Grid>
+                </StackPanel>
+
+                <!-- Pan Control -->
+                <StackPanel Grid.Row="2" Spacing="4">
+                    <TextBlock Text="Pan" 
+                               FontSize="12" 
+                               Opacity="0.8"/>
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="20"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="35"/>
+                        </Grid.ColumnDefinitions>
+                        
+                        <FontIcon Grid.Column="0" 
+                                  Glyph="&#xEC4F;" 
+                                  FontSize="14"
+                                  Opacity="0.6"/>
+                        <Slider Grid.Column="1"
+                                x:Name="PanSlider"
+                                Minimum="-100"
+                                Maximum="100"
+                                Value="0"
+                                ValueChanged="PanSlider_ValueChanged"/>
+                        <TextBlock Grid.Column="2"
+                                   x:Name="PanText"
+                                   Text="C"
+                                   FontSize="11"
+                                   VerticalAlignment="Center"
+                                   Opacity="0.7"/>
+                    </Grid>
+                </StackPanel>
+
+                <!-- Mute/Solo Buttons -->
+                <StackPanel Grid.Row="4" 
+                            Orientation="Horizontal" 
+                            Spacing="8"
+                            HorizontalAlignment="Right">
+                    <ToggleButton x:Name="SoloButton"
+                                  Content="S"
+                                  Width="40"
+                                  Height="32"
+                                  ToolTipService.ToolTip="Solo"
+                                  Click="SoloButton_Click">
+                        <ToggleButton.Resources>
+                            <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="#FFD700"/>
+                            <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="#FFC700"/>
+                        </ToggleButton.Resources>
+                    </ToggleButton>
+                    
+                    <ToggleButton x:Name="MuteButton"
+                                  Content="M"
+                                  Width="40"
+                                  Height="32"
+                                  ToolTipService.ToolTip="Mute"
+                                  Click="MuteButton_Click">
+                        <ToggleButton.Resources>
+                            <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="#FF4444"/>
+                            <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="#FF3333"/>
+                        </ToggleButton.Resources>
+                    </ToggleButton>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- RIGHT PANEL: Waveform Canvas -->
+        <Grid Grid.Column="1" Background="{ThemeResource LayerFillColorAltBrush}">
+            <Grid.Resources>
+                <!-- Context Menu for Selection -->
+                <MenuFlyout x:Name="SelectionContextMenu">
+                    <MenuFlyoutItem Text="Cut" Icon="Cut" Click="ContextMenu_Cut"/>
+                    <MenuFlyoutItem Text="Copy" Icon="Copy" Click="ContextMenu_Copy"/>
+                    <MenuFlyoutItem Text="Paste" Click="ContextMenu_Paste">
+                        <MenuFlyoutItem.Icon>
+                            <FontIcon Glyph="&#xE77F;"/>
+                        </MenuFlyoutItem.Icon>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutItem Text="Delete" Icon="Delete" Click="ContextMenu_Delete"/>
+                    <MenuFlyoutSeparator/>
+                    <MenuFlyoutItem Text="AI Generate Replacement" Click="ContextMenu_AIGenerate">
+                        <MenuFlyoutItem.Icon>
+                            <FontIcon Glyph="&#xE8B5;"/>
+                        </MenuFlyoutItem.Icon>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutSeparator/>
+                    <MenuFlyoutItem Text="Loop Selection" Click="ContextMenu_Loop"/>
+                    <MenuFlyoutItem Text="Normalize" Click="ContextMenu_Normalize"/>
+                </MenuFlyout>
+            </Grid.Resources>
+            
+            <canvas:CanvasControl x:Name="WaveformCanvas"
+                                  Draw="WaveformCanvas_Draw"
+                                  PointerPressed="WaveformCanvas_PointerPressed"
+                                  PointerMoved="WaveformCanvas_PointerMoved"
+                                  PointerReleased="WaveformCanvas_PointerReleased"
+                                  RightTapped="WaveformCanvas_RightTapped"/>
+
+            <!-- Timeline Ruler (Bottom) -->
+            <Border VerticalAlignment="Bottom" 
+                    Height="20" 
+                    Background="{ThemeResource LayerFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="0,1,0,0">
+                <Canvas x:Name="TimelineRuler"/>
+            </Border>
+        </Grid>
+    </Grid>
+    </Border>
+</UserControl>

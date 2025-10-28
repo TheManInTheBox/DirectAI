@@ -245,19 +245,18 @@ public class StemsController : ControllerBase
 
         try
         {
-            // Parse the blob URI to extract container and blob name
-            // URI format: http://azurite:10000/devstoreaccount1/audio-files/guid/stems/type.wav
+            // Parse Azure blob URI to extract container and blob name
+            // Azure format: https://accountname.blob.core.windows.net/container-name/blob-path
             var blobUri = new Uri(stem.BlobUri);
-            var pathParts = blobUri.AbsolutePath.TrimStart('/').Split('/', 3);
+            var pathParts = blobUri.AbsolutePath.TrimStart('/').Split('/', 2);
             
-            if (pathParts.Length != 3)
+            if (pathParts.Length != 2)
             {
-                return BadRequest("Invalid blob URI format");
+                return BadRequest("Invalid Azure blob URI format");
             }
 
-            // Skip the account name (pathParts[0] = "devstoreaccount1")
-            var containerName = pathParts[1];  // "audio-files"
-            var blobName = pathParts[2];        // "guid/stems/type.wav"
+            var containerName = pathParts[0];  // "audio-files"
+            var blobName = pathParts[1];       // "guid/stems/type.wav"
 
             _logger.LogInformation("Downloading stem {StemId}: container={Container}, blob={BlobName}", 
                 id, containerName, blobName);

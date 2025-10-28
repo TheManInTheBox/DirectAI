@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="MusicPlatform.WinUI.Views.DashboardPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Page.Resources>
+        <!-- Modern card style for dashboard metrics -->
+        <Style x:Key="DashboardCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="24,20"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="VerticalAlignment" Value="Stretch"/>
+        </Style>
+        
+        <!-- Icon style -->
+        <Style x:Key="MetricIconStyle" TargetType="FontIcon">
+            <Setter Property="FontSize" Value="32"/>
+            <Setter Property="Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+        </Style>
+        
+        <!-- Metric value style -->
+        <Style x:Key="MetricValueStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="36"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}"/>
+            <Setter Property="Margin" Value="0,8,0,4"/>
+        </Style>
+        
+        <!-- Metric label style -->
+        <Style x:Key="MetricLabelStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+        </Style>
+    </Page.Resources>
+
+    <ScrollViewer>
+        <Grid Padding="32" MaxWidth="1200">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            
+            <!-- Header -->
+            <StackPanel Grid.Row="0" Margin="0,0,0,32">
+                <TextBlock Text="Dashboard" 
+                          FontSize="40" 
+                          FontWeight="Bold" 
+                          Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                          Margin="0,0,0,8"/>
+                <TextBlock Text="Overview of your music platform" 
+                          FontSize="16" 
+                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <Button Content="Refresh" 
+                       Command="{Binding LoadStatsCommand}"
+                       Style="{ThemeResource AccentButtonStyle}"
+                       Margin="0,16,0,0"
+                       HorizontalAlignment="Left"/>
+            </StackPanel>
+            
+            <!-- Metrics Cards -->
+            <Grid Grid.Row="1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                
+                <!-- Audio Files Card -->
+                <Border Grid.Column="0" Style="{StaticResource DashboardCardStyle}" Margin="0,0,16,0">
+                    <StackPanel>
+                        <FontIcon Glyph="&#xE8D6;" Style="{StaticResource MetricIconStyle}"/>
+                        <TextBlock Text="{Binding AudioFilesCount}" Style="{StaticResource MetricValueStyle}"/>
+                        <TextBlock Text="Audio Files" Style="{StaticResource MetricLabelStyle}"/>
+                        <TextBlock Text="Uploaded tracks ready for processing" 
+                                  FontSize="12" 
+                                  Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                  Margin="0,4,0,0"
+                                  TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+                
+                <!-- Stems Card -->
+                <Border Grid.Column="1" Style="{StaticResource DashboardCardStyle}" Margin="8,0">
+                    <StackPanel>
+                        <FontIcon Glyph="&#xE8B7;" Style="{StaticResource MetricIconStyle}"/>
+                        <TextBlock Text="{Binding StemsCount}" Style="{StaticResource MetricValueStyle}"/>
+                        <TextBlock Text="Separated Stems" Style="{StaticResource MetricLabelStyle}"/>
+                        <TextBlock Text="Individual instrument tracks extracted" 
+                                  FontSize="12" 
+                                  Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                  Margin="0,4,0,0"
+                                  TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+                
+                <!-- Generations Card -->
+                <Border Grid.Column="2" Style="{StaticResource DashboardCardStyle}" Margin="16,0,0,0">
+                    <StackPanel>
+                        <FontIcon Glyph="&#xE7C3;" Style="{StaticResource MetricIconStyle}"/>
+                        <TextBlock Text="{Binding GenerationsCount}" Style="{StaticResource MetricValueStyle}"/>
+                        <TextBlock Text="AI Generations" Style="{StaticResource MetricLabelStyle}"/>
+                        <TextBlock Text="New music created with AI assistance" 
+                                  FontSize="12" 
+                                  Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                  Margin="0,4,0,0"
+                                  TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+            
+            <!-- Quick Actions -->
+            <StackPanel Grid.Row="2" Margin="0,48,0,0">
+                <TextBlock Text="Quick Actions" 
+                          FontSize="24" 
+                          FontWeight="SemiBold" 
+                          Margin="0,0,0,16"
+                          Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <!-- Upload Audio -->
+                    <Border Grid.Column="0" Style="{StaticResource DashboardCardStyle}" Margin="0,0,16,0">
+                        <StackPanel HorizontalAlignment="Center">
+                            <FontIcon Glyph="&#xE898;" FontSize="48" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Margin="0,0,0,16"/>
+                            <TextBlock Text="Upload Audio" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                            <TextBlock Text="Add new music files to your library" 
+                                      FontSize="14" 
+                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                      HorizontalAlignment="Center"
+                                      TextAlignment="Center"
+                                      TextWrapping="Wrap"
+                                      Margin="0,0,0,16"/>
+                            <Button Content="Browse Files" 
+                                   Style="{ThemeResource AccentButtonStyle}"
+                                   HorizontalAlignment="Center"
+                                   Click="OnNavigateToAudioLibrary"/>
+                        </StackPanel>
+                    </Border>
+                    
+                    <!-- Generate Music -->
+                    <Border Grid.Column="1" Style="{StaticResource DashboardCardStyle}" Margin="16,0,0,0">
+                        <StackPanel HorizontalAlignment="Center">
+                            <FontIcon Glyph="&#xE7C3;" FontSize="48" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Margin="0,0,0,16"/>
+                            <TextBlock Text="Generate Music" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                            <TextBlock Text="Create new tracks with AI assistance" 
+                                      FontSize="14" 
+                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                      HorizontalAlignment="Center"
+                                      TextAlignment="Center"
+                                      TextWrapping="Wrap"
+                                      Margin="0,0,0,16"/>
+                            <Button Content="Start Creating" 
+                                   Style="{ThemeResource AccentButtonStyle}"
+                                   HorizontalAlignment="Center"
+                                   Click="OnNavigateToGeneration"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </StackPanel>
+        </Grid>
+    </ScrollViewer>
+</Page>

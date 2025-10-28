@@ -520,10 +520,7 @@ public class GenerationController : ControllerBase
                     scale = request.Parameters?.Scale,
                     time_signature = request.Parameters?.TimeSignature,
                     bars = request.Parameters?.Bars,
-                    section_type = request.Parameters?.SectionType,
-                    guidance_scale = request.Parameters?.GuidanceScale,
-                    top_k = request.Parameters?.TopK,
-                    top_p = request.Parameters?.TopP
+                    section_type = request.Parameters?.SectionType
                 },
                 callback_url = callbackUrl
             };

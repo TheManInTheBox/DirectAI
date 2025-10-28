@@ -1,12 +1,18 @@
 <Project>
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework Condition="'$(MSBuildProjectName)' != 'MusicPlatform.WinUI'">net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <WarningsAsErrors />
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+  
+  <!-- WinUI 3 specific settings -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'MusicPlatform.WinUI'">
+    <UseXamlCompilerExecutable>false</UseXamlCompilerExecutable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
   <PropertyGroup>
