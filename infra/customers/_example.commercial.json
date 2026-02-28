@@ -1,0 +1,18 @@
+{
+  "$schema": "Customer manifest — defines subscription, deployment config, and contact info for a DirectAI customer.",
+  "customerId": "acme",
+  "displayName": "Acme Corp",
+  "subscriptionId": "00000000-0000-0000-0000-000000000000",
+  "tenantId": "00000000-0000-0000-0000-000000000000",
+  "allowedRegions": {
+    "eastus2": "eus2",
+    "westus3": "wus3"
+  },
+  "gpuTier": "enterprise",
+  "platformAcrLoginServer": "acrplatformdai.azurecr.io",
+  "contacts": {
+    "technical": "ops@acme.example.com",
+    "billing": "finance@acme.example.com"
+  },
+  "notes": "Commercial customer. Uses shared platform ACR."
+}

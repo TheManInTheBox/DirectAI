@@ -1,0 +1,166 @@
+# ============================================================================
+# DirectAI — Deploy Regional Stamp
+# Deploys the complete set of Azure resources for a DirectAI customer region.
+#
+# Each customer has their own Azure subscription. The workflow targets
+# the customer's subscription via GitHub environment secrets.
+#
+# Auth: OIDC federated credentials (no stored secrets).
+# Flow: validate → what-if → approval gate → deploy
+# ============================================================================
+
+name: Deploy Stamp
+
+on:
+  workflow_dispatch:
+    inputs:
+      customer_id:
+        description: 'Customer identifier (matches .bicepparam customerId)'
+        required: true
+        type: string
+        default: 'internal'
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+      region:
+        description: 'Azure region (e.g., eastus2, westus3)'
+        required: true
+        type: string
+        default: 'eastus2'
+      region_short:
+        description: 'Short region identifier matching .bicepparam file (e.g., eus2, wus3)'
+        required: true
+        type: string
+        default: 'eus2'
+
+permissions:
+  id-token: write # OIDC token for Azure login
+  contents: read
+
+env:
+  BICEP_FILE: infra/main.bicep
+  PARAMS_FILE: infra/environments/${{ inputs.environment }}.${{ inputs.region_short }}.bicepparam
+  RESOURCE_GROUP: rg-dai-${{ inputs.customer_id }}-${{ inputs.environment }}-${{ inputs.region_short }}
+
+# ---------------------------------------------------------------------------
+# Jobs
+# ---------------------------------------------------------------------------
+
+jobs:
+  # -------------------------------------------------------------------------
+  # 1. Validate — syntax check and preflight
+  # -------------------------------------------------------------------------
+  validate:
+    name: Validate Bicep
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.customer_id }}-${{ inputs.environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Ensure resource group exists
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            az group create \
+              --name "${{ env.RESOURCE_GROUP }}" \
+              --location "${{ inputs.region }}" \
+              --tags project=directai customer-id=${{ inputs.customer_id }} environment=${{ inputs.environment }} region=${{ inputs.region_short }} managed-by=bicep
+
+      - name: Validate template
+        uses: azure/arm-deploy@v2
+        with:
+          scope: resourcegroup
+          resourceGroupName: ${{ env.RESOURCE_GROUP }}
+          template: ${{ env.BICEP_FILE }}
+          parameters: ${{ env.PARAMS_FILE }}
+          deploymentMode: Validate
+          failOnStdErr: true
+
+  # -------------------------------------------------------------------------
+  # 2. What-If — preview changes before applying
+  # -------------------------------------------------------------------------
+  what-if:
+    name: What-If Analysis
+    runs-on: ubuntu-latest
+    needs: validate
+    environment: ${{ inputs.customer_id }}-${{ inputs.environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Run What-If
+        uses: azure/arm-deploy@v2
+        with:
+          scope: resourcegroup
+          resourceGroupName: ${{ env.RESOURCE_GROUP }}
+          template: ${{ env.BICEP_FILE }}
+          parameters: ${{ env.PARAMS_FILE }}
+          additionalArguments: --what-if
+          failOnStdErr: false
+
+  # -------------------------------------------------------------------------
+  # 3. Deploy — apply changes (requires environment approval for prod)
+  # -------------------------------------------------------------------------
+  deploy:
+    name: Deploy Stamp
+    runs-on: ubuntu-latest
+    needs: what-if
+    environment:
+      name: ${{ inputs.customer_id }}-${{ inputs.environment }}
+      url: https://portal.azure.com/#@/resource/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.RESOURCE_GROUP }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy stamp
+        id: deploy
+        uses: azure/arm-deploy@v2
+        with:
+          scope: resourcegroup
+          resourceGroupName: ${{ env.RESOURCE_GROUP }}
+          template: ${{ env.BICEP_FILE }}
+          parameters: ${{ env.PARAMS_FILE }}
+          deploymentName: stamp-${{ inputs.customer_id }}-${{ inputs.region_short }}-${{ github.run_number }}
+          failOnStdErr: true
+
+      - name: Output summary
+        run: |
+          echo "## 🚀 Stamp Deployed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Resource | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Customer** | \`${{ inputs.customer_id }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Environment** | \`${{ inputs.environment }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Region** | \`${{ inputs.region }}\` (\`${{ inputs.region_short }}\`) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Resource Group** | \`${{ env.RESOURCE_GROUP }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **AKS Cluster** | \`${{ steps.deploy.outputs.aksName }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **AKS FQDN** | \`${{ steps.deploy.outputs.aksControlPlaneFqdn }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **ACR** | \`${{ steps.deploy.outputs.acrLoginServer }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Storage** | \`${{ steps.deploy.outputs.storageAccountName }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Key Vault** | \`${{ steps.deploy.outputs.keyVaultUri }}\` |" >> $GITHUB_STEP_SUMMARY
