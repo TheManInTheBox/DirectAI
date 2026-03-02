@@ -39,6 +39,11 @@ on:
           - dev
           - prod
         default: dev
+      region_short:
+        description: 'Region short name (e.g., eus2, wus3)'
+        required: false
+        type: string
+        default: 'eus2'
 
 permissions:
   id-token: write
@@ -106,6 +111,9 @@ jobs:
             type=ref,event=branch
             type=raw,value=latest,enable={{is_default_branch}}
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build and push
         id: build
         uses: docker/build-push-action@v6
@@ -114,6 +122,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Image summary
         run: |
@@ -141,8 +151,8 @@ jobs:
       - name: Get AKS credentials
         run: |
           az aks get-credentials \
-            --resource-group rg-dai-${{ inputs.customer_id }}-${{ inputs.environment }}-eus2 \
-            --name aks-dai-${{ inputs.customer_id }}-${{ inputs.environment }}-eus2
+            --resource-group rg-dai-${{ inputs.customer_id }}-${{ inputs.environment }}-${{ inputs.region_short }} \
+            --name aks-dai-${{ inputs.customer_id }}-${{ inputs.environment }}-${{ inputs.region_short }}
 
       - name: Install Helm
         uses: azure/setup-helm@v4

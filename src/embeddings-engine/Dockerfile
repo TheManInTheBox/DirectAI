@@ -56,13 +56,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install Python deps
+# Install Python deps + application code
 COPY pyproject.toml .
+COPY engine/ engine/
 RUN pip install --no-cache-dir . \
     && rm -rf /root/.cache/pip
-
-# Copy application code
-COPY engine/ engine/
 
 # Copy baked model (if exported)
 COPY --from=exporter /export/ /models/
@@ -84,6 +82,11 @@ EXPOSE 8001
 
 HEALTHCHECK --interval=10s --timeout=3s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz')"
+
+# ── Non-root user ───────────────────────────────────────────────────
+RUN adduser --system --no-create-home appuser \
+    && chown -R appuser:nogroup /app /models
+USER appuser
 
 # Run with multiple workers for CPU-bound tokenization overlap
 CMD ["python", "-m", "uvicorn", "engine.main:app", \

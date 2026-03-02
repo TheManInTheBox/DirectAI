@@ -12,17 +12,20 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# ── Dependencies ────────────────────────────────────────────────────
+# ── Dependencies + Application ──────────────────────────────────────
 COPY pyproject.toml .
+COPY app/ app/
 RUN pip install --no-cache-dir . \
     && rm -rf /root/.cache/pip
-
-# ── Application ─────────────────────────────────────────────────────
-COPY app/ app/
 
 # ── Model configs are mounted at runtime (ConfigMap or volume) ──────
 # Default path: /app/models — override via DIRECTAI_MODEL_CONFIG_DIR
 RUN mkdir -p /app/models
+
+# ── Non-root user ───────────────────────────────────────────────────
+RUN adduser --system --no-create-home appuser \
+    && chown -R appuser:nogroup /app
+USER appuser
 
 EXPOSE 8000
 

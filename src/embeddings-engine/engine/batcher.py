@@ -119,6 +119,11 @@ class DynamicBatcher:
     def pending_count(self) -> int:
         return self._queue.qsize()
 
+    @property
+    def is_healthy(self) -> bool:
+        """True if the batcher loop is alive and accepting work."""
+        return self._running and self._task is not None and not self._task.done()
+
     async def _batch_loop(self) -> None:
         """
         Main dispatch loop. Collects items until batch is full or timeout

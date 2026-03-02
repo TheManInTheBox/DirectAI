@@ -18,6 +18,9 @@ from app.schemas.audio import TranscriptionResponse
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# 25 MB — matches OpenAI's audio transcription limit.
+_MAX_AUDIO_BYTES = 25 * 1024 * 1024
+
 
 @router.post(
     "/v1/audio/transcriptions",
@@ -54,8 +57,14 @@ async def create_transcription(
     url = f"{model_spec.backend_url}/v1/audio/transcriptions"
     headers = {"X-Request-ID": request_id}
 
-    # Build multipart payload for the backend
-    file_content = await file.read()
+    # ── Enforce file size limit ─────────────────────────────────
+    # Read up to limit + 1 byte. If we get more, the file is too big.
+    file_content = await file.read(_MAX_AUDIO_BYTES + 1)
+    if len(file_content) > _MAX_AUDIO_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Audio file exceeds {_MAX_AUDIO_BYTES // (1024 * 1024)}MB limit.",
+        )
     files = {"file": (file.filename or "audio.wav", file_content, file.content_type or "audio/wav")}
     data: dict[str, str] = {"model": model}
     if language:

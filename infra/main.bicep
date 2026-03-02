@@ -289,8 +289,8 @@ var gpuAgentPools = enableGpuPools
         type: 'VirtualMachineScaleSets'
         vnetSubnetResourceId: vnet.outputs.subnetResourceIds[0]
         nodeLabels: {
-          'directai.com/gpu-type': 'a100'
-          'directai.com/pool': 'inference'
+          'directai.io/gpu-pool': 'a100'
+          'directai.io/pool': 'inference'
         }
         nodeTaints: ['nvidia.com/gpu=a100:NoSchedule']
       }
@@ -308,8 +308,8 @@ var gpuAgentPools = enableGpuPools
         type: 'VirtualMachineScaleSets'
         vnetSubnetResourceId: vnet.outputs.subnetResourceIds[0]
         nodeLabels: {
-          'directai.com/gpu-type': 'h100'
-          'directai.com/pool': 'inference'
+          'directai.io/gpu-pool': 'h100'
+          'directai.io/pool': 'inference'
         }
         nodeTaints: ['nvidia.com/gpu=h100:NoSchedule']
       }
@@ -327,10 +327,10 @@ var gpuAgentPools = enableGpuPools
         type: 'VirtualMachineScaleSets'
         vnetSubnetResourceId: vnet.outputs.subnetResourceIds[0]
         nodeLabels: {
-          'directai.com/pool': 'embeddings'
-          'directai.com/workload': 'embeddings'
+          'directai.io/gpu-pool': 'embeddings'
+          'directai.io/pool': 'embeddings'
         }
-        nodeTaints: ['directai.com/workload=embeddings:NoSchedule']
+        nodeTaints: ['directai.io/workload=embeddings:NoSchedule']
       }
     ]
   : []

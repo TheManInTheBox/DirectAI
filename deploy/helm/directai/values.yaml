@@ -54,15 +54,24 @@ ingress:
     nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
     # Enable SSE streaming
     nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    # TLS hardening — force HTTPS redirect
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # HSTS (1 year, include subdomains)
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
+    # Uncomment for cert-manager auto-provisioning:
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
   hosts:
     - host: api.directai.local
       paths:
         - path: /
           pathType: Prefix
   tls: []
+  # Production TLS — uncomment and set your domain:
   #  - secretName: directai-tls
   #    hosts:
-  #      - api.directai.local
+  #      - api.directai.example.com
 
 # ── Inference Backends ─────────────────────────────────────────────────────
 # Each entry here creates a Deployment + Service + optional KEDA ScaledObject.
@@ -139,6 +148,7 @@ keda:
   enabled: true
   pollingInterval: 15
   cooldownPeriod: 300
+  prometheusServerAddress: http://prometheus-server.monitoring.svc.cluster.local
 # ── Model Config Files ─────────────────────────────────────────────
 # ModelDeployment YAML files to mount into the API server.
 # Injected at deploy time via --set-file:

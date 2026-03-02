@@ -55,10 +55,8 @@ WORKDIR /app
 
 # Install Python deps (without tensorrt_llm — already in base)
 COPY pyproject.toml .
-RUN pip3 install --no-cache-dir -e "."
-
-# Copy engine code
 COPY engine/ engine/
+RUN pip3 install --no-cache-dir .
 
 # ── Model mount points ──────────────────────────────────────
 # Engine artifacts and tokenizer are mounted here at runtime.
@@ -71,6 +69,11 @@ ENV TRTLLM_PORT=8001
 ENV TRTLLM_LOG_LEVEL=info
 
 # MPI settings for multi-GPU tensor parallelism
+# SECURITY: MPI requires root for shared-memory transport (vader btl).
+# Running as non-root breaks multi-GPU tensor parallelism. Mitigated by:
+#   - Read-only root filesystem in K8s securityContext
+#   - No shell access in production (no SSH, no kubectl exec)
+#   - Network policies restrict pod-to-pod traffic
 ENV OMPI_MCA_btl_vader_single_copy_mechanism=none
 ENV OMPI_ALLOW_RUN_AS_ROOT=1
 ENV OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1

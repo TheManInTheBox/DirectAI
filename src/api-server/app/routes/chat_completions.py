@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from app.auth import require_api_key
-from app.metrics import track_request, INFLIGHT_REQUESTS
+from app.metrics import track_request, INFLIGHT_REQUESTS, REQUEST_DURATION, REQUESTS_TOTAL
 from app.schemas.chat import ChatCompletionRequest, ChatCompletionResponse
 
 logger = logging.getLogger(__name__)
@@ -57,16 +58,22 @@ async def create_chat_completion(
 
         async def event_stream():
             INFLIGHT_REQUESTS.labels(model=model_spec.name).inc()
+            t_start = time.monotonic()
+            status = "ok"
             try:
                 async for chunk in backend.post_stream(url, payload, headers=headers):
                     yield chunk
             except Exception:
+                status = "error"
                 logger.exception("Stream error from backend for model '%s'", body.model)
                 error_payload = json.dumps({"error": {"message": "Backend stream failed", "type": "server_error"}})
                 yield f"data: {error_payload}\n\n".encode()
                 yield b"data: [DONE]\n\n"
             finally:
+                duration = time.monotonic() - t_start
                 INFLIGHT_REQUESTS.labels(model=model_spec.name).dec()
+                REQUEST_DURATION.labels(model=model_spec.name, method="chat").observe(duration)
+                REQUESTS_TOTAL.labels(model=model_spec.name, method="chat", status=status).inc()
 
         return StreamingResponse(
             event_stream(),

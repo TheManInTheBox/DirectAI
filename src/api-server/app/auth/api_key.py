@@ -3,10 +3,14 @@ API key authentication.
 
 MVP: validates against a static set from environment variable.
 Production: swap for Key Vault–backed async lookup (same interface).
+
+SECURITY: Uses hmac.compare_digest for constant-time comparison to
+prevent timing side-channel attacks on API key validation.
 """
 
 from __future__ import annotations
 
+import hmac
 import logging
 
 from fastapi import HTTPException, Security
@@ -17,6 +21,21 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 
 _bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def _constant_time_key_check(candidate: str, valid_keys: set[str]) -> bool:
+    """
+    Check if candidate matches any valid key using constant-time comparison.
+
+    Iterates ALL keys regardless of match to avoid leaking which key
+    (or even whether any key) matched via timing.
+    """
+    matched = False
+    for key in valid_keys:
+        if hmac.compare_digest(candidate.encode("utf-8"), key.encode("utf-8")):
+            matched = True
+        # Do NOT early-return — must compare against every key.
+    return matched
 
 
 async def require_api_key(
@@ -41,7 +60,7 @@ async def require_api_key(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    if credentials.credentials not in settings.api_key_set:
+    if not _constant_time_key_check(credentials.credentials, settings.api_key_set):
         logger.warning("Invalid API key attempted: %s...", credentials.credentials[:8])
         raise HTTPException(
             status_code=401,

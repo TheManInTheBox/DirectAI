@@ -13,16 +13,25 @@ The ID is:
 
 from __future__ import annotations
 
+import re
 import uuid
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
 
+_MAX_ID_LENGTH = 128
+_SAFE_PATTERN = re.compile(r"[^a-zA-Z0-9\-_.]")
+
 
 class CorrelationIdMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+        raw_id = request.headers.get("x-request-id") or ""
+        if raw_id:
+            # Strip unsafe characters and truncate
+            request_id = _SAFE_PATTERN.sub("", raw_id)[:_MAX_ID_LENGTH]
+        if not raw_id or not request_id:
+            request_id = uuid.uuid4().hex
         request.state.request_id = request_id
 
         response = await call_next(request)

@@ -198,9 +198,12 @@ async def healthz():
 @app.get("/readyz")
 async def readyz(request: Request):
     model: EmbeddingModel = request.app.state.model
-    if model.is_loaded:
-        return {"status": "ready", "model": request.app.state.model_name}
-    raise HTTPException(status_code=503, detail="Model not loaded.")
+    batcher: DynamicBatcher = request.app.state.batcher
+    if not model.is_loaded:
+        raise HTTPException(status_code=503, detail="Model not loaded.")
+    if not batcher.is_healthy:
+        raise HTTPException(status_code=503, detail="Batcher loop not running.")
+    return {"status": "ready", "model": request.app.state.model_name}
 
 
 @app.get("/metrics")

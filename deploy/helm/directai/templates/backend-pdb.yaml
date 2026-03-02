@@ -1,0 +1,40 @@
+{{/*
+Creates a PodDisruptionBudget for each backend that has >1 replica or scaling enabled.
+Ensures at least one pod remains available during voluntary disruptions
+(node upgrades, Cluster Autoscaler drain, Helm rollouts).
+*/}}
+{{- range $name, $backend := .Values.backends }}
+{{- $minReplicas := 0 }}
+{{- if and $backend.scaling $backend.scaling.enabled }}
+{{- $minReplicas = int ($backend.scaling.minReplicas | default 0) }}
+{{- else }}
+{{- $minReplicas = int ($backend.replicas | default 1) }}
+{{- end }}
+{{- if gt $minReplicas 1 }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    {{- include "directai.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: backend
+    directai.io/model: {{ $name }}
+spec:
+  {{- if $backend.pdb }}
+  {{- if $backend.pdb.minAvailable }}
+  minAvailable: {{ $backend.pdb.minAvailable }}
+  {{- else if $backend.pdb.maxUnavailable }}
+  maxUnavailable: {{ $backend.pdb.maxUnavailable }}
+  {{- else }}
+  maxUnavailable: 1
+  {{- end }}
+  {{- else }}
+  maxUnavailable: 1
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "directai.backendSelectorLabels" (dict "name" $name "root" $) | nindent 6 }}
+{{- end }}
+{{- end }}

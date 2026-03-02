@@ -1,0 +1,15 @@
+{{- if or (gt (int .Values.apiServer.replicaCount) 1) .Values.apiServer.autoscaling.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-api-server
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "directai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api-server
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "directai.apiServerSelectorLabels" . | nindent 6 }}
+{{- end }}

@@ -76,7 +76,7 @@ jobs:
             az group create \
               --name "${{ env.RESOURCE_GROUP }}" \
               --location "${{ inputs.region }}" \
-              --tags project=directai customer-id=${{ inputs.customer_id }} environment=${{ inputs.environment }} region=${{ inputs.region_short }} managed-by=bicep
+              --tags "project=directai" "customer-id=${{ inputs.customer_id }}" "environment=${{ inputs.environment }}" "region=${{ inputs.region_short }}" "managed-by=bicep"
 
       - name: Validate template
         uses: azure/arm-deploy@v2

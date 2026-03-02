@@ -28,7 +28,7 @@ spec:
     # Requires Prometheus scraping the API server's metrics.
     - type: prometheus
       metadata:
-        serverAddress: http://prometheus-server.monitoring.svc.cluster.local
+        serverAddress: {{ $.Values.keda.prometheusServerAddress | default "http://prometheus-server.monitoring.svc.cluster.local" }}
         metricName: directai_backend_inflight_requests
         query: |
           sum(directai_backend_inflight_requests{model="{{ $name }}"})

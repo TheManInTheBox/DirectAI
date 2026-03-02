@@ -337,6 +337,15 @@ class TestChatProxy:
         # Last chunk should have finish_reason
         assert chunks[-1]["choices"][0]["finish_reason"] == "stop"
 
+        # ── Streaming must update Prometheus metrics ────────────────
+        metrics_resp = proxy_client.get("/metrics")
+        assert metrics_resp.status_code == 200
+        body = metrics_resp.text
+        # Counter for completed requests
+        assert 'directai_requests_total{method="chat",model="mock-chat",status="ok"}' in body
+        # Histogram should have at least one observation
+        assert 'directai_request_duration_seconds_count{method="chat",model="mock-chat"}' in body
+
     def test_alias_resolution(self, proxy_client: TestClient):
         """Both aliases route to the same backend."""
         resp = proxy_client.post(

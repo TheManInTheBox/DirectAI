@@ -60,4 +60,17 @@ class Settings(BaseSettings):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
+    """Return cached application settings singleton.
+
+    The ``@lru_cache`` ensures environment variables are read exactly once
+    at first import — subsequent calls return the same ``Settings`` instance.
+    This is intentional for performance (avoid re-parsing on every request).
+
+    **Testing:** Call ``get_settings.cache_clear()`` after monkeypatching
+    environment variables so the next call picks up the new values.
+
+    **Production override:** If you need live-reloadable config (e.g. Key
+    Vault rotation), replace this with a dependency that reads from an
+    external store and caches with a TTL.
+    """
     return Settings()

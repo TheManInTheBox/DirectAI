@@ -56,14 +56,16 @@ spec:
             - name: TRTLLM_MAX_INFLIGHT_REQUESTS
               value: {{ $backend.maxInflightRequests | quote }}
           {{- end }}
+          {{- $res := deepCopy ($backend.resources | default dict) }}
+          {{- if and $backend.gpu $backend.gpu.count }}
+          {{- $limits := get $res "limits" | default dict }}
+          {{- $_ := set $limits "nvidia.com/gpu" ($backend.gpu.count | toString) }}
+          {{- $_ := set $res "limits" $limits }}
+          {{- end }}
+          {{- if $res }}
           resources:
-            {{- if $backend.resources }}
-            {{- toYaml $backend.resources | nindent 12 }}
-            {{- end }}
-            {{- if and $backend.gpu $backend.gpu.count }}
-            limits:
-              nvidia.com/gpu: {{ $backend.gpu.count | quote }}
-            {{- end }}
+            {{- toYaml $res | nindent 12 }}
+          {{- end }}
           {{- if and $backend.nvmeCache $backend.nvmeCache.enabled }}
           volumeMounts:
             - name: nvme-cache
@@ -71,7 +73,7 @@ spec:
           {{- end }}
           livenessProbe:
             httpGet:
-              path: /health
+              path: /healthz
               port: http
             initialDelaySeconds: 30
             periodSeconds: 15
@@ -79,7 +81,7 @@ spec:
             timeoutSeconds: 5
           readinessProbe:
             httpGet:
-              path: /health
+              path: /readyz
               port: http
             initialDelaySeconds: 15
             periodSeconds: 5
@@ -87,7 +89,7 @@ spec:
             timeoutSeconds: 5
           startupProbe:
             httpGet:
-              path: /health
+              path: /healthz
               port: http
             # GPU models can take minutes to load. 60 * 10s = 10 min max.
             failureThreshold: 60

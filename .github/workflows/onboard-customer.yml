@@ -95,8 +95,10 @@ jobs:
 
       - name: Validate regions
         shell: pwsh
+        env:
+          INPUT_REGIONS: ${{ inputs.regions }}
         run: |
-          $regions = '${{ inputs.regions }}' -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+          $regions = $env:INPUT_REGIONS -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
           if ($regions.Count -eq 0) {
             Write-Error 'At least one region is required.'
             exit 1
@@ -154,11 +156,15 @@ jobs:
       - name: Create or resolve subscription
         id: subscription
         shell: pwsh
+        env:
+          INPUT_DISPLAY_NAME: ${{ inputs.display_name }}
+          INPUT_EXISTING_SUB_ID: ${{ inputs.existing_subscription_id }}
+          INPUT_BILLING_SCOPE: ${{ inputs.billing_scope }}
         run: |
           $customerId = $env:CUSTOMER_ID
-          $displayName = '${{ inputs.display_name }}'
-          $existingSubId = '${{ inputs.existing_subscription_id }}'.Trim()
-          $billingScope = '${{ inputs.billing_scope }}'
+          $displayName = $env:INPUT_DISPLAY_NAME
+          $existingSubId = $env:INPUT_EXISTING_SUB_ID.Trim()
+          $billingScope = $env:INPUT_BILLING_SCOPE
 
           if ($existingSubId -and $existingSubId -ne '') {
             Write-Host "Using existing subscription: $existingSubId"
@@ -358,18 +364,26 @@ jobs:
 
       - name: Generate customer manifest
         shell: pwsh
+        env:
+          INPUT_DISPLAY_NAME: ${{ inputs.display_name }}
+          INPUT_GPU_TIER: ${{ inputs.gpu_tier }}
+          INPUT_USE_PLATFORM_ACR: ${{ inputs.use_platform_acr }}
+          INPUT_PLATFORM_ACR_SERVER: ${{ inputs.platform_acr_server }}
+          INPUT_CONTACT_TECHNICAL: ${{ inputs.contact_technical }}
+          INPUT_CONTACT_BILLING: ${{ inputs.contact_billing }}
+          INPUT_REGIONS: ${{ inputs.regions }}
         run: |
           $customerId = $env:CUSTOMER_ID
-          $displayName = '${{ inputs.display_name }}'
+          $displayName = $env:INPUT_DISPLAY_NAME
           $subscriptionId = '${{ needs.provision.outputs.subscription_id }}'
           $tenantId = '${{ needs.provision.outputs.tenant_id }}'
           $appId = '${{ needs.provision.outputs.app_id }}'
-          $gpuTier = '${{ inputs.gpu_tier }}'
-          $usePlatformAcr = [System.Convert]::ToBoolean('${{ inputs.use_platform_acr }}')
-          $platformAcr = if ($usePlatformAcr) { '${{ inputs.platform_acr_server }}' } else { '' }
-          $contactTech = '${{ inputs.contact_technical }}'
-          $contactBilling = '${{ inputs.contact_billing }}'
-          $regionsRaw = '${{ inputs.regions }}'
+          $gpuTier = $env:INPUT_GPU_TIER
+          $usePlatformAcr = [System.Convert]::ToBoolean($env:INPUT_USE_PLATFORM_ACR)
+          $platformAcr = if ($usePlatformAcr) { $env:INPUT_PLATFORM_ACR_SERVER } else { '' }
+          $contactTech = $env:INPUT_CONTACT_TECHNICAL
+          $contactBilling = $env:INPUT_CONTACT_BILLING
+          $regionsRaw = $env:INPUT_REGIONS
 
           # --- Region short name mapping ---
           $regionMap = @{
@@ -421,12 +435,17 @@ jobs:
 
       - name: Generate Bicep parameter files
         shell: pwsh
+        env:
+          INPUT_DISPLAY_NAME: ${{ inputs.display_name }}
+          INPUT_USE_PLATFORM_ACR: ${{ inputs.use_platform_acr }}
+          INPUT_PLATFORM_ACR_SERVER: ${{ inputs.platform_acr_server }}
+          INPUT_REGIONS: ${{ inputs.regions }}
         run: |
           $customerId = $env:CUSTOMER_ID
-          $displayName = '${{ inputs.display_name }}'
-          $usePlatformAcr = [System.Convert]::ToBoolean('${{ inputs.use_platform_acr }}')
-          $platformAcr = if ($usePlatformAcr) { '${{ inputs.platform_acr_server }}' } else { '' }
-          $regionsRaw = '${{ inputs.regions }}'
+          $displayName = $env:INPUT_DISPLAY_NAME
+          $usePlatformAcr = [System.Convert]::ToBoolean($env:INPUT_USE_PLATFORM_ACR)
+          $platformAcr = if ($usePlatformAcr) { $env:INPUT_PLATFORM_ACR_SERVER } else { '' }
+          $regionsRaw = $env:INPUT_REGIONS
 
           $regionMap = @{
             eastus            = 'eus';   eastus2           = 'eus2'
@@ -494,9 +513,11 @@ param tags = {
 
       - name: Commit and push
         shell: pwsh
+        env:
+          INPUT_DISPLAY_NAME: ${{ inputs.display_name }}
         run: |
           $customerId = $env:CUSTOMER_ID
-          $displayName = '${{ inputs.display_name }}'
+          $displayName = $env:INPUT_DISPLAY_NAME
 
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
@@ -520,13 +541,16 @@ param tags = {
       # -------------------------------------------------------------------
       - name: Output summary
         shell: pwsh
+        env:
+          INPUT_DISPLAY_NAME: ${{ inputs.display_name }}
+          INPUT_REGIONS: ${{ inputs.regions }}
         run: |
           $customerId = $env:CUSTOMER_ID
-          $displayName = '${{ inputs.display_name }}'
+          $displayName = $env:INPUT_DISPLAY_NAME
           $subscriptionId = '${{ needs.provision.outputs.subscription_id }}'
           $tenantId = '${{ needs.provision.outputs.tenant_id }}'
           $appId = '${{ needs.provision.outputs.app_id }}'
-          $regions = '${{ inputs.regions }}'
+          $regions = $env:INPUT_REGIONS
 
           $summary = @"
           ## 🎉 Customer Onboarded: $displayName (``$customerId``)
