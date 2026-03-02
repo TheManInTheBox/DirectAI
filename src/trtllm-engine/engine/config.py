@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     tokenizer_dir: str = "/models/tokenizer"
     model_name: str = "llama-3.1-70b-instruct"
 
+    # ── Modality ────────────────────────────────────────────────────
+    # "chat" → /v1/chat/completions only
+    # "transcription" → /v1/audio/transcriptions only
+    modality: str = "chat"
+
     # ── Generation defaults ─────────────────────────────────────────
     max_batch_size: int = 64
     max_input_len: int = 4096

@@ -1,3 +1,7 @@
+# LOCKFILES: Generate with `pip-compile pyproject.toml -o requirements.lock`
+#   For dev: `pip-compile pyproject.toml --extra dev -o requirements-dev.lock`
+#   Install locked: `pip install -r requirements.lock`
+
 [project]
 name = "directai-api-server"
 version = "0.1.0"

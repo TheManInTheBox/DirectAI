@@ -44,5 +44,5 @@ def test_audio_resolves_whisper_alias(test_client):
         data={"model": "whisper-1"},
         files={"file": ("test.wav", io.BytesIO(b"fake-audio-bytes"), "audio/wav")},
     )
-    # 502 means model was found but backend is unreachable — that's correct
-    assert response.status_code == 502
+    # 503 means model was found but backend is unreachable (cold-start handling)
+    assert response.status_code == 503

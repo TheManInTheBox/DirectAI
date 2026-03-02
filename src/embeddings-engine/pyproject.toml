@@ -2,6 +2,9 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+# LOCKFILES: Generate with `pip-compile pyproject.toml -o requirements.lock`
+#   For dev: `pip-compile pyproject.toml --extra dev --extra cpu -o requirements-dev.lock`
+
 [project]
 name = "directai-embeddings-engine"
 version = "0.1.0"

@@ -1,0 +1,80 @@
+{{/*
+PrometheusRule — alerting rules for DirectAI inference platform.
+Requires the Prometheus Operator CRD (PrometheusRule) to be installed.
+*/}}
+{{- if .Values.prometheusRules.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ .Release.Name }}-alerts
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "directai.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: directai.api-server
+      rules:
+        # High error rate (>5% of requests returning errors over 5 min)
+        - alert: DirectAIHighErrorRate
+          expr: |
+            sum(rate(directai_requests_total{status="error"}[5m])) by (model)
+            /
+            sum(rate(directai_requests_total[5m])) by (model)
+            > 0.05
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High error rate for model {{ "{{" }} $labels.model {{ "}}" }}"
+            description: "Error rate is {{ "{{" }} $value | humanizePercentage {{ "}}" }} over the last 5 minutes."
+
+        # P99 latency >10s for chat completions
+        - alert: DirectAIHighLatency
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(directai_request_duration_seconds_bucket{method="chat"}[5m])) by (le, model)
+            ) > 10
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High P99 latency for model {{ "{{" }} $labels.model {{ "}}" }}"
+            description: "P99 latency is {{ "{{" }} $value | humanizeDuration {{ "}}" }}."
+
+        # Too many inflight requests (near backend capacity)
+        - alert: DirectAIHighInflight
+          expr: directai_backend_inflight_requests > 100
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High inflight requests for model {{ "{{" }} $labels.model {{ "}}" }}"
+            description: "{{ "{{" }} $value {{ "}}" }} requests currently inflight."
+
+    - name: directai.backend
+      rules:
+        # Backend pod not ready for >5 min
+        - alert: DirectAIBackendNotReady
+          expr: |
+            kube_deployment_status_replicas_ready{namespace="{{ .Values.global.namespace }}", deployment=~".*"}
+            < kube_deployment_spec_replicas{namespace="{{ .Values.global.namespace }}", deployment=~".*"}
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Backend deployment {{ "{{" }} $labels.deployment {{ "}}" }} has unavailable replicas"
+            description: "Only {{ "{{" }} $value {{ "}}" }} ready replicas."
+
+        # LLM time-to-first-token >2s
+        - alert: DirectAIHighTTFT
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(directai_llm_time_to_first_token_seconds_bucket[5m])) by (le)
+            ) > 2
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High time-to-first-token"
+            description: "P95 TTFT is {{ "{{" }} $value | humanizeDuration {{ "}}" }}."
+{{- end }}

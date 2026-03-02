@@ -44,14 +44,19 @@ print('Export complete') \
 
 # ── Stage 2: Runtime ────────────────────────────────────────────────────
 
-FROM python:3.11-slim AS runtime
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04 AS runtime
 
 ARG MODEL_NAME=bge-large-en-v1.5
 ARG BAKE_MODEL=0
 
-# System deps for ONNX Runtime GPU
+# System deps: Python 3.11 + ONNX Runtime GPU needs
 RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.11 \
+        python3.11-venv \
+        python3-pip \
         libgomp1 \
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
+    && update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -59,7 +64,7 @@ WORKDIR /app
 # Install Python deps + application code
 COPY pyproject.toml .
 COPY engine/ engine/
-RUN pip install --no-cache-dir . \
+RUN pip3 install --no-cache-dir . \
     && rm -rf /root/.cache/pip
 
 # Copy baked model (if exported)
@@ -88,8 +93,8 @@ RUN adduser --system --no-create-home appuser \
     && chown -R appuser:nogroup /app /models
 USER appuser
 
-# Run with multiple workers for CPU-bound tokenization overlap
-CMD ["python", "-m", "uvicorn", "engine.main:app", \
+# Run with single worker for GPU-bound workload
+CMD ["python3", "-m", "uvicorn", "engine.main:app", \
      "--host", "0.0.0.0", "--port", "8001", \
      "--workers", "1", \
      "--log-level", "info"]

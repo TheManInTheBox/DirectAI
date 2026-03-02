@@ -9,44 +9,37 @@
 # ─────────────────────────────────────────────────────────────
 
 # ── TRT-LLM Base ────────────────────────────────────────────
-# Pin to a specific TRT-LLM release for reproducibility.
-# This image includes CUDA, cuDNN, TensorRT, and tensorrt_llm.
+# Production: use the pre-built NVIDIA TRT-LLM container.
+# CI/stub mode: use a lightweight CUDA base without tensorrt_llm.
+#   Build with: docker build --build-arg USE_STUB=true .
 ARG TRTLLM_VERSION=0.16.0
-ARG BASE_IMAGE=nvidia/cuda:12.8.0-devel-ubuntu22.04
+ARG USE_STUB=false
 
-FROM ${BASE_IMAGE} AS base
+# ---- Production base: full TRT-LLM runtime ----
+FROM nvcr.io/nvidia/tensorrt-llm/release:${TRTLLM_VERSION} AS base-prod
 
-# Avoid interactive prompts during package installation
+# ---- CI/stub base: no TRT-LLM, runs in stub mode ----
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS base-stub
 ENV DEBIAN_FRONTEND=noninteractive
-
-# ── System deps ─────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11 \
     python3.11-dev \
     python3.11-venv \
     python3-pip \
     curl \
-    git \
     openmpi-bin \
     libopenmpi-dev \
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
+    && update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Set python3.11 as default
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
-    && update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1
-
-# ── Install TRT-LLM ────────────────────────────────────────
-# In production, use the pre-built NVIDIA TRT-LLM container:
-#   FROM nvcr.io/nvidia/tensorrt-llm:${TRTLLM_VERSION}
-# For build flexibility, we install from PyPI here.
-# When TRT-LLM wheels are not available (CI, non-GPU), the
-# engine runs in stub mode.
-ARG INSTALL_TRTLLM=true
-RUN if [ "$INSTALL_TRTLLM" = "true" ]; then \
-        pip3 install --no-cache-dir \
-            tensorrt_llm==${TRTLLM_VERSION} \
-            --extra-index-url https://pypi.nvidia.com; \
-    fi
+# ---- Select base ----
+# Docker doesn't support conditional FROM directly, so we use the
+# build stage target approach: build with --target runtime for prod,
+# or --build-arg USE_STUB=true && --target runtime for CI.
+FROM base-prod AS base-false
+FROM base-stub AS base-true
+FROM base-${USE_STUB} AS base
 
 # ── App layer ───────────────────────────────────────────────
 FROM base AS runtime

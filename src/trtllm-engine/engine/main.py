@@ -1,19 +1,23 @@
 """
-TRT-LLM inference server — OpenAI-compatible /v1/chat/completions.
+TRT-LLM inference server — OpenAI-compatible endpoints.
+
+Supports two modalities controlled by TRTLLM_MODALITY:
+  - "chat" (default) → POST /v1/chat/completions (streaming SSE + non-streaming)
+  - "transcription"  → POST /v1/audio/transcriptions
 
 This is the backend server that the DirectAI API server proxies to.
 It runs inside an NVIDIA TRT-LLM container on AKS GPU nodes.
 
-Endpoints:
-  POST /v1/chat/completions  — streaming SSE + non-streaming
-  GET  /v1/models            — list the single served model
-  GET  /healthz              — liveness probe (always 200)
-  GET  /readyz               — readiness probe (200 if engine loaded)
-  GET  /metrics              — Prometheus metrics
+Common endpoints:
+  GET  /v1/models  — list the single served model
+  GET  /healthz    — liveness probe (always 200)
+  GET  /readyz     — readiness probe (200 if engine loaded)
+  GET  /metrics    — Prometheus metrics
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -48,7 +52,14 @@ logger = logging.getLogger(__name__)
 
 # ── Global runner instance ──────────────────────────────────────────
 _runner: TRTLLMRunner | None = None
-_inflight: int = 0  # Backpressure counter (asyncio single-threaded = atomic)
+# SAFETY: _inflight is safe as a bare int ONLY because uvicorn runs a
+# single-event-loop (1 worker, 1 thread).  All increments/decrements happen
+# inside async coroutines on that loop, so there is no concurrent mutation.
+# If you EVER switch to multiple workers (--workers >1) or threads, replace
+# this with an asyncio.Lock-guarded counter or an atomic from the threading
+# module.  The backpressure gate in chat_completions relies on this counter
+# being accurate — a race would silently allow overload or false-reject.
+_inflight: int = 0
 
 
 def _get_runner() -> TRTLLMRunner:
@@ -66,38 +77,55 @@ async def lifespan(app: FastAPI):
     log_level = getattr(logging, settings.log_level.upper(), logging.INFO)
     logging.basicConfig(
         level=log_level,
-        format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+        format='{"ts":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","msg":"%(message)s"}',
     )
 
-    logger.info("Initializing TRT-LLM runner...")
-    logger.info(
-        "Config: model=%s  tp=%d  pp=%d  max_batch=%d  kv_cache=%.0f%%",
-        settings.model_name,
-        settings.tp_size,
-        settings.pp_size,
-        settings.max_batch_size,
-        settings.kv_cache_free_gpu_mem_fraction * 100,
-    )
+    if settings.modality == "transcription":
+        # ── Whisper mode ────────────────────────────────────────────
+        from engine.whisper import register_whisper_routes
 
-    _runner = TRTLLMRunner(
-        engine_dir=settings.engine_dir,
-        tokenizer_dir=settings.tokenizer_dir,
-        tp_size=settings.tp_size,
-        pp_size=settings.pp_size,
-        max_batch_size=settings.max_batch_size,
-        max_input_len=settings.max_input_len,
-        max_output_len=settings.max_output_len,
-        max_beam_width=settings.max_beam_width,
-        kv_cache_free_gpu_mem_fraction=settings.kv_cache_free_gpu_mem_fraction,
-        enable_chunked_context=settings.enable_chunked_context,
-    )
-    _runner.load()
+        logger.info("Modality: transcription — loading Whisper engine...")
+        whisper_runner = register_whisper_routes(
+            app,
+            engine_dir=settings.engine_dir,
+            tokenizer_dir=settings.tokenizer_dir,
+        )
+        logger.info(
+            "Whisper engine ready — serving as '%s'", settings.model_name
+        )
+        yield
+        logger.info("Shutting down Whisper engine.")
+    else:
+        # ── Chat/LLM mode (default) ────────────────────────────────
+        logger.info("Modality: chat — initializing TRT-LLM runner...")
+        logger.info(
+            "Config: model=%s  tp=%d  pp=%d  max_batch=%d  kv_cache=%.0f%%",
+            settings.model_name,
+            settings.tp_size,
+            settings.pp_size,
+            settings.max_batch_size,
+            settings.kv_cache_free_gpu_mem_fraction * 100,
+        )
 
-    logger.info("TRT-LLM engine ready — serving as '%s'", settings.model_name)
-    yield
+        _runner = TRTLLMRunner(
+            engine_dir=settings.engine_dir,
+            tokenizer_dir=settings.tokenizer_dir,
+            tp_size=settings.tp_size,
+            pp_size=settings.pp_size,
+            max_batch_size=settings.max_batch_size,
+            max_input_len=settings.max_input_len,
+            max_output_len=settings.max_output_len,
+            max_beam_width=settings.max_beam_width,
+            kv_cache_free_gpu_mem_fraction=settings.kv_cache_free_gpu_mem_fraction,
+            enable_chunked_context=settings.enable_chunked_context,
+        )
+        _runner.load()
 
-    logger.info("Shutting down TRT-LLM engine.")
-    _runner = None
+        logger.info("TRT-LLM engine ready — serving as '%s'", settings.model_name)
+        yield
+
+        logger.info("Shutting down TRT-LLM engine.")
+        _runner = None
 
 
 # ── App ─────────────────────────────────────────────────────────────
@@ -198,11 +226,15 @@ async def _handle_non_streaming(
     t_start = time.monotonic()
 
     try:
-        output = runner.generate(
-            prompt,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
+        loop = asyncio.get_running_loop()
+        output = await loop.run_in_executor(
+            None,
+            lambda: runner.generate(
+                prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+            ),
         )
 
         duration = time.monotonic() - t_start
@@ -354,6 +386,18 @@ async def healthz():
 
 @app.get("/readyz")
 async def readyz():
+    settings = get_settings()
+    if settings.modality == "transcription":
+        # Whisper mode — check if whisper module loaded
+        from engine.whisper import _whisper
+
+        if _whisper is None or not _whisper.is_loaded:
+            return JSONResponse(
+                status_code=503,
+                content={"status": "not_ready", "detail": "Whisper engine not loaded"},
+            )
+        return {"status": "ready"}
+    # Chat mode
     if _runner is None or not _runner.is_loaded:
         return JSONResponse(
             status_code=503,

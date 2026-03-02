@@ -1,0 +1,145 @@
+{{/*
+DaemonSet that formats and mounts node-local NVMe SSDs on GPU inference nodes.
+
+Azure ND-series VMs (A100, H100) have 3.8TB of raw NVMe storage that is NOT
+auto-formatted. This DaemonSet runs on every GPU inference node, creates a
+RAID0 array across all NVMe devices (if multiple), formats ext4, and mounts
+at /mnt/nvme. Backend pods then use hostPath volumes pointing to /mnt/nvme
+for cached model weights.
+
+The DaemonSet is idempotent — it skips formatting if the drive is already
+mounted. On node scale-up, the new node's DaemonSet pod runs within seconds,
+well before any backend pod's weight-pulling init container finishes.
+*/}}
+{{- if .Values.nvmeInit.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ .Release.Name }}-nvme-init
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "directai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nvme-init
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Chart.Name }}
+      app.kubernetes.io/component: nvme-init
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Chart.Name }}
+        app.kubernetes.io/component: nvme-init
+    spec:
+      hostPID: false
+      terminationGracePeriodSeconds: 10
+      {{- with .Values.nvmeInit.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      tolerations:
+        # Tolerate all GPU taints so the DaemonSet runs on every GPU node
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+        - key: directai.io/workload
+          operator: Exists
+          effect: NoSchedule
+      initContainers:
+        - name: format-nvme
+          image: {{ .Values.nvmeInit.image | default "alpine:3.20" | quote }}
+          securityContext:
+            privileged: true
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              MOUNT_PATH="/host-mnt/nvme"
+
+              # If already mounted, nothing to do
+              if mountpoint -q "$MOUNT_PATH" 2>/dev/null; then
+                echo "[nvme-init] Already mounted at $MOUNT_PATH — skipping"
+                exit 0
+              fi
+
+              # Find NVMe devices (Azure ND-series local SSDs)
+              NVME_DEVS=$(ls /host-dev/nvme*n1 2>/dev/null || true)
+              NVME_COUNT=$(echo "$NVME_DEVS" | grep -c nvme 2>/dev/null || echo 0)
+
+              if [ "$NVME_COUNT" -eq 0 ]; then
+                echo "[nvme-init] No NVMe devices found — creating empty mount point"
+                mkdir -p "$MOUNT_PATH"
+                exit 0
+              fi
+
+              echo "[nvme-init] Found ${NVME_COUNT} NVMe device(s): ${NVME_DEVS}"
+              mkdir -p "$MOUNT_PATH"
+
+              if [ "$NVME_COUNT" -gt 1 ]; then
+                # RAID0 across all NVMe drives for maximum throughput
+                # mdadm is available in alpine:3.20 via apk (pre-installed
+                # in custom image, or installed once per node lifecycle)
+                if ! command -v mdadm >/dev/null 2>&1; then
+                  apk add --no-cache mdadm >/dev/null 2>&1 || true
+                fi
+
+                if command -v mdadm >/dev/null 2>&1; then
+                  # Use existing RAID if present
+                  if [ -e /host-dev/md0 ]; then
+                    mount /host-dev/md0 "$MOUNT_PATH" 2>/dev/null && {
+                      echo "[nvme-init] Existing RAID mounted at $MOUNT_PATH"
+                      exit 0
+                    }
+                  fi
+                  mdadm --create /host-dev/md0 --level=0 \
+                    --raid-devices=${NVME_COUNT} ${NVME_DEVS} \
+                    --force --run
+                  mkfs.ext4 -F -q /host-dev/md0
+                  mount /host-dev/md0 "$MOUNT_PATH"
+                else
+                  # Fallback: use first NVMe if mdadm unavailable
+                  FIRST_DEV=$(echo "$NVME_DEVS" | head -1)
+                  echo "[nvme-init] mdadm unavailable, using single device: $FIRST_DEV"
+                  if ! blkid "$FIRST_DEV" 2>/dev/null | grep -q ext4; then
+                    mkfs.ext4 -F -q "$FIRST_DEV"
+                  fi
+                  mount "$FIRST_DEV" "$MOUNT_PATH"
+                fi
+              else
+                # Single NVMe — format only if no existing filesystem
+                FIRST_DEV=$(echo "$NVME_DEVS" | head -1)
+                if ! blkid "$FIRST_DEV" 2>/dev/null | grep -q ext4; then
+                  mkfs.ext4 -F -q "$FIRST_DEV"
+                fi
+                mount "$FIRST_DEV" "$MOUNT_PATH"
+              fi
+
+              chmod 1777 "$MOUNT_PATH"
+              echo "[nvme-init] NVMe mounted at $MOUNT_PATH"
+          volumeMounts:
+            - name: host-dev
+              mountPath: /host-dev
+            - name: host-mnt
+              mountPath: /host-mnt
+      containers:
+        # DaemonSet requires a running container — pause keeps the pod alive
+        # with minimal resource usage so the init container's mount persists.
+        - name: pause
+          image: registry.k8s.io/pause:3.10
+          resources:
+            requests:
+              cpu: 1m
+              memory: 4Mi
+            limits:
+              cpu: 10m
+              memory: 16Mi
+      volumes:
+        - name: host-dev
+          hostPath:
+            path: /dev
+        - name: host-mnt
+          hostPath:
+            path: /mnt
+{{- end }}

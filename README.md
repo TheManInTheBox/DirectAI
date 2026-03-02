@@ -80,6 +80,12 @@ pip install -e ".[dev]"
 DIRECTAI_MODEL_CONFIG_DIR=../../deploy/models/local python -m uvicorn app.main:app --reload --port 8000
 ```
 
+Or use Docker Compose (starts API server + Ollama):
+
+```bash
+docker compose up
+```
+
 ### 3. Send a request
 
 ```bash

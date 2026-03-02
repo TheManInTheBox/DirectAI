@@ -1,0 +1,295 @@
+# ============================================================================
+# DirectAI — Deploy Model
+# Deploys (or updates) an inference model backend on a customer's AKS cluster.
+#
+# This workflow:
+#   1. Parses a ModelDeployment YAML from deploy/models/
+#   2. Resolves template variables (ACR, storage account)
+#   3. Generates Helm --set arguments for the backend + model config
+#   4. Runs helm upgrade --install to deploy/update the release
+#   5. Waits for rollout and runs a health check
+#
+# The model's backend Deployment, Service, and KEDA ScaledObject are all
+# created/updated as part of the Helm release.
+#
+# Auth: OIDC federated credentials (no stored secrets).
+# SECURITY: Pin third-party actions to commit SHAs before going to production.
+# ============================================================================
+
+name: Deploy Model
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_config:
+        description: 'Path to ModelDeployment YAML (e.g., deploy/models/llama-3.1-70b-instruct.yaml)'
+        required: true
+        type: string
+      customer_id:
+        description: 'Customer ID'
+        required: true
+        type: string
+        default: 'internal'
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+        default: dev
+      region_short:
+        description: 'Region short name (e.g., eus2)'
+        required: true
+        type: string
+        default: 'eus2'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  NAMESPACE: directai
+  HELM_CHART: deploy/helm/directai
+  RG: rg-dai-${{ inputs.customer_id }}-${{ inputs.environment }}-${{ inputs.region_short }}
+  AKS: aks-dai-${{ inputs.customer_id }}-${{ inputs.environment }}-${{ inputs.region_short }}
+
+jobs:
+  # ── Validate model config ────────────────────────────────────────
+  validate:
+    name: Validate Config
+    runs-on: ubuntu-latest
+    outputs:
+      model_name: ${{ steps.parse.outputs.model_name }}
+      modality: ${{ steps.parse.outputs.modality }}
+      engine_type: ${{ steps.parse.outputs.engine_type }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Parse and validate ModelDeployment
+        id: parse
+        run: |
+          CONFIG="${{ inputs.model_config }}"
+
+          if [ ! -f "$CONFIG" ]; then
+            echo "::error::Model config not found: $CONFIG"
+            exit 1
+          fi
+
+          KIND=$(yq '.kind' "$CONFIG")
+          if [ "$KIND" != "ModelDeployment" ]; then
+            echo "::error::Expected kind: ModelDeployment, got: $KIND"
+            exit 1
+          fi
+
+          # Extract key fields
+          NAME=$(yq '.metadata.name' "$CONFIG")
+          MODALITY=$(yq '.spec.modality' "$CONFIG")
+          ENGINE_TYPE=$(yq '.spec.engine.type' "$CONFIG")
+          GPU_COUNT=$(yq '.spec.hardware.gpuCount // 1' "$CONFIG")
+          GPU_SKU=$(yq '.spec.hardware.gpuSku // ""' "$CONFIG")
+
+          echo "model_name=${NAME}" >> $GITHUB_OUTPUT
+          echo "modality=${MODALITY}" >> $GITHUB_OUTPUT
+          echo "engine_type=${ENGINE_TYPE}" >> $GITHUB_OUTPUT
+
+          echo "### ✅ Model Config Valid" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Name | \`${NAME}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Modality | \`${MODALITY}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Engine | \`${ENGINE_TYPE}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| GPU SKU | \`${GPU_SKU}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| GPU Count | \`${GPU_COUNT}\` |" >> $GITHUB_STEP_SUMMARY
+
+  # ── Deploy to AKS ───────────────────────────────────────────────
+  deploy:
+    name: Deploy Backend
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.customer_id }}-${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get cluster info
+        id: cluster
+        run: |
+          az aks get-credentials --resource-group "${{ env.RG }}" --name "${{ env.AKS }}"
+
+          # Get ACR login server from the AKS deployment outputs
+          ACR=$(az deployment group show \
+            --resource-group "${{ env.RG }}" \
+            --name "$(az deployment group list --resource-group '${{ env.RG }}' --query '[0].name' -o tsv)" \
+            --query 'properties.outputs.acrLoginServer.value' -o tsv 2>/dev/null \
+            || echo "${{ vars.ACR_LOGIN_SERVER }}")
+
+          STORAGE=$(az deployment group show \
+            --resource-group "${{ env.RG }}" \
+            --name "$(az deployment group list --resource-group '${{ env.RG }}' --query '[0].name' -o tsv)" \
+            --query 'properties.outputs.storageAccountName.value' -o tsv 2>/dev/null \
+            || echo "${{ vars.STORAGE_ACCOUNT }}")
+
+          # Get kubelet identity client ID for Workload Identity
+          KUBELET_CLIENT_ID=$(az aks show \
+            --resource-group "${{ env.RG }}" \
+            --name "${{ env.AKS }}" \
+            --query 'identityProfile.kubeletidentity.clientId' -o tsv)
+
+          echo "acr=${ACR}" >> $GITHUB_OUTPUT
+          echo "storage=${STORAGE}" >> $GITHUB_OUTPUT
+          echo "kubelet_client_id=${KUBELET_CLIENT_ID}" >> $GITHUB_OUTPUT
+          echo "ACR: ${ACR}, Storage: ${STORAGE}, Kubelet: ${KUBELET_CLIENT_ID}"
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Generate Helm values and deploy
+        run: |
+          set -euo pipefail
+          CONFIG="${{ inputs.model_config }}"
+          ACR="${{ steps.cluster.outputs.acr }}"
+          STORAGE="${{ steps.cluster.outputs.storage }}"
+
+          # --- Parse ModelDeployment YAML ----------------------------------
+          NAME=$(yq '.metadata.name' "$CONFIG")
+          MODALITY=$(yq '.spec.modality' "$CONFIG")
+
+          # Resolve image — replace ${ACR_LOGIN_SERVER} template variable
+          IMAGE=$(yq '.spec.engine.image' "$CONFIG" | sed "s|\${ACR_LOGIN_SERVER}|${ACR}|g")
+
+          # Resolve Blob URIs — convert az:// shorthand to full https:// URL
+          resolve_uri() {
+            local uri="$1"
+            if [[ "$uri" == az://* ]]; then
+              echo "$uri" | sed "s|^az://|https://${STORAGE}.blob.core.windows.net/|"
+            else
+              echo "$uri"
+            fi
+          }
+
+          WEIGHTS_URI=$(resolve_uri "$(yq '.spec.engine.weightsUri // ""' "$CONFIG")")
+          ENGINE_URI=$(resolve_uri "$(yq '.spec.engine.engineUri // ""' "$CONFIG")")
+
+          # Hardware
+          GPU_COUNT=$(yq '.spec.hardware.gpuCount // 1' "$CONFIG")
+          GPU_SKU=$(yq '.spec.hardware.gpuSku // ""' "$CONFIG")
+          NVME=$(yq '.spec.hardware.nvmeCacheEnabled // false' "$CONFIG")
+
+          # Map GPU SKU → node pool label
+          case "$GPU_SKU" in
+            Standard_ND96asr_v4)      GPU_POOL="a100" ;;
+            Standard_ND96isr_H100_v5) GPU_POOL="h100" ;;
+            Standard_NC24ads_A100_v4) GPU_POOL="embeddings" ;;
+            *) GPU_POOL="unknown"; echo "::warning::Unknown GPU SKU: ${GPU_SKU}" ;;
+          esac
+
+          # Scaling
+          MIN_REPLICAS=$(yq '.spec.scaling.minReplicas // 1' "$CONFIG")
+          MAX_REPLICAS=$(yq '.spec.scaling.maxReplicas // 4' "$CONFIG")
+          TARGET_CONCURRENCY=$(yq '.spec.scaling.targetConcurrency // 8' "$CONFIG")
+          TIER=$(yq '.spec.scaling.tier // "always-warm"' "$CONFIG")
+          SCALING_ENABLED="true"
+
+          # --- Build Helm --set arguments ----------------------------------
+          B="backends.${NAME}"
+          SET_ARGS=""
+          SET_ARGS="$SET_ARGS --set ${B}.image=${IMAGE}"
+          SET_ARGS="$SET_ARGS --set ${B}.modality=${MODALITY}"
+          SET_ARGS="$SET_ARGS --set ${B}.port=8001"
+
+          if [ -n "$WEIGHTS_URI" ] && [ "$WEIGHTS_URI" != "null" ]; then
+            SET_ARGS="$SET_ARGS --set ${B}.weightsUri=${WEIGHTS_URI}"
+          fi
+          if [ -n "$ENGINE_URI" ] && [ "$ENGINE_URI" != "null" ]; then
+            SET_ARGS="$SET_ARGS --set ${B}.engineUri=${ENGINE_URI}"
+          fi
+
+          SET_ARGS="$SET_ARGS --set ${B}.gpu.count=${GPU_COUNT}"
+          SET_ARGS="$SET_ARGS --set ${B}.gpu.nodePoolLabel=${GPU_POOL}"
+          SET_ARGS="$SET_ARGS --set ${B}.nvmeCache.enabled=${NVME}"
+          SET_ARGS="$SET_ARGS --set ${B}.scaling.enabled=${SCALING_ENABLED}"
+          SET_ARGS="$SET_ARGS --set ${B}.scaling.minReplicas=${MIN_REPLICAS}"
+          SET_ARGS="$SET_ARGS --set ${B}.scaling.maxReplicas=${MAX_REPLICAS}"
+          SET_ARGS="$SET_ARGS --set ${B}.scaling.targetConcurrency=${TARGET_CONCURRENCY}"
+
+          # GPU tolerations
+          SET_ARGS="$SET_ARGS --set ${B}.tolerations[0].key=nvidia.com/gpu"
+          SET_ARGS="$SET_ARGS --set ${B}.tolerations[0].operator=Exists"
+          SET_ARGS="$SET_ARGS --set ${B}.tolerations[0].effect=NoSchedule"
+
+          # Workload Identity — required for init containers to pull weights
+          SET_ARGS="$SET_ARGS --set workloadIdentity.enabled=true"
+          SET_ARGS="$SET_ARGS --set workloadIdentity.clientId=${{ steps.cluster.outputs.kubelet_client_id }}"
+
+          # KEDA autoscaling — enabled by default for all backends
+          SET_ARGS="$SET_ARGS --set keda.enabled=true"
+
+          # Model config for API server routing
+          MODEL_BASENAME=$(basename "$CONFIG")
+          SET_FILE_ARGS="--set-file modelConfigs.${MODEL_BASENAME//\./.}=${CONFIG}"
+
+          # Also include all existing model configs to avoid removing them
+          for f in deploy/models/*.yaml; do
+            [ -f "$f" ] || continue
+            fb=$(basename "$f")
+            SET_FILE_ARGS="$SET_FILE_ARGS --set-file modelConfigs.${fb//\./.}=${f}"
+          done
+
+          echo "--- Helm arguments ---"
+          echo "$SET_ARGS"
+          echo "$SET_FILE_ARGS"
+
+          # --- Helm upgrade ------------------------------------------------
+          helm upgrade --install directai ${{ env.HELM_CHART }} \
+            --namespace ${{ env.NAMESPACE }} --create-namespace \
+            $SET_ARGS \
+            $SET_FILE_ARGS \
+            --wait --timeout 15m
+
+      - name: Wait for backend rollout
+        run: |
+          NAME="${{ needs.validate.outputs.model_name }}"
+          echo "Waiting for backend deployment rollout..."
+          kubectl rollout status deployment/${NAME} \
+            --namespace ${{ env.NAMESPACE }} \
+            --timeout=600s
+
+      - name: Health check
+        run: |
+          NAME="${{ needs.validate.outputs.model_name }}"
+          echo "Checking backend health..."
+          kubectl run "healthcheck-${NAME}-$$" --rm -i --restart=Never \
+            --namespace ${{ env.NAMESPACE }} \
+            --image=curlimages/curl:latest -- \
+            curl -sf "http://${NAME}:8001/healthz"
+
+      - name: Deployment summary
+        run: |
+          NAME="${{ needs.validate.outputs.model_name }}"
+          echo "## 🚀 Model Deployed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Model** | \`${NAME}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Modality** | \`${{ needs.validate.outputs.modality }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Engine** | \`${{ needs.validate.outputs.engine_type }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Cluster** | \`${{ env.AKS }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Namespace** | \`${{ env.NAMESPACE }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Service** | \`${NAME}.${{ env.NAMESPACE }}.svc.cluster.local:8001\` |" >> $GITHUB_STEP_SUMMARY

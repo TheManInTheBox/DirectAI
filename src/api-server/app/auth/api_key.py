@@ -10,6 +10,7 @@ prevent timing side-channel attacks on API key validation.
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import logging
 
@@ -61,7 +62,8 @@ async def require_api_key(
         )
 
     if not _constant_time_key_check(credentials.credentials, settings.api_key_set):
-        logger.warning("Invalid API key attempted: %s...", credentials.credentials[:8])
+        key_hash = hashlib.sha256(credentials.credentials.encode()).hexdigest()[:12]
+        logger.warning("Invalid API key attempted (sha256:%s)", key_hash)
         raise HTTPException(
             status_code=401,
             detail="Invalid API key.",

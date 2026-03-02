@@ -105,7 +105,7 @@ class TRTLLMRunner:
         # ── Tokenizer ───────────────────────────────────────────────
         self._tokenizer = AutoTokenizer.from_pretrained(
             self._tokenizer_dir,
-            trust_remote_code=True,
+            trust_remote_code=False,  # Never run arbitrary code from model repos
         )
         if self._tokenizer.pad_token is None:
             self._tokenizer.pad_token = self._tokenizer.eos_token
@@ -211,13 +211,7 @@ class TRTLLMRunner:
 
         except Exception:
             logger.exception("TRT-LLM generation failed")
-            return GenerationOutput(
-                text="",
-                token_ids=[],
-                finish_reason="error",
-                prompt_tokens=prompt_tokens,
-                completion_tokens=0,
-            )
+            raise
 
     async def generate_stream(
         self,
@@ -289,12 +283,7 @@ class TRTLLMRunner:
 
         except Exception:
             logger.exception("TRT-LLM streaming generation failed")
-            yield StreamChunk(
-                text="",
-                token_id=None,
-                finish_reason="error",
-                completion_tokens=0,
-            )
+            raise
 
     @property
     def tokenizer(self):

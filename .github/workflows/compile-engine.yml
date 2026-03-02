@@ -1,0 +1,369 @@
+# ============================================================================
+# DirectAI — Compile TRT-LLM Engine
+# Compiles a TensorRT-LLM engine for a specific model + GPU SKU combination.
+#
+# The compilation runs as a Kubernetes Job on the target AKS cluster, using
+# GPU nodes that match the target SKU. Compiled engines are uploaded to
+# Azure Blob Storage and cached for future deployments.
+#
+# Cache key: {architecture}_{parameters}_{quantization}_{gpu_sku}_{trtllm_version}
+#
+# SECURITY: Pin third-party actions to commit SHAs before going to production.
+#           Run `npx pin-github-action .github/workflows/*.yml` to automate.
+# ============================================================================
+
+name: Compile TRT-LLM Engine
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_name:
+        description: 'Model identifier (e.g., llama-3.1-70b-instruct)'
+        required: true
+        type: string
+      architecture:
+        description: 'Model architecture for cache key (e.g., llama, mistral, qwen, whisper)'
+        required: true
+        type: string
+      weights_uri:
+        description: 'Full Blob URL to model weights directory (https://...)'
+        required: true
+        type: string
+      engine_output_uri:
+        description: 'Full Blob URL for compiled engine output (https://...)'
+        required: true
+        type: string
+      gpu_sku:
+        description: 'Target Azure VM SKU'
+        required: true
+        type: choice
+        options:
+          - Standard_ND96asr_v4     # A100 80GB
+          - Standard_ND96isr_H100_v5 # H100 80GB
+      tp_size:
+        description: 'Tensor parallelism degree'
+        required: true
+        type: string
+        default: '1'
+      dtype:
+        description: 'Data type for compilation'
+        required: true
+        type: choice
+        options:
+          - float16
+          - bfloat16
+          - int8
+          - int4_awq
+        default: float16
+      max_batch_size:
+        description: 'Maximum batch size'
+        required: false
+        type: string
+        default: '64'
+      max_input_len:
+        description: 'Maximum input length (tokens)'
+        required: false
+        type: string
+        default: '4096'
+      max_seq_len:
+        description: 'Maximum sequence length (tokens)'
+        required: false
+        type: string
+        default: '8192'
+      trtllm_image:
+        description: 'TRT-LLM compiler image'
+        required: false
+        type: string
+        default: 'nvidia/tensorrt-llm:0.16.0'
+      build_command_override:
+        description: 'Override the default trtllm-build command (leave empty for default)'
+        required: false
+        type: string
+      customer_id:
+        description: 'Customer ID for target cluster'
+        required: true
+        type: string
+        default: 'internal'
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+        default: dev
+      region_short:
+        description: 'Region short name (e.g., eus2)'
+        required: true
+        type: string
+        default: 'eus2'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  NAMESPACE: directai
+
+jobs:
+  # ── Check engine cache ───────────────────────────────────────────
+  check-cache:
+    name: Check Engine Cache
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.customer_id }}-${{ inputs.environment }}
+    outputs:
+      cache_hit: ${{ steps.check.outputs.cache_hit }}
+      cache_key: ${{ steps.check.outputs.cache_key }}
+    steps:
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Check for existing compiled engine
+        id: check
+        run: |
+          # Build deterministic cache key
+          TRTLLM_VER=$(echo "${{ inputs.trtllm_image }}" | grep -oP '[\d.]+$' || echo "unknown")
+          CACHE_KEY="${{ inputs.architecture }}_tp${{ inputs.tp_size }}_${{ inputs.dtype }}_${{ inputs.gpu_sku }}_trtllm${TRTLLM_VER}"
+          echo "cache_key=${CACHE_KEY}" >> $GITHUB_OUTPUT
+          echo "### 🔑 Cache Key: \`${CACHE_KEY}\`" >> $GITHUB_STEP_SUMMARY
+
+          # Check if engine already exists at the output URI
+          EXISTS=$(az storage blob list \
+            --auth-mode login \
+            --account-name "$(echo '${{ inputs.engine_output_uri }}' | sed -n 's|https://\([^.]*\).*|\1|p')" \
+            --container-name "$(echo '${{ inputs.engine_output_uri }}' | sed -n 's|https://[^/]*/\([^/]*\)/.*|\1|p')" \
+            --prefix "$(echo '${{ inputs.engine_output_uri }}' | sed -n 's|https://[^/]*/[^/]*/\(.*\)|\1|p')" \
+            --num-results 1 \
+            --query "length(@)" \
+            --output tsv 2>/dev/null || echo "0")
+
+          if [ "$EXISTS" -gt 0 ]; then
+            echo "cache_hit=true" >> $GITHUB_OUTPUT
+            echo "### ✅ Cache HIT — skipping compilation" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "cache_hit=false" >> $GITHUB_OUTPUT
+            echo "### ❌ Cache MISS — compilation required" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ── Compile engine on GPU node ───────────────────────────────────
+  compile:
+    name: Compile Engine
+    needs: check-cache
+    if: needs.check-cache.outputs.cache_hit == 'false'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.customer_id }}-${{ inputs.environment }}
+    steps:
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group "rg-dai-${{ inputs.customer_id }}-${{ inputs.environment }}-${{ inputs.region_short }}" \
+            --name "aks-dai-${{ inputs.customer_id }}-${{ inputs.environment }}-${{ inputs.region_short }}"
+
+      - name: Resolve GPU node pool label
+        id: gpu
+        run: |
+          case "${{ inputs.gpu_sku }}" in
+            Standard_ND96asr_v4)      echo "pool=a100" >> $GITHUB_OUTPUT ;;
+            Standard_ND96isr_H100_v5) echo "pool=h100" >> $GITHUB_OUTPUT ;;
+            *) echo "::error::Unknown GPU SKU: ${{ inputs.gpu_sku }}"; exit 1 ;;
+          esac
+
+      - name: Determine build command
+        id: build-cmd
+        run: |
+          if [ -n "${{ inputs.build_command_override }}" ]; then
+            echo "cmd=${{ inputs.build_command_override }}" >> $GITHUB_OUTPUT
+          else
+            CMD="python -m tensorrt_llm.commands.build"
+            CMD="$CMD --model_dir /workspace/weights"
+            CMD="$CMD --output_dir /workspace/engine"
+            CMD="$CMD --tp_size ${{ inputs.tp_size }}"
+            CMD="$CMD --dtype ${{ inputs.dtype }}"
+            CMD="$CMD --max_batch_size ${{ inputs.max_batch_size }}"
+            CMD="$CMD --max_input_len ${{ inputs.max_input_len }}"
+            CMD="$CMD --max_seq_len ${{ inputs.max_seq_len }}"
+            CMD="$CMD --remove_input_padding enable"
+            CMD="$CMD --paged_kv_cache enable"
+            echo "cmd=${CMD}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Submit compilation Job
+        id: submit
+        run: |
+          JOB_NAME="compile-${{ inputs.model_name }}-$(date +%s)"
+          JOB_NAME=$(echo "$JOB_NAME" | tr '.' '-' | cut -c1-63)
+
+          # Build the build command
+          BUILD_CMD="${{ steps.build-cmd.outputs.cmd }}"
+
+          # Apply all substitutions BEFORE piping to kubectl
+          cat <<'JOBEOF' | \
+            sed "s|__JOB_NAME__|${JOB_NAME}|g" | \
+            sed "s|__MODEL_NAME__|${{ inputs.model_name }}|g" | \
+            sed "s|__GPU_POOL__|${{ steps.gpu.outputs.pool }}|g" | \
+            sed "s|__COMPILER_IMAGE__|${{ inputs.trtllm_image }}|g" | \
+            sed "s|__TP_SIZE__|${{ inputs.tp_size }}|g" | \
+            sed "s|__WEIGHTS_URI__|${{ inputs.weights_uri }}|g" | \
+            sed "s|__ENGINE_URI__|${{ inputs.engine_output_uri }}|g" | \
+            sed "s|__GPU_COUNT__|${{ inputs.tp_size }}|g" | \
+            sed "s|__BUILD_COMMAND__|${BUILD_CMD}|g" | \
+            kubectl apply -n ${{ env.NAMESPACE }} -f -
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: __JOB_NAME__
+            labels:
+              directai.io/component: engine-compiler
+              directai.io/model: __MODEL_NAME__
+          spec:
+            backoffLimit: 0
+            ttlSecondsAfterFinished: 86400
+            template:
+              metadata:
+                labels:
+                  azure.workload.identity/use: "true"
+              spec:
+                restartPolicy: Never
+                serviceAccountName: directai
+                nodeSelector:
+                  directai.io/gpu-pool: __GPU_POOL__
+                tolerations:
+                  - key: nvidia.com/gpu
+                    operator: Exists
+                    effect: NoSchedule
+                containers:
+                  - name: compiler
+                    image: __COMPILER_IMAGE__
+                    command: ["/bin/bash", "-c"]
+                    args:
+                      - |
+                        set -euo pipefail
+                        echo "=== TRT-LLM Engine Compilation ==="
+                        echo "Model:   __MODEL_NAME__"
+                        echo "Weights: ${WEIGHTS_URI}"
+                        echo "Output:  ${ENGINE_URI}"
+                        echo "TP:      __TP_SIZE__"
+
+                        # Install azcopy
+                        curl -sL https://aka.ms/downloadazcopy-v10-linux | tar xz --strip-components=1 -C /usr/local/bin/
+                        chmod +x /usr/local/bin/azcopy
+
+                        # Pull weights from Blob Storage
+                        echo "--- Pulling weights ---"
+                        mkdir -p /workspace/weights /workspace/engine
+                        azcopy copy "${WEIGHTS_URI}*" /workspace/weights/ --recursive --log-level WARNING
+                        ls -lh /workspace/weights/
+
+                        # Compile engine
+                        echo "--- Compiling engine ---"
+                        __BUILD_COMMAND__
+
+                        # Upload compiled engine to Blob Storage
+                        echo "--- Uploading engine ---"
+                        azcopy copy "/workspace/engine/*" "${ENGINE_URI}" --recursive --log-level WARNING
+
+                        echo "=== Compilation complete ==="
+                    env:
+                      - name: WEIGHTS_URI
+                        value: __WEIGHTS_URI__
+                      - name: ENGINE_URI
+                        value: __ENGINE_URI__
+                      - name: AZCOPY_AUTO_LOGIN_TYPE
+                        value: WORKLOADIDENTITY
+                    resources:
+                      requests:
+                        cpu: "8"
+                        memory: 64Gi
+                      limits:
+                        nvidia.com/gpu: "__GPU_COUNT__"
+                        memory: 128Gi
+                    volumeMounts:
+                      - name: workspace
+                        mountPath: /workspace
+                      - name: shm
+                        mountPath: /dev/shm
+                volumes:
+                  - name: workspace
+                    emptyDir:
+                      sizeLimit: 500Gi
+                  - name: shm
+                    emptyDir:
+                      medium: Memory
+                      sizeLimit: 16Gi
+          JOBEOF
+
+          echo "job_name=${JOB_NAME}" >> $GITHUB_OUTPUT
+          echo "### 🚀 Compilation Job submitted: \`${JOB_NAME}\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Wait for compilation
+        timeout-minutes: 120
+        run: |
+          echo "Waiting for compilation job to complete (timeout: 2h)..."
+          kubectl wait job/${{ steps.submit.outputs.job_name }} \
+            -n ${{ env.NAMESPACE }} \
+            --for=condition=complete \
+            --timeout=7200s
+
+      - name: Collect compilation logs
+        if: always()
+        run: |
+          echo "### 📋 Compilation Logs" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          kubectl logs job/${{ steps.submit.outputs.job_name }} \
+            -n ${{ env.NAMESPACE }} \
+            --tail=100 >> $GITHUB_STEP_SUMMARY 2>&1 || echo "(no logs available)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Verify engine uploaded
+        run: |
+          ACCOUNT=$(echo '${{ inputs.engine_output_uri }}' | sed -n 's|https://\([^.]*\).*|\1|p')
+          CONTAINER=$(echo '${{ inputs.engine_output_uri }}' | sed -n 's|https://[^/]*/\([^/]*\)/.*|\1|p')
+          PREFIX=$(echo '${{ inputs.engine_output_uri }}' | sed -n 's|https://[^/]*/[^/]*/\(.*\)|\1|p')
+
+          COUNT=$(az storage blob list \
+            --auth-mode login \
+            --account-name "$ACCOUNT" \
+            --container-name "$CONTAINER" \
+            --prefix "$PREFIX" \
+            --query "length(@)" \
+            --output tsv)
+
+          echo "### ✅ Engine uploaded — $COUNT blob(s) at \`${{ inputs.engine_output_uri }}\`" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::No engine blobs found after compilation!"
+            exit 1
+          fi
+
+  # ── Summary ──────────────────────────────────────────────────────
+  summary:
+    name: Summary
+    needs: [check-cache, compile]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report
+        run: |
+          echo "## 🏗️ Engine Compilation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Model** | \`${{ inputs.model_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Architecture** | \`${{ inputs.architecture }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **GPU SKU** | \`${{ inputs.gpu_sku }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **TP Size** | \`${{ inputs.tp_size }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Data Type** | \`${{ inputs.dtype }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Cache Key** | \`${{ needs.check-cache.outputs.cache_key }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Cache Hit** | \`${{ needs.check-cache.outputs.cache_hit }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Engine URI** | \`${{ inputs.engine_output_uri }}\` |" >> $GITHUB_STEP_SUMMARY

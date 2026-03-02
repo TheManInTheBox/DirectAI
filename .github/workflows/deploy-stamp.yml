@@ -6,6 +6,8 @@
 # the customer's subscription via GitHub environment secrets.
 #
 # Auth: OIDC federated credentials (no stored secrets).
+# SECURITY: Pin third-party actions to commit SHAs before going to production.
+#           Run `npx pin-github-action .github/workflows/*.yml` to automate.
 # Flow: validate → what-if → approval gate → deploy
 # ============================================================================
 

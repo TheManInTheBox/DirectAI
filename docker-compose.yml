@@ -1,0 +1,83 @@
+# ============================================================================
+# DirectAI — Local Development Stack
+#
+# Usage:
+#   docker compose up              # Start all services
+#   docker compose up api-server   # Start only the API server
+#
+# The API server proxies to Ollama (local LLM) and the embeddings engine.
+# GPU support requires nvidia-container-toolkit on the host.
+# ============================================================================
+
+services:
+  # ── API Server (routing proxy) ────────────────────────────────────
+  api-server:
+    build:
+      context: src/api-server
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      DIRECTAI_HOST: "0.0.0.0"
+      DIRECTAI_PORT: "8000"
+      DIRECTAI_LOG_LEVEL: "debug"
+      DIRECTAI_MODEL_CONFIG_DIR: "/app/models"
+      DIRECTAI_API_KEYS: ""  # Auth disabled for local dev
+      DIRECTAI_BACKEND_TIMEOUT: "300"
+    volumes:
+      - ./deploy/models/local:/app/models:ro
+    depends_on:
+      ollama:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ── Ollama (local LLM inference) ──────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    # Uncomment for GPU acceleration:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ── Embeddings Engine (ONNX Runtime) ──────────────────────────────
+  # Only useful if you have a local ONNX model exported.
+  # embeddings-engine:
+  #   build:
+  #     context: src/embeddings-engine
+  #     dockerfile: Dockerfile
+  #     args:
+  #       BAKE_MODEL: "0"
+  #   ports:
+  #     - "8001:8001"
+  #   environment:
+  #     EMBED_MODEL_PATH: "/models/model.onnx"
+  #     EMBED_TOKENIZER_PATH: "/models"
+  #     EMBED_EXECUTION_PROVIDER: "CPUExecutionProvider"
+  #     EMBED_LOG_LEVEL: "debug"
+  #   volumes:
+  #     - ./local-models/embeddings:/models:ro
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:8001/healthz"]
+  #     interval: 10s
+  #     timeout: 3s
+  #     retries: 5
+
+volumes:
+  ollama-data:

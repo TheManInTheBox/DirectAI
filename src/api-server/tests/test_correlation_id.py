@@ -67,7 +67,7 @@ class TestUnsafeCharStripping:
 
     def test_slashes_stripped(self):
         resp = _client.get("/echo-id", headers={"X-Request-ID": "path/../../etc/passwd"})
-        assert resp.headers["x-request-id"] == "path..etcpasswd"
+        assert resp.headers["x-request-id"] == "path....etcpasswd"
 
     def test_newlines_stripped(self):
         resp = _client.get("/echo-id", headers={"X-Request-ID": "line1\nline2\r"})
@@ -105,7 +105,7 @@ class TestAutoGeneration:
 
     def test_all_unsafe_chars_generates_uuid(self):
         """If stripping leaves nothing, generate a UUID."""
-        resp = _client.get("/echo-id", headers={"X-Request-ID": "🔥💀🤖"})
+        resp = _client.get("/echo-id", headers={"X-Request-ID": "@#$%^&*()"})
         rid = resp.headers["x-request-id"]
         assert _UUID_HEX.match(rid), f"Expected UUID hex, got: {rid}"
 

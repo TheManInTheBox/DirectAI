@@ -501,7 +501,8 @@ spec:
                     "messages": [{"role": "user", "content": "Hi"}],
                 },
             )
-            assert resp.status_code == 502
+            # 503 with Retry-After: circuit breaker + cold-start handling
+            assert resp.status_code == 503
 
 
 # ═══════════════════════════════════════════════════════════════════════

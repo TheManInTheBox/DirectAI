@@ -1,0 +1,162 @@
+# ============================================================================
+# DirectAI Helm Chart — CI Test Values
+# Used by `helm lint` and `helm template` in CI to validate the chart renders
+# correctly with realistic backend entries. NOT for real deployment.
+# ============================================================================
+
+global:
+  namespace: directai
+
+# ── Workload Identity ──────────────────────────────────────────────────────
+workloadIdentity:
+  enabled: true
+  clientId: "00000000-0000-0000-0000-000000000000"
+
+# ── Init Container ─────────────────────────────────────────────────────────
+initContainer:
+  image: "mcr.microsoft.com/azure-cli:2.67.0"
+
+# ── NVMe DaemonSet ─────────────────────────────────────────────────────────
+nvmeInit:
+  enabled: true
+
+# ── TLS ────────────────────────────────────────────────────────────────────
+tls:
+  enabled: true
+  secretName: directai-tls-ci
+  certManager:
+    enabled: true
+    issuer: letsencrypt-staging
+
+# ── Ingress ────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  hosts:
+    - host: api.ci.directai.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+
+# ── Backends (at least one of each type for template coverage) ─────────────
+backends:
+  # --- LLM backend with NVMe + multi-GPU + KEDA --------------------------
+  ci-llama-70b:
+    image: directai.azurecr.io/trtllm-engine:ci
+    modality: chat
+    port: 8001
+    replicas: 1
+    weightsUri: "https://citest.blob.core.windows.net/models/llama-70b/weights/"
+    engineUri: "https://citest.blob.core.windows.net/engines/llama-70b/a100-tp2/"
+    gpu:
+      count: 2
+      nodePoolLabel: a100
+    nvmeCache:
+      enabled: true
+    scaling:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 4
+      targetConcurrency: 8
+    resources:
+      requests:
+        cpu: "4"
+        memory: 32Gi
+      limits:
+        cpu: "8"
+        memory: 64Gi
+    maxInflightRequests: 128
+    tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Exists"
+        effect: "NoSchedule"
+
+  # --- Embedding backend, no NVMe, scale-to-zero -------------------------
+  ci-bge-embed:
+    image: directai.azurecr.io/embeddings-engine:ci
+    modality: embedding
+    port: 8001
+    replicas: 2
+    weightsUri: "https://citest.blob.core.windows.net/models/bge-large/weights/"
+    gpu:
+      count: 1
+      nodePoolLabel: embeddings
+    nvmeCache:
+      enabled: false
+    cacheSize: "5Gi"
+    scaling:
+      enabled: true
+      minReplicas: 0
+      maxReplicas: 8
+      targetConcurrency: 64
+    tolerations:
+      - key: "directai.io/workload"
+        operator: "Exists"
+        effect: "NoSchedule"
+
+  # --- Whisper STT backend with NVMe + scale-to-zero ─────────────────────
+  ci-whisper:
+    image: directai.azurecr.io/trtllm-whisper:ci
+    modality: transcription
+    port: 8001
+    weightsUri: "https://citest.blob.core.windows.net/models/whisper-v3/weights/"
+    engineUri: "https://citest.blob.core.windows.net/engines/whisper-v3/a100/"
+    gpu:
+      count: 1
+      nodePoolLabel: a100
+    nvmeCache:
+      enabled: true
+    scaling:
+      enabled: true
+      minReplicas: 0
+      maxReplicas: 4
+      targetConcurrency: 4
+    tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Exists"
+        effect: "NoSchedule"
+
+# ── Model Configs (for API server routing) ─────────────────────────────────
+modelConfigs:
+  ci-llama-70b.yaml: |
+    apiVersion: directai/v1
+    kind: ModelDeployment
+    metadata:
+      name: ci-llama-70b
+    spec:
+      displayName: "CI Llama 70B"
+      ownedBy: ci
+      modality: chat
+      engine:
+        type: tensorrt-llm
+      api:
+        aliases:
+          - ci-llama-70b
+  ci-bge-embed.yaml: |
+    apiVersion: directai/v1
+    kind: ModelDeployment
+    metadata:
+      name: ci-bge-embed
+    spec:
+      displayName: "CI BGE Embed"
+      ownedBy: ci
+      modality: embedding
+      engine:
+        type: onnxruntime
+      api:
+        aliases:
+          - ci-bge-embed
+  ci-whisper.yaml: |
+    apiVersion: directai/v1
+    kind: ModelDeployment
+    metadata:
+      name: ci-whisper
+    spec:
+      displayName: "CI Whisper"
+      ownedBy: ci
+      modality: transcription
+      engine:
+        type: tensorrt-llm
+      api:
+        aliases:
+          - ci-whisper
+          - whisper-1

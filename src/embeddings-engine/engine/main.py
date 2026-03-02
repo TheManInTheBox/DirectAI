@@ -152,10 +152,10 @@ async def create_embedding(body: EmbeddingRequest, request: Request):
         # Submit to dynamic batcher
         embeddings = await batcher.submit_batch(texts)
 
-        # Estimate token count (rough — actual tokenization happens in model)
-        # Using ~1.3 tokens per word as rough heuristic for the response
-        est_tokens = sum(len(t.split()) for t in texts)
-        TOKENS_TOTAL.inc(est_tokens)
+        # Token count from actual tokenizer (via model's tokenize method)
+        model: EmbeddingModel = request.app.state.model
+        total_tokens = sum(model.count_tokens(t) for t in texts)
+        TOKENS_TOTAL.inc(total_tokens)
 
         # Build response
         data = [
@@ -170,7 +170,7 @@ async def create_embedding(body: EmbeddingRequest, request: Request):
         return EmbeddingResponse(
             data=data,
             model=model_name,
-            usage=EmbeddingUsage(prompt_tokens=est_tokens, total_tokens=est_tokens),
+            usage=EmbeddingUsage(prompt_tokens=total_tokens, total_tokens=total_tokens),
         )
 
     except HTTPException:

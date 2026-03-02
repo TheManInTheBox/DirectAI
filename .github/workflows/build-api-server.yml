@@ -8,6 +8,8 @@
 #   - Manual dispatch with optional deploy toggle
 #
 # Auth: OIDC federated credentials targeting the platform subscription.
+# SECURITY: Pin third-party actions to commit SHAs before going to production.
+#           Run `npx pin-github-action .github/workflows/*.yml` to automate.
 # ============================================================================
 
 name: Build API Server
@@ -79,10 +81,42 @@ jobs:
         working-directory: src/api-server
         run: python -m pytest tests/ -v
 
+  # ── Helm Lint & Template Validation ────────────────────────────────
+  helm-validate:
+    name: Helm Lint & Template
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Helm lint
+        run: helm lint deploy/helm/directai --values deploy/helm/directai/ci/test-values.yaml --strict
+
+      - name: Helm template (dry-run render)
+        run: |
+          helm template directai deploy/helm/directai \
+            --values deploy/helm/directai/ci/test-values.yaml \
+            --namespace directai > /tmp/rendered.yaml
+          echo "Rendered $(wc -l < /tmp/rendered.yaml) lines of YAML"
+          echo "### ✅ Helm template rendered successfully" >> $GITHUB_STEP_SUMMARY
+
+      - name: Validate rendered YAML
+        run: |
+          # Check that key resources are present in rendered output
+          for RESOURCE in Deployment Service ScaledObject DaemonSet Ingress ServiceAccount ConfigMap NetworkPolicy; do
+            if grep -q "kind: ${RESOURCE}" /tmp/rendered.yaml; then
+              echo "✅ Found ${RESOURCE}"
+            else
+              echo "⚠️ Missing ${RESOURCE} (may be conditional)"
+            fi
+          done
+
   # ── Build & Push ─────────────────────────────────────────────────
   build:
     name: Build & Push Image
-    needs: test
+    needs: [test, helm-validate]
     runs-on: ubuntu-latest
     environment: platform
     outputs:
@@ -131,6 +165,15 @@ jobs:
           echo "**Tags:** ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
           echo "**Digest:** ${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
 
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ vars.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
   # ── Deploy (optional) ────────────────────────────────────────────
   deploy:
     name: Deploy to AKS
@@ -159,11 +202,32 @@ jobs:
 
       - name: Helm upgrade
         run: |
+          # Dynamically discover all model config YAMLs
+          SET_FILE_ARGS=""
+          for f in deploy/models/*.yaml; do
+            basename=$(basename "$f")
+            # Escape dots in the key for Helm --set-file syntax
+            key=$(echo "$basename" | sed 's/\./\\./g')
+            SET_FILE_ARGS="$SET_FILE_ARGS --set-file modelConfigs.${key}=${f}"
+          done
+
           helm upgrade --install directai deploy/helm/directai \
             --namespace directai --create-namespace \
             --set apiServer.image.repository=${{ vars.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }} \
             --set apiServer.image.tag=${{ needs.build.outputs.image_tag }} \
-            --set-file "modelConfigs.llama-3\.1-70b-instruct\.yaml=deploy/models/llama-3.1-70b-instruct.yaml" \
-            --set-file "modelConfigs.bge-large-en-v1\.5\.yaml=deploy/models/bge-large-en-v1.5.yaml" \
-            --set-file "modelConfigs.whisper-large-v3\.yaml=deploy/models/whisper-large-v3.yaml" \
+            $SET_FILE_ARGS \
             --wait --timeout 5m
+
+      - name: Post-deploy smoke test
+        run: |
+          echo "Waiting for API server rollout..."
+          kubectl rollout status deployment/directai-api-server \
+            --namespace directai --timeout=120s
+
+          echo "Running health check..."
+          kubectl run smoke-test --rm -i --restart=Never \
+            --namespace directai \
+            --image=curlimages/curl:latest -- \
+            curl -sf http://directai-api-server:8000/healthz
+
+          echo "✓ Smoke test passed"

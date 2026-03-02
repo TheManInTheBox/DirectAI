@@ -139,6 +139,11 @@ class EmbeddingModel:
     def is_loaded(self) -> bool:
         return self._session is not None
 
+    def count_tokens(self, text: str) -> int:
+        """Return the number of tokens for a given text using the loaded tokenizer."""
+        encoded = self._tokenizer.encode(text)
+        return len(encoded.ids)
+
     def embed(self, texts: list[str]) -> np.ndarray:
         """
         Compute embeddings for a batch of texts.

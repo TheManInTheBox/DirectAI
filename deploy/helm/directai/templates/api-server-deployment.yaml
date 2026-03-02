@@ -7,6 +7,7 @@ metadata:
     {{- include "directai.labels" . | nindent 4 }}
     app.kubernetes.io/component: api-server
 spec:
+  revisionHistoryLimit: 5
   {{- if not .Values.apiServer.autoscaling.enabled }}
   replicas: {{ .Values.apiServer.replicaCount }}
   {{- end }}
@@ -19,10 +20,23 @@ spec:
         {{- include "directai.apiServerSelectorLabels" . | nindent 8 }}
       {{- with .Values.apiServer.podAnnotations }}
       annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ $.Values.apiServer.service.port | quote }}
+        prometheus.io/path: "/metrics"
         {{- toYaml . | nindent 8 }}
+      {{- else }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.apiServer.service.port | quote }}
+        prometheus.io/path: "/metrics"
       {{- end }}
     spec:
       serviceAccountName: {{ include "directai.serviceAccountName" . }}
+      terminationGracePeriodSeconds: 310
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -31,10 +45,19 @@ spec:
         - name: api-server
           image: "{{ .Values.apiServer.image.repository }}:{{ .Values.apiServer.image.tag }}"
           imagePullPolicy: {{ .Values.apiServer.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           ports:
             - name: http
               containerPort: {{ .Values.apiServer.service.port }}
               protocol: TCP
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]
           env:
             - name: DIRECTAI_HOST
               value: "0.0.0.0"
@@ -73,10 +96,16 @@ spec:
             - name: model-config
               mountPath: {{ .Values.apiServer.modelConfigDir }}
               readOnly: true
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: model-config
           configMap:
             name: {{ .Release.Name }}-model-config
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi
       {{- with .Values.apiServer.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

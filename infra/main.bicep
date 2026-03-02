@@ -443,12 +443,36 @@ module aks 'br/public:avm/res/container-service/managed-cluster:0.5.3' = {
           { category: 'kube-controller-manager' }
           { category: 'kube-scheduler' }
           { category: 'cluster-autoscaler' }
+          { category: 'kube-audit-admin' }
+          { category: 'guard' }
         ]
         metricCategories: [{ category: 'AllMetrics' }]
       }
     ]
 
     tags: defaultTags
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 8. Federated Identity Credential — Workload Identity for K8s pods
+//    Links the kubelet managed identity to the AKS OIDC issuer.
+//    Pods in the "directai" namespace using the "directai" ServiceAccount
+//    (annotated with azure.workload.identity/client-id) can authenticate
+//    as this identity to access Blob Storage, Key Vault, etc.
+// ---------------------------------------------------------------------------
+
+resource existingKubeletIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' existing = {
+  name: identityKubeletName
+}
+
+resource kubeletFederatedCredential 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = {
+  parent: existingKubeletIdentity
+  name: 'fic-aks-directai'
+  properties: {
+    issuer: aks.outputs.oidcIssuerUrl
+    subject: 'system:serviceaccount:directai:directai'
+    audiences: ['api://AzureADTokenExchange']
   }
 }
 

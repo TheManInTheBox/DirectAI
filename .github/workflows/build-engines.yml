@@ -7,6 +7,8 @@
 #   - Manual dispatch with engine selection
 #
 # Auth: OIDC federated credentials targeting the platform subscription.
+# SECURITY: Pin third-party actions to commit SHAs before going to production.
+#           Run `npx pin-github-action .github/workflows/*.yml` to automate.
 #
 # Notes:
 #   - The TRT-LLM image is large (~15GB+). Build runners need adequate disk.
@@ -92,7 +94,7 @@ jobs:
         working-directory: src/embeddings-engine
         run: |
           pip install -e ".[dev,cpu]"
-          ruff check engine/
+          ruff check engine/ tests/
 
       - name: Run tests
         working-directory: src/embeddings-engine
@@ -140,6 +142,15 @@ jobs:
           echo "**Tags:** ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
           echo "**Digest:** ${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
 
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ vars.ACR_LOGIN_SERVER }}/embeddings-engine:${{ steps.meta.outputs.version }}
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
   # ── TRT-LLM Engine ──────────────────────────────────────────────
   build-trtllm:
     name: Build TRT-LLM Engine
@@ -166,7 +177,7 @@ jobs:
         working-directory: src/trtllm-engine
         run: |
           pip install -e ".[dev]"
-          ruff check engine/
+          ruff check engine/ tests/
 
       - name: Run tests
         working-directory: src/trtllm-engine
@@ -231,3 +242,12 @@ jobs:
           echo "**Tags:** ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
           echo "**Digest:** ${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
           echo "**TRT-LLM installed:** ${{ steps.trtllm-mode.outputs.install }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ vars.ACR_LOGIN_SERVER }}/trtllm-engine:${{ steps.meta.outputs.version }}
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true

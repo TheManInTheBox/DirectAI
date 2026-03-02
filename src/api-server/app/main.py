@@ -7,6 +7,7 @@ requests to backend model pods running TensorRT-LLM / ONNX Runtime.
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
 from contextlib import asynccontextmanager
@@ -17,18 +18,36 @@ from starlette.responses import Response
 
 from app.config import get_settings
 from app.metrics import metrics_content_type, metrics_response_body
-from app.middleware import CorrelationIdMiddleware, RequestLoggingMiddleware
-from app.routing import BackendClient, ModelRegistry
+from app.middleware import CorrelationIdMiddleware, RequestLoggingMiddleware, RateLimitMiddleware
+from app.routing import BackendClient, BackendHealthMonitor, ModelRegistry
 from app.routes import audio_router, chat_router, embeddings_router, models_router
+
+
+class _JSONFormatter(logging.Formatter):
+    """Structured JSON log formatter that serializes `extra` fields."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        log = {
+            "ts": self.formatTime(record),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+        }
+        # Merge any extra fields set via logger.info("...", extra={...})
+        for key in ("method", "path", "status_code", "duration_ms", "request_id"):
+            val = getattr(record, key, None)
+            if val is not None:
+                log[key] = val
+        return json.dumps(log, default=str)
 
 
 def _configure_logging() -> None:
     settings = get_settings()
-    logging.basicConfig(
-        level=getattr(logging, settings.log_level.upper(), logging.INFO),
-        format='{"ts":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","msg":"%(message)s"}',
-        stream=sys.stdout,
-    )
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(_JSONFormatter())
+    logging.root.handlers.clear()
+    logging.root.addHandler(handler)
+    logging.root.setLevel(getattr(logging, settings.log_level.upper(), logging.INFO))
 
 
 @asynccontextmanager
@@ -49,9 +68,20 @@ async def lifespan(app: FastAPI):
     await backend.startup()
     app.state.backend_client = backend
 
+    # ── Backend health monitor ──────────────────────────────────────
+    monitor = BackendHealthMonitor()
+    backend_urls = {
+        spec.name: spec.backend_url
+        for spec in registry.list_models()
+    }
+    if backend_urls:
+        await monitor.start(backend_urls)
+    app.state.health_monitor = monitor
+
     yield
 
     # ── Shutdown ────────────────────────────────────────────────────
+    await monitor.stop()
     await backend.shutdown()
     logger.info("API server shut down.")
 
@@ -65,6 +95,7 @@ app = FastAPI(
 
 # ── Middleware (order matters: outermost first) ─────────────────────
 app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(CorrelationIdMiddleware)
 
 # ── Routes ──────────────────────────────────────────────────────────
@@ -85,14 +116,20 @@ async def healthz():
 
 @app.get("/readyz", include_in_schema=False)
 async def readyz(request: Request):
-    """Readiness probe — returns 200 if the model registry is loaded."""
+    """Readiness probe — 200 if models loaded AND at least one backend healthy."""
     registry = request.app.state.model_registry
     if len(registry) == 0:
         return JSONResponse(
             status_code=503,
             content={"status": "not ready", "reason": "No models loaded."},
         )
-    return {"status": "ready", "models": len(registry)}
+    # Backend health is informational — do NOT gate readyz on it.
+    # If readyz returns 503 for unhealthy backends, K8s removes the pod
+    # from Service endpoints and clients get connection refused instead of
+    # a useful 503+Retry-After from route handlers.
+    monitor = getattr(request.app.state, "health_monitor", None)
+    backend_health = monitor.summary() if monitor else {}
+    return {"status": "ready", "models": len(registry), "backends": backend_health}
 
 
 @app.get("/metrics", include_in_schema=False)

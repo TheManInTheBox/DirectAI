@@ -30,4 +30,7 @@ USER appuser
 EXPOSE 8000
 
 # ── Entrypoint ──────────────────────────────────────────────────────
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+# Single worker — the async event loop handles thousands of concurrent
+# connections. Multiple workers would fragment Prometheus metrics (each
+# worker has its own in-process registry) and break the /metrics endpoint.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

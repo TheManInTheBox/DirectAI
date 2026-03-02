@@ -16,6 +16,12 @@ metadata:
     directai.io/model: {{ $name }}
     directai.io/modality: {{ $backend.modality | default "chat" }}
 spec:
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   {{- if not (and $backend.scaling $backend.scaling.enabled) }}
   replicas: {{ $backend.replicas | default 1 }}
   {{- end }}
@@ -27,22 +33,136 @@ spec:
       labels:
         {{- include "directai.backendSelectorLabels" (dict "name" $name "root" $) | nindent 8 }}
         directai.io/modality: {{ $backend.modality | default "chat" }}
+        {{- if $.Values.workloadIdentity.enabled }}
+        azure.workload.identity/use: "true"
+        {{- end }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ $backend.port | default 8001 | quote }}
+        prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: {{ include "directai.serviceAccountName" $ }}
+      terminationGracePeriodSeconds: 310
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       {{- with $.Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if $backend.weightsUri }}
+      initContainers:
+        - name: pull-model
+          image: {{ $.Values.initContainer.image | default "mcr.microsoft.com/azure-cli:2.67.0" | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              MODEL_DIR="/model-cache/{{ $name }}"
+              MARKER="${MODEL_DIR}/.ready"
+
+              if [ -f "$MARKER" ]; then
+                echo "[pull-model] Cache hit — skipping download"
+                exit 0
+              fi
+
+              # Parse storage account and container from full Blob URL
+              # https://<account>.blob.core.windows.net/<container>/<prefix>
+              parse_blob_url() {
+                local url="$1"
+                BLOB_ACCOUNT=$(echo "$url" | sed -n 's|https://\([^.]*\)\.blob\.core\.windows\.net/.*|\1|p')
+                BLOB_CONTAINER=$(echo "$url" | sed -n 's|https://[^/]*/\([^/]*\)/.*|\1|p')
+                BLOB_PREFIX=$(echo "$url" | sed -n 's|https://[^/]*/[^/]*/\(.*\)|\1|p')
+              }
+
+              echo "[pull-model] Downloading weights from $WEIGHTS_URI ..."
+              mkdir -p "${MODEL_DIR}/weights"
+              parse_blob_url "$WEIGHTS_URI"
+              az storage blob download-batch \
+                --auth-mode login \
+                --account-name "$BLOB_ACCOUNT" \
+                --source "$BLOB_CONTAINER" \
+                --pattern "${BLOB_PREFIX}*" \
+                --destination "${MODEL_DIR}/weights/" \
+                --no-progress
+
+              {{- if $backend.engineUri }}
+              echo "[pull-model] Downloading engine from $ENGINE_URI ..."
+              mkdir -p "${MODEL_DIR}/engine"
+              parse_blob_url "$ENGINE_URI"
+              az storage blob download-batch \
+                --auth-mode login \
+                --account-name "$BLOB_ACCOUNT" \
+                --source "$BLOB_CONTAINER" \
+                --pattern "${BLOB_PREFIX}*" \
+                --destination "${MODEL_DIR}/engine/" \
+                --no-progress
+              {{- end }}
+
+              touch "$MARKER"
+              echo "[pull-model] Download complete."
+          env:
+            - name: WEIGHTS_URI
+              value: {{ $backend.weightsUri | quote }}
+            {{- if $backend.engineUri }}
+            - name: ENGINE_URI
+              value: {{ $backend.engineUri | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: model-cache
+              mountPath: /model-cache
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
       {{- end }}
       containers:
         - name: inference
           image: {{ $backend.image | quote }}
           imagePullPolicy: {{ $backend.imagePullPolicy | default "IfNotPresent" }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           ports:
             - name: http
               containerPort: {{ $backend.port | default 8001 }}
               protocol: TCP
-          {{- if $backend.env }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]
           env:
+            {{- if $backend.weightsUri }}
+            {{- $modality := $backend.modality | default "chat" }}
+            {{- if eq $modality "embedding" }}
+            - name: EMBED_MODEL_PATH
+              value: "/model-cache/{{ $name }}/weights/model.onnx"
+            - name: EMBED_TOKENIZER_PATH
+              value: "/model-cache/{{ $name }}/weights"
+            {{- else }}
+            {{/* chat and transcription both use TRT-LLM */}}
+            - name: TRTLLM_ENGINE_DIR
+              value: "/model-cache/{{ $name }}/engine"
+            - name: TRTLLM_TOKENIZER_DIR
+              value: "/model-cache/{{ $name }}/weights"
+            - name: TRTLLM_MODEL_NAME
+              value: {{ $name | quote }}
+            {{- if eq $modality "transcription" }}
+            - name: TRTLLM_MODALITY
+              value: "transcription"
+            {{- end }}
+            {{- end }}
+            {{- end }}
             {{- range $key, $value := $backend.env }}
             - name: {{ $key }}
               value: {{ $value | quote }}
@@ -51,11 +171,6 @@ spec:
             - name: TRTLLM_MAX_INFLIGHT_REQUESTS
               value: {{ $backend.maxInflightRequests | quote }}
             {{- end }}
-          {{- else if $backend.maxInflightRequests }}
-          env:
-            - name: TRTLLM_MAX_INFLIGHT_REQUESTS
-              value: {{ $backend.maxInflightRequests | quote }}
-          {{- end }}
           {{- $res := deepCopy ($backend.resources | default dict) }}
           {{- if and $backend.gpu $backend.gpu.count }}
           {{- $limits := get $res "limits" | default dict }}
@@ -66,11 +181,13 @@ spec:
           resources:
             {{- toYaml $res | nindent 12 }}
           {{- end }}
-          {{- if and $backend.nvmeCache $backend.nvmeCache.enabled }}
           volumeMounts:
-            - name: nvme-cache
-              mountPath: /nvme-cache
-          {{- end }}
+            - name: tmp
+              mountPath: /tmp
+            {{- if or $backend.weightsUri (and $backend.nvmeCache $backend.nvmeCache.enabled) }}
+            - name: model-cache
+              mountPath: /model-cache
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz
@@ -95,13 +212,21 @@ spec:
             failureThreshold: 60
             periodSeconds: 10
             timeoutSeconds: 5
-      {{- if and $backend.nvmeCache $backend.nvmeCache.enabled }}
       volumes:
-        - name: nvme-cache
+        - name: tmp
           emptyDir:
-            medium: ""
-            sizeLimit: {{ $backend.nvmeCache.sizeMi | default 100000 }}Mi
-      {{- end }}
+            sizeLimit: 1Gi
+        {{- if or $backend.weightsUri (and $backend.nvmeCache $backend.nvmeCache.enabled) }}
+        - name: model-cache
+          {{- if and $backend.nvmeCache $backend.nvmeCache.enabled }}
+          hostPath:
+            path: /mnt/nvme
+            type: DirectoryOrCreate
+          {{- else }}
+          emptyDir:
+            sizeLimit: {{ $backend.cacheSize | default "50Gi" }}
+          {{- end }}
+        {{- end }}
       {{- if and $backend.gpu $backend.gpu.nodePoolLabel }}
       nodeSelector:
         directai.io/gpu-pool: {{ $backend.gpu.nodePoolLabel }}
@@ -110,7 +235,10 @@ spec:
       tolerations:
         {{- toYaml $backend.tolerations | nindent 8 }}
       {{- end }}
-      # Ensure all GPUs for a replica land on the same node (multi-GPU TP)
+      # Spread replicas across nodes for availability (multi-GPU TP).
+      # GPU co-location within a single replica is handled by the
+      # nvidia.com/gpu resource request — the device plugin guarantees
+      # all GPUs for one pod land on the same node/NVLink domain.
       {{- if and $backend.gpu (gt (int ($backend.gpu.count | default 1)) 1) }}
       affinity:
         podAntiAffinity:

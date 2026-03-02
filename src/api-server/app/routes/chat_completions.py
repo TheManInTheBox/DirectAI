@@ -12,14 +12,35 @@ import logging
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+import httpx
 
 from app.auth import require_api_key
 from app.metrics import track_request, INFLIGHT_REQUESTS, REQUEST_DURATION, REQUESTS_TOTAL
+from app.routing.backend_client import CircuitOpenError
 from app.schemas.chat import ChatCompletionRequest, ChatCompletionResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _check_backend_response(response, model: str) -> None:
+    """Raise appropriate HTTPException for non-2xx backend responses."""
+    if response.status_code < 400:
+        return
+    if response.status_code < 500:
+        # Forward backend validation errors (4xx) to client
+        try:
+            detail = response.json()
+        except Exception:
+            detail = response.text
+        raise HTTPException(status_code=response.status_code, detail=detail)
+    # 5xx from backend → translate to 502
+    logger.error(
+        "Backend returned %d for model '%s': %s",
+        response.status_code, model, response.text[:500],
+    )
+    raise HTTPException(status_code=502, detail="Inference backend unavailable.")
 
 
 @router.post(
@@ -85,7 +106,21 @@ async def create_chat_completion(
     try:
         with track_request(model_spec.name, "chat"):
             response = await backend.post_json(url, payload, headers=headers)
+        _check_backend_response(response, body.model)
         return response.json()
+    except CircuitOpenError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Backend for '{body.model}' is temporarily unavailable (circuit open).",
+            headers={"Retry-After": "30"},
+        )
+    except (httpx.ConnectError, httpx.ConnectTimeout):
+        logger.warning("Backend connect failed for model '%s' — may be scaling up", body.model)
+        raise HTTPException(
+            status_code=503,
+            detail=f"Backend for '{body.model}' is starting up. Retry shortly.",
+            headers={"Retry-After": "15"},
+        )
     except HTTPException:
         raise
     except Exception:

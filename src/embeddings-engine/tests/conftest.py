@@ -59,6 +59,7 @@ def _make_mock_model() -> MagicMock:
 
     model.embed.side_effect = fake_embed
     model.load.return_value = None
+    model.count_tokens.side_effect = lambda text: len(text.split())
     return model
 
 
