@@ -91,8 +91,12 @@ jobs:
       - name: Install deps & lint
         working-directory: src/embeddings-engine
         run: |
-          pip install -e ".[dev]"
+          pip install -e ".[dev,cpu]"
           ruff check engine/
+
+      - name: Run tests
+        working-directory: src/embeddings-engine
+        run: python -m pytest tests/ -v
 
       - name: Azure Login (OIDC)
         uses: azure/login@v2
@@ -156,8 +160,12 @@ jobs:
       - name: Install deps & lint
         working-directory: src/trtllm-engine
         run: |
-          pip install -e "."
+          pip install -e ".[dev]"
           ruff check engine/ || true  # TRT-LLM imports may not resolve in CI
+
+      - name: Run tests
+        working-directory: src/trtllm-engine
+        run: python -m pytest tests/ -v
 
       - name: Azure Login (OIDC)
         uses: azure/login@v2

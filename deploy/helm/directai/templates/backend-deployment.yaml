@@ -47,6 +47,14 @@ spec:
             - name: {{ $key }}
               value: {{ $value | quote }}
             {{- end }}
+            {{- if $backend.maxInflightRequests }}
+            - name: TRTLLM_MAX_INFLIGHT_REQUESTS
+              value: {{ $backend.maxInflightRequests | quote }}
+            {{- end }}
+          {{- else if $backend.maxInflightRequests }}
+          env:
+            - name: TRTLLM_MAX_INFLIGHT_REQUESTS
+              value: {{ $backend.maxInflightRequests | quote }}
           {{- end }}
           resources:
             {{- if $backend.resources }}

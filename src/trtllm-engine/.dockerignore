@@ -1,0 +1,22 @@
+# ── Build context exclusions ────────────────────────────────────────
+# Keep production images lean — no test code, caches, or dev artifacts.
+
+tests/
+.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
+
+# Dev / IDE
+.git/
+.gitignore
+.vscode/
+.idea/
+*.md
+.env
+.env.*
+
+# Build artifacts
+dist/
+*.egg-info/
+.ruff_cache/

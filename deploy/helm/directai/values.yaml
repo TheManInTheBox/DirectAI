@@ -87,6 +87,7 @@ backends: {}
   #       memory: 64Gi
   #   env:
   #     MODEL_NAME: llama-3.1-70b-instruct
+  #   maxInflightRequests: 128  # → TRTLLM_MAX_INFLIGHT_REQUESTS env var
   #   scaling:
   #     enabled: true
   #     minReplicas: 1
