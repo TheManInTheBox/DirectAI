@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     # ── Streaming ───────────────────────────────────────────────────
     streaming_token_buffer_size: int = 1  # Flush every N tokens
 
+    # ── Backpressure ────────────────────────────────────────────────
+    max_inflight_requests: int = 128  # 429 when exceeded
+
     # ── Observability ───────────────────────────────────────────────
     log_level: str = "info"
 

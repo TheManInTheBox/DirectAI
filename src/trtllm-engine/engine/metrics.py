@@ -55,6 +55,13 @@ PROMPT_TOKENS = Counter(
     registry=REGISTRY,
 )
 
+REJECTED_REQUESTS = Counter(
+    "directai_llm_rejected_requests_total",
+    "Requests rejected due to backpressure.",
+    ["reason"],  # "overloaded"
+    registry=REGISTRY,
+)
+
 
 def metrics_response_body() -> bytes:
     from prometheus_client import generate_latest

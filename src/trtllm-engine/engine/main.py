@@ -28,11 +28,13 @@ from engine.chat_format import (
     apply_chat_template,
     build_completion_response,
     build_stream_chunk,
+    build_usage_chunk,
 )
 from engine.config import get_settings
 from engine.metrics import (
     INFLIGHT_REQUESTS,
     PROMPT_TOKENS,
+    REJECTED_REQUESTS,
     REQUEST_DURATION,
     REQUESTS_TOTAL,
     TOKENS_GENERATED,
@@ -46,6 +48,7 @@ logger = logging.getLogger(__name__)
 
 # ── Global runner instance ──────────────────────────────────────────
 _runner: TRTLLMRunner | None = None
+_inflight: int = 0  # Backpressure counter (asyncio single-threaded = atomic)
 
 
 def _get_runner() -> TRTLLMRunner:
@@ -110,9 +113,25 @@ app = FastAPI(
 # ── POST /v1/chat/completions ──────────────────────────────────────
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
+    global _inflight
     body = await request.json()
     runner = _get_runner()
     settings = get_settings()
+
+    # ── Backpressure gate ───────────────────────────────────────
+    if _inflight >= settings.max_inflight_requests:
+        REJECTED_REQUESTS.labels(reason="overloaded").inc()
+        return JSONResponse(
+            status_code=429,
+            content={
+                "error": {
+                    "message": "Server overloaded — too many concurrent requests.",
+                    "type": "rate_limit_error",
+                    "code": "rate_limit_exceeded",
+                }
+            },
+            headers={"Retry-After": "1"},
+        )
 
     # ── Parse request ───────────────────────────────────────────
     messages = body.get("messages")
@@ -133,6 +152,10 @@ async def chat_completions(request: Request):
     temperature = body.get("temperature", 1.0)
     top_p = body.get("top_p", 1.0)
 
+    # stream_options — OpenAI spec: {"include_usage": true}
+    stream_options = body.get("stream_options") or {}
+    include_usage = bool(stream_options.get("include_usage", False)) and stream
+
     # Clamp to engine limits
     max_tokens = min(max_tokens, settings.max_output_len)
 
@@ -140,7 +163,6 @@ async def chat_completions(request: Request):
     prompt = apply_chat_template(messages, runner.tokenizer)
 
     request_id = uuid.uuid4().hex
-    t_start = time.monotonic()
 
     if stream:
         return await _handle_streaming(
@@ -148,6 +170,7 @@ async def chat_completions(request: Request):
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
+            include_usage=include_usage,
         )
     else:
         return await _handle_non_streaming(
@@ -169,6 +192,8 @@ async def _handle_non_streaming(
     top_p: float,
 ) -> JSONResponse:
     """Handle non-streaming chat completion."""
+    global _inflight
+    _inflight += 1
     INFLIGHT_REQUESTS.inc()
     t_start = time.monotonic()
 
@@ -204,6 +229,7 @@ async def _handle_non_streaming(
         )
     finally:
         INFLIGHT_REQUESTS.dec()
+        _inflight -= 1
 
 
 async def _handle_streaming(
@@ -215,15 +241,21 @@ async def _handle_streaming(
     max_tokens: int,
     temperature: float,
     top_p: float,
+    include_usage: bool = False,
 ) -> StreamingResponse:
     """Handle streaming chat completion via SSE."""
     completion_id = f"chatcmpl-{request_id[:8]}"
 
+    # Count prompt tokens up-front — needed for usage chunk
+    prompt_tokens = len(runner.tokenizer.encode(prompt))
+
     async def event_stream():
+        global _inflight
+        _inflight += 1
         INFLIGHT_REQUESTS.inc()
         t_start = time.monotonic()
         t_first_token = None
-        total_tokens = 0
+        final_completion_tokens = 0
 
         try:
             first = True
@@ -237,8 +269,8 @@ async def _handle_streaming(
                     t_first_token = time.monotonic()
                     TTFT.observe(t_first_token - t_start)
 
-                if chunk.text:
-                    total_tokens += 1
+                # Track cumulative token count from the runner
+                final_completion_tokens = chunk.completion_tokens
 
                 data = build_stream_chunk(
                     chunk, model_name, completion_id,
@@ -251,11 +283,22 @@ async def _handle_streaming(
                 if chunk.finish_reason is not None:
                     break
 
+            # Emit usage chunk when stream_options.include_usage is set
+            if include_usage:
+                usage_data = build_usage_chunk(
+                    model_name,
+                    completion_id,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=final_completion_tokens,
+                )
+                yield f"data: {json.dumps(usage_data)}\n\n"
+
             yield "data: [DONE]\n\n"
 
             duration = time.monotonic() - t_start
             REQUEST_DURATION.observe(duration)
-            TOKENS_GENERATED.inc(total_tokens)
+            PROMPT_TOKENS.inc(prompt_tokens)
+            TOKENS_GENERATED.inc(final_completion_tokens)
             REQUESTS_TOTAL.labels(status="ok", stream="true").inc()
 
         except Exception as exc:
@@ -273,6 +316,7 @@ async def _handle_streaming(
 
         finally:
             INFLIGHT_REQUESTS.dec()
+            _inflight -= 1
 
     return StreamingResponse(
         event_stream(),

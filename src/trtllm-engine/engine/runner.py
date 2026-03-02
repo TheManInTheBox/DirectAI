@@ -1,11 +1,12 @@
 """
 TensorRT-LLM model runner wrapper.
 
-Abstracts the TRT-LLM GenerationSession / ModelRunner behind a clean
-interface. The actual TRT-LLM import is deferred so the rest of the
-codebase can be tested without GPU hardware.
+Abstracts the TRT-LLM HLAPI behind a clean interface. The actual TRT-LLM
+import is deferred (via engine.compat) so the rest of the codebase can be
+tested without GPU hardware.
 
 Architecture:
+  - Version negotiation via engine.compat — supports 0.12+ / 0.14+ / 0.16+
   - Loads a pre-compiled TRT-LLM engine from disk (engine_dir)
   - Loads a HuggingFace tokenizer for prompt encoding/decoding
   - Exposes generate() for non-streaming and generate_stream() for SSE
@@ -18,6 +19,8 @@ import logging
 import time
 from dataclasses import dataclass
 from typing import AsyncIterator
+
+from engine.compat import TRTLLMApi, build_sampling_params, resolve_api
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +41,9 @@ class StreamChunk:
     """A single token chunk emitted during streaming."""
 
     text: str
-    token_id: int
+    token_id: int | None  # Current token ID (None when no new token)
     finish_reason: str | None  # None = still generating
+    completion_tokens: int  # Cumulative count of completion tokens so far
 
 
 class TRTLLMRunner:
@@ -79,6 +83,7 @@ class TRTLLMRunner:
 
         self._runner = None
         self._tokenizer = None
+        self._api: TRTLLMApi | None = None  # Resolved by compat layer
         self._loaded = False
 
     @property
@@ -89,8 +94,9 @@ class TRTLLMRunner:
         """
         Load the TRT-LLM engine and tokenizer.
 
-        This imports tensorrt_llm at call time — not at module level —
-        so the rest of the application can be tested without TRT-LLM installed.
+        Version negotiation is handled by engine.compat — import paths
+        and constructor signatures adapt to the installed TRT-LLM release.
+        When TRT-LLM is not installed the runner enters stub mode.
         """
         from transformers import AutoTokenizer
 
@@ -106,12 +112,20 @@ class TRTLLMRunner:
 
         logger.info("Tokenizer loaded from %s", self._tokenizer_dir)
 
-        # ── TRT-LLM Runner ──────────────────────────────────────────
-        try:
-            from tensorrt_llm import LLM, SamplingParams  # noqa: F401
-            from tensorrt_llm.hlapi import LLM as HLAPILLM
+        # ── TRT-LLM Runner (via compat layer) ───────────────────────
+        self._api = resolve_api()
 
-            self._runner = HLAPILLM(
+        if self._api is None:
+            # tensorrt_llm not installed → stub mode
+            logger.warning(
+                "Running in STUB MODE — generate() returns placeholder responses. "
+                "Install tensorrt_llm for real inference."
+            )
+            self._loaded = True
+            return
+
+        try:
+            self._runner = self._api.LLM(
                 model=self._engine_dir,
                 tokenizer=self._tokenizer_dir,
                 tensor_parallel_size=self._tp_size,
@@ -124,7 +138,8 @@ class TRTLLMRunner:
 
             load_s = time.monotonic() - t0
             logger.info(
-                "TRT-LLM engine loaded in %.1fs — tp=%d, pp=%d, max_batch=%d",
+                "TRT-LLM %s engine loaded in %.1fs — tp=%d, pp=%d, max_batch=%d",
+                self._api.version_string,
                 load_s,
                 self._tp_size,
                 self._pp_size,
@@ -132,13 +147,12 @@ class TRTLLMRunner:
             )
             self._loaded = True
 
-        except ImportError:
-            logger.warning(
-                "tensorrt_llm not installed — running in STUB MODE. "
-                "All generate() calls will return placeholder responses. "
-                "Install tensorrt_llm for real inference."
+        except Exception:
+            logger.exception(
+                "Failed to load TRT-LLM engine (version %s)",
+                self._api.version_string,
             )
-            self._loaded = True  # Mark as loaded so health checks pass
+            raise
 
     def generate(
         self,
@@ -168,9 +182,8 @@ class TRTLLMRunner:
             )
 
         try:
-            from tensorrt_llm import SamplingParams
-
-            sampling_params = SamplingParams(
+            sampling_params = build_sampling_params(
+                self._api,
                 max_tokens=min(max_tokens, self._max_output_len),
                 temperature=temperature,
                 top_p=top_p,
@@ -217,22 +230,32 @@ class TRTLLMRunner:
         """
         Streaming generation — yields token chunks as they're produced.
 
-        This uses TRT-LLM's async streaming callback to yield tokens
-        without blocking the event loop.
+        Each StreamChunk carries the delta text and the *cumulative*
+        completion_tokens count so the caller can report accurate usage.
         """
-        input_ids = self._tokenizer.encode(prompt)
-
         if self._runner is None:
-            # Stub mode
+            # Stub mode — each word counts as 1 token
+            token_count = 0
             for word in ["[Stub", " response", " —", " TRT-LLM", " not", " installed]"]:
-                yield StreamChunk(text=word, token_id=0, finish_reason=None)
-            yield StreamChunk(text="", token_id=0, finish_reason="stop")
+                token_count += 1
+                yield StreamChunk(
+                    text=word,
+                    token_id=0,
+                    finish_reason=None,
+                    completion_tokens=token_count,
+                )
+            token_count += 1
+            yield StreamChunk(
+                text="",
+                token_id=0,
+                finish_reason="stop",
+                completion_tokens=token_count,
+            )
             return
 
         try:
-            from tensorrt_llm import SamplingParams
-
-            sampling_params = SamplingParams(
+            sampling_params = build_sampling_params(
+                self._api,
                 max_tokens=min(max_tokens, self._max_output_len),
                 temperature=temperature,
                 top_p=top_p,
@@ -245,25 +268,33 @@ class TRTLLMRunner:
                 sampling_params=[sampling_params],
                 streaming=True,
             ):
-                # Each output contains incrementally decoded text
-                new_text = output.outputs[0].text
-                token_id = output.outputs[0].token_ids[-1] if output.outputs[0].token_ids else 0
+                # HLAPI yields delta text; token_ids is cumulative
+                delta_text = output.outputs[0].text
+                all_token_ids = output.outputs[0].token_ids
+                completion_tokens = len(all_token_ids) if all_token_ids else 0
+                current_token_id = all_token_ids[-1] if all_token_ids else None
 
                 finish_reason = None
                 if output.finished:
                     finish_reason = "stop"
-                    if len(output.outputs[0].token_ids) >= max_tokens:
+                    if completion_tokens >= max_tokens:
                         finish_reason = "length"
 
                 yield StreamChunk(
-                    text=new_text,
-                    token_id=token_id,
+                    text=delta_text,
+                    token_id=current_token_id,
                     finish_reason=finish_reason,
+                    completion_tokens=completion_tokens,
                 )
 
         except Exception:
             logger.exception("TRT-LLM streaming generation failed")
-            yield StreamChunk(text="", token_id=0, finish_reason="error")
+            yield StreamChunk(
+                text="",
+                token_id=None,
+                finish_reason="error",
+                completion_tokens=0,
+            )
 
     @property
     def tokenizer(self):

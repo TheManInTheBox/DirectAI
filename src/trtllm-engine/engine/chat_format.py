@@ -103,3 +103,31 @@ def build_stream_chunk(
             }
         ],
     }
+
+
+def build_usage_chunk(
+    model_name: str,
+    completion_id: str,
+    *,
+    prompt_tokens: int,
+    completion_tokens: int,
+) -> dict:
+    """
+    Build the final SSE chunk containing usage statistics.
+
+    Per the OpenAI spec, when ``stream_options.include_usage`` is true
+    the server emits one extra chunk after the finish-reason chunk.
+    It has ``choices: []`` and a ``usage`` object with token counts.
+    """
+    return {
+        "id": completion_id,
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": model_name,
+        "choices": [],
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
+        },
+    }
