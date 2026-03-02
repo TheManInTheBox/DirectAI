@@ -1,0 +1,24 @@
+apiVersion: directai/v1
+kind: ModelDeployment
+metadata:
+  name: nomic-embed-text
+spec:
+  displayName: "Nomic Embed Text (Local/Ollama)"
+  ownedBy: nomic
+  modality: embedding
+  engine:
+    type: ollama
+    backendUrl: "http://localhost:11434"
+    maxBatchSize: 32
+  hardware:
+    gpuSku: local
+    gpuCount: 1
+    nvmeCacheEnabled: false
+  scaling:
+    tier: always-warm
+    minReplicas: 1
+    maxReplicas: 1
+    targetConcurrency: 4
+  api:
+    aliases:
+      - nomic-embed-text

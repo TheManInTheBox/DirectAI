@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       customer_id:
-        description: 'Customer identifier (matches .bicepparam customerId)'
+        description: 'Customer ID — GUID from manifest, or "internal" for platform stamps'
         required: true
         type: string
         default: 'internal'
@@ -43,7 +43,7 @@ permissions:
 
 env:
   BICEP_FILE: infra/main.bicep
-  PARAMS_FILE: infra/environments/${{ inputs.environment }}.${{ inputs.region_short }}.bicepparam
+  PARAMS_FILE: infra/environments/${{ inputs.customer_id }}.${{ inputs.environment }}.${{ inputs.region_short }}.bicepparam
   RESOURCE_GROUP: rg-dai-${{ inputs.customer_id }}-${{ inputs.environment }}-${{ inputs.region_short }}
 
 # ---------------------------------------------------------------------------

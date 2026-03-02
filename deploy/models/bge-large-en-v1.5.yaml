@@ -1,0 +1,26 @@
+apiVersion: directai/v1
+kind: ModelDeployment
+metadata:
+  name: bge-large-en-v1.5
+spec:
+  displayName: "BAAI BGE Large English v1.5"
+  ownedBy: baai
+  modality: embedding
+  engine:
+    type: onnxruntime
+    image: "${ACR_LOGIN_SERVER}/directai/onnx-embeddings:0.1.0"
+    weightsUri: "az://models/bge-large-en-v1.5/weights/"
+    maxBatchSize: 256
+  hardware:
+    gpuSku: Standard_NC24ads_A100_v4  # A10G pool — small model, no NVLink needed
+    gpuCount: 1
+    nvmeCacheEnabled: false            # ~1.3GB model, loads from Blob in seconds
+  scaling:
+    tier: always-warm
+    minReplicas: 2
+    maxReplicas: 8
+    targetConcurrency: 64
+  api:
+    aliases:
+      - bge-large-en-v1.5
+      - baai/bge-large-en-v1.5

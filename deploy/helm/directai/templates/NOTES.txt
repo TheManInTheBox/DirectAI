@@ -1,0 +1,36 @@
+DirectAI has been deployed! 🚀
+
+── API Server ───────────────────────────────────────────────
+  Release:   {{ .Release.Name }}
+  Namespace: {{ .Values.global.namespace }}
+  Replicas:  {{ .Values.apiServer.replicaCount }}
+
+{{- if .Values.ingress.enabled }}
+
+── Ingress ──────────────────────────────────────────────────
+{{- range .Values.ingress.hosts }}
+  Host: {{ .host }}
+{{- end }}
+{{- end }}
+
+── Endpoints ────────────────────────────────────────────────
+  POST /v1/chat/completions     Chat (streaming + non-streaming)
+  POST /v1/embeddings           Text embeddings
+  POST /v1/audio/transcriptions Audio transcription (multipart)
+  GET  /v1/models               List registered models
+  GET  /healthz                 Liveness probe
+  GET  /readyz                  Readiness probe
+
+── Backends ─────────────────────────────────────────────────
+{{- if .Values.backends }}
+{{- range $name, $backend := .Values.backends }}
+  {{ $name }} ({{ $backend.modality | default "chat" }})
+    → http://{{ $name }}.{{ $.Values.global.namespace }}.svc.cluster.local:{{ $backend.port | default 8001 }}
+{{- end }}
+{{- else }}
+  No inference backends deployed. Add entries to values.backends.
+{{- end }}
+
+── Quick Test ───────────────────────────────────────────────
+  kubectl port-forward -n {{ .Values.global.namespace }} svc/{{ .Release.Name }}-api-server {{ .Values.apiServer.service.port }}:{{ .Values.apiServer.service.port }}
+  curl http://localhost:{{ .Values.apiServer.service.port }}/v1/models

@@ -1,0 +1,42 @@
+{{/*
+Creates a KEDA ScaledObject for each backend that has scaling.enabled = true.
+Scales on HTTP inflight requests (concurrency) measured by the API server's
+Prometheus metrics endpoint. Falls back to CPU if no KEDA metrics are available.
+*/}}
+{{- if .Values.keda.enabled }}
+{{- range $name, $backend := .Values.backends }}
+{{- if and $backend.scaling $backend.scaling.enabled }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    {{- include "directai.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: backend
+    directai.io/model: {{ $name }}
+spec:
+  scaleTargetRef:
+    name: {{ $name }}
+  pollingInterval: {{ $.Values.keda.pollingInterval | default 15 }}
+  cooldownPeriod: {{ $.Values.keda.cooldownPeriod | default 300 }}
+  minReplicaCount: {{ $backend.scaling.minReplicas | default 0 }}
+  maxReplicaCount: {{ $backend.scaling.maxReplicas | default 4 }}
+  triggers:
+    # Scale on inflight request concurrency per replica.
+    # Requires Prometheus scraping the API server's metrics.
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-server.monitoring.svc.cluster.local
+        metricName: directai_backend_inflight_requests
+        query: |
+          sum(directai_backend_inflight_requests{model="{{ $name }}"})
+        threshold: {{ $backend.scaling.targetConcurrency | default 8 | quote }}
+  {{- if eq (int ($backend.scaling.minReplicas | default 0)) 0 }}
+  # Scale-to-zero behaviour
+  idleReplicaCount: 0
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

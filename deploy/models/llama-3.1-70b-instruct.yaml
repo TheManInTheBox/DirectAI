@@ -1,0 +1,26 @@
+apiVersion: directai/v1
+kind: ModelDeployment
+metadata:
+  name: llama-3.1-70b-instruct
+spec:
+  displayName: "Meta Llama 3.1 70B Instruct"
+  ownedBy: meta
+  modality: chat
+  engine:
+    type: tensorrt-llm
+    image: "${ACR_LOGIN_SERVER}/directai/trtllm-llama:0.1.0"
+    weightsUri: "az://models/llama-3.1-70b-instruct/weights/"
+    engineUri: "az://models/llama-3.1-70b-instruct/engine/"
+  hardware:
+    gpuSku: Standard_ND96asr_v4     # A100 80GB node pool
+    gpuCount: 2                      # TP=2
+    nvmeCacheEnabled: true
+  scaling:
+    tier: always-warm
+    minReplicas: 1
+    maxReplicas: 4
+    targetConcurrency: 8
+  api:
+    aliases:
+      - llama-3.1-70b-instruct
+      - meta/llama-3.1-70b-instruct

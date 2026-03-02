@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-api-server
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "directai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api-server
+spec:
+  {{- if not .Values.apiServer.autoscaling.enabled }}
+  replicas: {{ .Values.apiServer.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "directai.apiServerSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "directai.apiServerSelectorLabels" . | nindent 8 }}
+      {{- with .Values.apiServer.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "directai.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: api-server
+          image: "{{ .Values.apiServer.image.repository }}:{{ .Values.apiServer.image.tag }}"
+          imagePullPolicy: {{ .Values.apiServer.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.apiServer.service.port }}
+              protocol: TCP
+          env:
+            - name: DIRECTAI_HOST
+              value: "0.0.0.0"
+            - name: DIRECTAI_PORT
+              value: {{ .Values.apiServer.service.port | quote }}
+            - name: DIRECTAI_MODEL_CONFIG_DIR
+              value: {{ .Values.apiServer.modelConfigDir | quote }}
+            {{- range $key, $value := .Values.apiServer.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- if .Values.apiServer.apiKeysSecretName }}
+            - name: DIRECTAI_API_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.apiServer.apiKeysSecretName }}
+                  key: api-keys
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.apiServer.resources | nindent 12 }}
+          volumeMounts:
+            - name: model-config
+              mountPath: {{ .Values.apiServer.modelConfigDir }}
+              readOnly: true
+      volumes:
+        - name: model-config
+          configMap:
+            name: {{ .Release.Name }}-model-config
+      {{- with .Values.apiServer.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.apiServer.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,23 @@
+{{/*
+ConfigMap that bundles all ModelDeployment YAML files.
+
+Populate via:
+  1. --set-file "modelConfigs.llama-3\.1-70b\.yaml=deploy/models/llama-3.1-70b-instruct.yaml"
+  2. Or set modelConfigs as a map in a values override file.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-model-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "directai.labels" . | nindent 4 }}
+{{- if .Values.modelConfigs }}
+data:
+  {{- range $filename, $content := .Values.modelConfigs }}
+  {{ $filename | quote }}: |
+    {{- $content | nindent 4 }}
+  {{- end }}
+{{- else }}
+data: {}
+{{- end }}

@@ -46,9 +46,7 @@ param systemPoolMinCount int = 1
 @description('AKS system pool max node count.')
 param systemPoolMaxCount int = 3
 
-@description('Customer identifier. Short, alphanumeric. Used in resource naming and tagging.')
-@minLength(2)
-@maxLength(8)
+@description('Customer identifier (GUID for onboarded customers, or alias like "internal" for platform stamps).')
 param customerId string
 
 @description('Platform ACR login server (e.g., acrplatform.azurecr.io). When provided, the stamp skips deploying its own ACR and uses the platform ACR instead. Leave empty to deploy a per-customer ACR.')
@@ -61,15 +59,16 @@ param platformAcrLoginServer string = ''
 var prefix = 'dai'
 var baseName = '${prefix}-${customerId}-${environment}-${regionShort}'
 var uniqueSuffix = uniqueString(resourceGroup().id, baseName)
+var customerHash = take(uniqueString(customerId), 8) // Deterministic 8-char hash for length-constrained names
 var deployPerCustomerAcr = empty(platformAcrLoginServer)
 
 var identityControlPlaneName = 'id-cp-${baseName}'
 var identityKubeletName = 'id-kubelet-${baseName}'
 var logAnalyticsName = 'log-${baseName}'
 var vnetName = 'vnet-${baseName}'
-var keyVaultName = 'kv${prefix}${customerId}${take(uniqueSuffix, 6)}' // 3-24 chars, alphanumeric + hyphens
-var storageAccountName = 'st${prefix}${customerId}${take(uniqueSuffix, 6)}' // 3-24 chars, lowercase alphanumeric only
-var acrName = 'acr${prefix}${customerId}${take(uniqueSuffix, 6)}' // 5-50 chars, alphanumeric only
+var keyVaultName = 'kv${prefix}${customerHash}${take(uniqueSuffix, 6)}' // 3-24 chars
+var storageAccountName = 'st${prefix}${customerHash}${take(uniqueSuffix, 6)}' // 3-24 chars
+var acrName = 'acr${prefix}${customerHash}${take(uniqueSuffix, 6)}' // 5-50 chars
 var aksName = 'aks-${baseName}'
 
 var defaultTags = union(tags, {

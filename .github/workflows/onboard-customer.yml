@@ -1,0 +1,553 @@
+# ============================================================================
+# DirectAI — Onboard New Customer
+#
+# Fully automated customer onboarding via GitHub Actions. Creates:
+#   1. Customer ID (new GUID)
+#   2. Azure Subscription (under billing enrollment account)
+#   3. Entra ID App Registration + Service Principal
+#   4. OIDC Federated Credentials (one per GitHub environment)
+#   5. RBAC (Contributor + User Access Administrator) on the subscription
+#   6. GitHub Environments (dev + prod) with Azure secrets
+#   7. Customer manifest file (committed to repo)
+#   8. Bicep parameter files for each region × environment (committed to repo)
+#
+# Prerequisites:
+#   - Platform environment secrets configured (see docs).
+#   - The runner identity needs EA enrollment access + Entra ID Application Administrator.
+#   - ONBOARDING_PAT needs repo + admin:org (or fine-grained: Administration + Secrets + Environments write).
+# ============================================================================
+
+name: Onboard Customer
+
+on:
+  workflow_dispatch:
+    inputs:
+      display_name:
+        description: 'Customer display name (e.g., Acme Corp)'
+        required: true
+        type: string
+      billing_scope:
+        description: 'Azure billing/enrollment account scope for subscription creation'
+        required: true
+        type: string
+      regions:
+        description: 'Comma-separated Azure regions (e.g., eastus2,westus3)'
+        required: true
+        type: string
+        default: 'eastus2'
+      gpu_tier:
+        description: 'GPU tier'
+        required: true
+        type: choice
+        options:
+          - starter
+          - enterprise
+          - dedicated
+        default: 'starter'
+      use_platform_acr:
+        description: 'Use shared platform ACR (uncheck for air-gapped/sovereign)'
+        required: true
+        type: boolean
+        default: true
+      platform_acr_server:
+        description: 'Platform ACR login server (ignored if use_platform_acr is false)'
+        required: false
+        type: string
+        default: 'acrplatformdai.azurecr.io'
+      contact_technical:
+        description: 'Technical contact email'
+        required: true
+        type: string
+      contact_billing:
+        description: 'Billing contact email'
+        required: true
+        type: string
+      existing_subscription_id:
+        description: 'Existing subscription ID (leave empty to create new)'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  id-token: write
+  contents: write
+
+env:
+  GITHUB_REPO: ${{ github.repository }}
+
+jobs:
+  # =========================================================================
+  # Generate customer ID + validate inputs
+  # =========================================================================
+  validate:
+    name: Validate Inputs
+    runs-on: ubuntu-latest
+    outputs:
+      customer_id: ${{ steps.generate-id.outputs.customer_id }}
+    steps:
+      - name: Generate customer ID
+        id: generate-id
+        shell: pwsh
+        run: |
+          $customerId = [guid]::NewGuid().ToString()
+          Write-Host "✓ Generated customer ID: $customerId"
+          "customer_id=$customerId" >> $env:GITHUB_OUTPUT
+
+      - name: Validate regions
+        shell: pwsh
+        run: |
+          $regions = '${{ inputs.regions }}' -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+          if ($regions.Count -eq 0) {
+            Write-Error 'At least one region is required.'
+            exit 1
+          }
+
+          $validRegions = @(
+            'eastus','eastus2','westus','westus2','westus3','centralus',
+            'northcentralus','southcentralus','westeurope','northeurope',
+            'uksouth','ukwest','australiaeast','japaneast','southeastasia',
+            'canadacentral','brazilsouth','koreacentral','francecentral',
+            'germanywestcentral','norwayeast','switzerlandnorth','uaenorth',
+            'southafricanorth','qatarcentral','polandcentral','italynorth',
+            'israelcentral','spaincentral','mexicocentral','newzealandnorth'
+          )
+          foreach ($r in $regions) {
+            if ($r -notin $validRegions) {
+              Write-Error "Unknown region: '$r'. Valid: $($validRegions -join ', ')"
+              exit 1
+            }
+          }
+          Write-Host "✓ Regions valid: $($regions -join ', ')"
+
+  # =========================================================================
+  # Create Azure subscription + identity + RBAC + GitHub environments
+  # =========================================================================
+  provision:
+    name: Provision Azure & GitHub
+    runs-on: ubuntu-latest
+    needs: validate
+    environment: platform
+    env:
+      CUSTOMER_ID: ${{ needs.validate.outputs.customer_id }}
+    outputs:
+      subscription_id: ${{ steps.subscription.outputs.subscription_id }}
+      app_id: ${{ steps.appreg.outputs.app_id }}
+      tenant_id: ${{ steps.appreg.outputs.tenant_id }}
+      sp_object_id: ${{ steps.appreg.outputs.sp_object_id }}
+    steps:
+      - name: Azure Login (Platform Identity)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.ONBOARDING_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.ONBOARDING_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.ONBOARDING_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install Azure account extension
+        shell: pwsh
+        run: |
+          az extension add --name account --yes 2>$null
+          Write-Host '✓ Azure account extension ready.'
+
+      # -------------------------------------------------------------------
+      # Step 1: Create or reference Azure Subscription
+      # -------------------------------------------------------------------
+      - name: Create or resolve subscription
+        id: subscription
+        shell: pwsh
+        run: |
+          $customerId = $env:CUSTOMER_ID
+          $displayName = '${{ inputs.display_name }}'
+          $existingSubId = '${{ inputs.existing_subscription_id }}'.Trim()
+          $billingScope = '${{ inputs.billing_scope }}'
+
+          if ($existingSubId -and $existingSubId -ne '') {
+            Write-Host "Using existing subscription: $existingSubId"
+            "subscription_id=$existingSubId" >> $env:GITHUB_OUTPUT
+            return
+          }
+
+          $aliasName = "sub-dai-$customerId"
+          $subDisplayName = "DirectAI - $displayName"
+
+          Write-Host "Creating subscription '$subDisplayName'..."
+          az account alias create `
+            --name $aliasName `
+            --billing-scope $billingScope `
+            --display-name $subDisplayName `
+            --workload Production `
+            --no-wait
+
+          Write-Host 'Waiting for subscription provisioning (up to 10 min)...'
+          az account alias wait --name $aliasName --created --timeout 600
+
+          $subscriptionId = az account alias show `
+            --name $aliasName `
+            --query 'properties.subscriptionId' -o tsv
+
+          if (-not $subscriptionId) {
+            Write-Error 'Failed to retrieve subscription ID after provisioning.'
+            exit 1
+          }
+
+          Write-Host "✓ Subscription created: $subscriptionId"
+          "subscription_id=$subscriptionId" >> $env:GITHUB_OUTPUT
+
+      # -------------------------------------------------------------------
+      # Step 2: Create App Registration + Service Principal
+      # -------------------------------------------------------------------
+      - name: Create App Registration and Service Principal
+        id: appreg
+        shell: pwsh
+        run: |
+          $customerId = $env:CUSTOMER_ID
+          $appName = "sp-dai-$customerId"
+
+          # Check if app already exists
+          $existingAppId = az ad app list `
+            --display-name $appName `
+            --query '[0].appId' -o tsv 2>$null
+
+          if ($existingAppId -and $existingAppId -ne 'None' -and $existingAppId -ne '') {
+            Write-Host "App Registration already exists: $existingAppId"
+            $appId = $existingAppId
+          } else {
+            Write-Host "Creating App Registration '$appName'..."
+            $appId = az ad app create --display-name $appName --query appId -o tsv
+            Write-Host "✓ App Registration created: $appId"
+          }
+
+          # Ensure Service Principal exists
+          $existingSp = az ad sp show --id $appId --query id -o tsv 2>$null
+
+          if ($existingSp) {
+            Write-Host "Service Principal already exists: $existingSp"
+            $spObjectId = $existingSp
+          } else {
+            Write-Host 'Creating Service Principal...'
+            $spObjectId = az ad sp create --id $appId --query id -o tsv
+            Write-Host "✓ Service Principal created: $spObjectId"
+            Write-Host 'Waiting 30s for Entra ID replication...'
+            Start-Sleep -Seconds 30
+          }
+
+          $tenantId = az ad sp show --id $appId --query appOwnerOrganizationId -o tsv
+
+          "app_id=$appId" >> $env:GITHUB_OUTPUT
+          "sp_object_id=$spObjectId" >> $env:GITHUB_OUTPUT
+          "tenant_id=$tenantId" >> $env:GITHUB_OUTPUT
+
+      # -------------------------------------------------------------------
+      # Step 3: Create OIDC Federated Credentials (dev + prod)
+      # -------------------------------------------------------------------
+      - name: Create OIDC federated credentials
+        shell: pwsh
+        run: |
+          $customerId = $env:CUSTOMER_ID
+          $appId = '${{ steps.appreg.outputs.app_id }}'
+          $repo = '${{ env.GITHUB_REPO }}'
+
+          foreach ($envName in @('dev', 'prod')) {
+            $credName = "$customerId-$envName"
+            $subject = "repo:${repo}:environment:${customerId}-${envName}"
+
+            # Check if credential already exists
+            $existing = az ad app federated-credential list `
+              --id $appId `
+              --query "[?name=='$credName'].name" -o tsv 2>$null
+
+            if ($existing) {
+              Write-Host "✓ Federated credential '$credName' already exists — skipping."
+              continue
+            }
+
+            $params = @{
+              name        = $credName
+              issuer      = 'https://token.actions.githubusercontent.com'
+              subject     = $subject
+              description = "OIDC for DirectAI $customerId $envName"
+              audiences   = @('api://AzureADTokenExchange')
+            } | ConvertTo-Json -Compress
+
+            az ad app federated-credential create --id $appId --parameters $params
+            Write-Host "✓ Created federated credential: $credName → $subject"
+          }
+
+      # -------------------------------------------------------------------
+      # Step 4: Assign RBAC on the customer subscription
+      # -------------------------------------------------------------------
+      - name: Assign subscription RBAC
+        shell: pwsh
+        run: |
+          $spObjectId = '${{ steps.appreg.outputs.sp_object_id }}'
+          $subscriptionId = '${{ steps.subscription.outputs.subscription_id }}'
+          $scope = "/subscriptions/$subscriptionId"
+
+          foreach ($role in @('Contributor', 'User Access Administrator')) {
+            # Check if already assigned
+            $existing = az role assignment list `
+              --assignee $spObjectId `
+              --role $role `
+              --scope $scope `
+              --query '[0].id' -o tsv 2>$null
+
+            if ($existing) {
+              Write-Host "✓ Role '$role' already assigned — skipping."
+              continue
+            }
+
+            az role assignment create `
+              --role $role `
+              --assignee-object-id $spObjectId `
+              --assignee-principal-type ServicePrincipal `
+              --scope $scope `
+              --output none
+
+            Write-Host "✓ Assigned '$role' to SP on subscription."
+          }
+
+      # -------------------------------------------------------------------
+      # Step 5: Create GitHub Environments + Secrets
+      # -------------------------------------------------------------------
+      - name: Create GitHub environments and set secrets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.ONBOARDING_PAT }}
+        run: |
+          $customerId = $env:CUSTOMER_ID
+          $repo = '${{ env.GITHUB_REPO }}'
+          $appId = '${{ steps.appreg.outputs.app_id }}'
+          $tenantId = '${{ steps.appreg.outputs.tenant_id }}'
+          $subscriptionId = '${{ steps.subscription.outputs.subscription_id }}'
+
+          foreach ($envName in @('dev', 'prod')) {
+            $ghEnv = "$customerId-$envName"
+
+            Write-Host "Creating GitHub environment: $ghEnv"
+            gh api --method PUT "repos/$repo/environments/$ghEnv" --silent
+
+            # Set the three required secrets
+            $secrets = @{
+              AZURE_CLIENT_ID       = $appId
+              AZURE_TENANT_ID       = $tenantId
+              AZURE_SUBSCRIPTION_ID = $subscriptionId
+            }
+
+            foreach ($kv in $secrets.GetEnumerator()) {
+              $kv.Value | gh secret set $kv.Key --env $ghEnv --repo $repo
+              Write-Host "  ✓ Set $($kv.Key) on $ghEnv"
+            }
+          }
+
+          Write-Host ''
+          Write-Host "⚠ ACTION REQUIRED: Configure required reviewers on '${customerId}-prod' in GitHub repo settings."
+
+  # =========================================================================
+  # Commit manifest + bicepparam files to the repo
+  # =========================================================================
+  commit-files:
+    name: Generate & Commit Files
+    runs-on: ubuntu-latest
+    needs: [validate, provision]
+    env:
+      CUSTOMER_ID: ${{ needs.validate.outputs.customer_id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.ONBOARDING_PAT }}
+
+      - name: Generate customer manifest
+        shell: pwsh
+        run: |
+          $customerId = $env:CUSTOMER_ID
+          $displayName = '${{ inputs.display_name }}'
+          $subscriptionId = '${{ needs.provision.outputs.subscription_id }}'
+          $tenantId = '${{ needs.provision.outputs.tenant_id }}'
+          $appId = '${{ needs.provision.outputs.app_id }}'
+          $gpuTier = '${{ inputs.gpu_tier }}'
+          $usePlatformAcr = [System.Convert]::ToBoolean('${{ inputs.use_platform_acr }}')
+          $platformAcr = if ($usePlatformAcr) { '${{ inputs.platform_acr_server }}' } else { '' }
+          $contactTech = '${{ inputs.contact_technical }}'
+          $contactBilling = '${{ inputs.contact_billing }}'
+          $regionsRaw = '${{ inputs.regions }}'
+
+          # --- Region short name mapping ---
+          $regionMap = @{
+            eastus            = 'eus';   eastus2           = 'eus2'
+            westus            = 'wus';   westus2           = 'wus2';  westus3  = 'wus3'
+            centralus         = 'cus';   northcentralus    = 'ncus';  southcentralus = 'scus'
+            westeurope        = 'weu';   northeurope       = 'neu'
+            uksouth           = 'uks';   ukwest            = 'ukw'
+            australiaeast     = 'aue';   japaneast         = 'jpe';   southeastasia  = 'sea'
+            canadacentral     = 'cac';   brazilsouth       = 'brs';   koreacentral   = 'krc'
+            francecentral     = 'frc';   germanywestcentral = 'gwc';  norwayeast     = 'noe'
+            switzerlandnorth  = 'szn';   uaenorth          = 'uan';   southafricanorth = 'san'
+            qatarcentral      = 'qac';   polandcentral     = 'plc';  italynorth     = 'itn'
+            israelcentral     = 'ilc';   spaincentral      = 'spc';  mexicocentral  = 'mxc'
+            newzealandnorth   = 'nzn'
+          }
+
+          $regions = $regionsRaw -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+          $allowedRegions = [ordered]@{}
+          foreach ($r in $regions) {
+            $short = if ($regionMap.ContainsKey($r)) { $regionMap[$r] } else { $r.Substring(0, [Math]::Min(4, $r.Length)) }
+            $allowedRegions[$r] = $short
+          }
+
+          # --- Build manifest ---
+          $manifest = [ordered]@{
+            '$schema'             = 'Customer manifest — defines subscription, deployment config, and contact info for a DirectAI customer.'
+            customerId            = $customerId
+            displayName           = $displayName
+            subscriptionId        = $subscriptionId
+            tenantId              = $tenantId
+            appRegistrationId     = $appId
+            allowedRegions        = $allowedRegions
+            gpuTier               = $gpuTier
+            platformAcrLoginServer = $platformAcr
+            contacts              = [ordered]@{
+              technical = $contactTech
+              billing   = $contactBilling
+            }
+            notes                 = "Onboarded via GitHub Actions."
+            onboardedAt           = (Get-Date -Format 'yyyy-MM-ddTHH:mm:ssZ')
+          }
+
+          $manifestDir = 'infra/customers'
+          New-Item -ItemType Directory -Force -Path $manifestDir | Out-Null
+          $manifestPath = "$manifestDir/$customerId.json"
+          $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path $manifestPath -Encoding utf8
+          Write-Host "✓ Manifest written: $manifestPath"
+
+      - name: Generate Bicep parameter files
+        shell: pwsh
+        run: |
+          $customerId = $env:CUSTOMER_ID
+          $displayName = '${{ inputs.display_name }}'
+          $usePlatformAcr = [System.Convert]::ToBoolean('${{ inputs.use_platform_acr }}')
+          $platformAcr = if ($usePlatformAcr) { '${{ inputs.platform_acr_server }}' } else { '' }
+          $regionsRaw = '${{ inputs.regions }}'
+
+          $regionMap = @{
+            eastus            = 'eus';   eastus2           = 'eus2'
+            westus            = 'wus';   westus2           = 'wus2';  westus3  = 'wus3'
+            centralus         = 'cus';   northcentralus    = 'ncus';  southcentralus = 'scus'
+            westeurope        = 'weu';   northeurope       = 'neu'
+            uksouth           = 'uks';   ukwest            = 'ukw'
+            australiaeast     = 'aue';   japaneast         = 'jpe';   southeastasia  = 'sea'
+            canadacentral     = 'cac';   brazilsouth       = 'brs';   koreacentral   = 'krc'
+            francecentral     = 'frc';   germanywestcentral = 'gwc';  norwayeast     = 'noe'
+            switzerlandnorth  = 'szn';   uaenorth          = 'uan';   southafricanorth = 'san'
+            qatarcentral      = 'qac';   polandcentral     = 'plc';  italynorth     = 'itn'
+            israelcentral     = 'ilc';   spaincentral      = 'spc';  mexicocentral  = 'mxc'
+            newzealandnorth   = 'nzn'
+          }
+
+          $regions = $regionsRaw -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+          $envDir = 'infra/environments'
+          New-Item -ItemType Directory -Force -Path $envDir | Out-Null
+
+          foreach ($region in $regions) {
+            $short = if ($regionMap.ContainsKey($region)) { $regionMap[$region] } else { $region.Substring(0, [Math]::Min(4, $region.Length)) }
+
+            foreach ($envName in @('dev', 'prod')) {
+              $fileName = "$customerId.$envName.$short.bicepparam"
+              $filePath = "$envDir/$fileName"
+
+              if (Test-Path $filePath) {
+                Write-Host "✓ $fileName already exists — skipping."
+                continue
+              }
+
+              $gpuEnabled  = if ($envName -eq 'prod') { 'true' } else { 'false' }
+              $sysMin      = if ($envName -eq 'prod') { 3 } else { 1 }
+              $sysMax      = if ($envName -eq 'prod') { 5 } else { 3 }
+              $extraTags   = if ($envName -eq 'prod') { "`n  sla: '99.99'" } else { '' }
+              $gpuComment  = if ($envName -eq 'prod') { '// Full GPU node pools' } else { '// No GPU quota needed for dev' }
+              $timestamp   = Get-Date -Format 'yyyy-MM-ddTHH:mm:ssZ'
+
+              $content = @"
+// DirectAI Stamp — $displayName / $($envName.Substring(0,1).ToUpper() + $envName.Substring(1)) / $region
+// Auto-generated by onboard-customer.yml at $timestamp
+using '../../infra/main.bicep'
+
+param customerId = '$customerId'
+param regionShort = '$short'
+param environment = '$envName'
+param kubernetesVersion = '1.30'
+param enableGpuPools = $gpuEnabled $gpuComment
+param systemPoolMinCount = $sysMin
+param systemPoolMaxCount = $sysMax
+param platformAcrLoginServer = '$platformAcr'
+param vnetAddressPrefix = '10.0.0.0/16'
+param aksSubnetPrefix = '10.0.0.0/22'
+param endpointsSubnetPrefix = '10.0.4.0/24'
+param tags = {
+  costCenter: '$customerId'$extraTags
+}
+"@
+
+              Set-Content -Path $filePath -Value $content -Encoding utf8
+              Write-Host "✓ Generated: $fileName"
+            }
+          }
+
+      - name: Commit and push
+        shell: pwsh
+        run: |
+          $customerId = $env:CUSTOMER_ID
+          $displayName = '${{ inputs.display_name }}'
+
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+
+          git add infra/customers/ infra/environments/
+          $status = git status --porcelain
+          if (-not $status) {
+            Write-Host 'No changes to commit.'
+            return
+          }
+
+          git commit -m "onboard: $displayName ($customerId)" `
+            -m "Created by Onboard Customer workflow run #${{ github.run_number }}." `
+            -m "Subscription: ${{ needs.provision.outputs.subscription_id }}"
+          git push
+
+          Write-Host "✓ Files committed and pushed."
+
+      # -------------------------------------------------------------------
+      # Summary
+      # -------------------------------------------------------------------
+      - name: Output summary
+        shell: pwsh
+        run: |
+          $customerId = $env:CUSTOMER_ID
+          $displayName = '${{ inputs.display_name }}'
+          $subscriptionId = '${{ needs.provision.outputs.subscription_id }}'
+          $tenantId = '${{ needs.provision.outputs.tenant_id }}'
+          $appId = '${{ needs.provision.outputs.app_id }}'
+          $regions = '${{ inputs.regions }}'
+
+          $summary = @"
+          ## 🎉 Customer Onboarded: $displayName (``$customerId``)
+
+          | Resource | Value |
+          |----------|-------|
+          | **Subscription** | ``$subscriptionId`` |
+          | **Tenant** | ``$tenantId`` |
+          | **App Registration** | ``$appId`` (sp-dai-$customerId) |
+          | **GitHub Environments** | ``${customerId}-dev``, ``${customerId}-prod`` |
+          | **Regions** | $regions |
+
+          ### Files Generated
+          - ``infra/customers/$customerId.json``
+          - Bicep param files in ``infra/environments/``
+
+          ### Next Steps
+          1. ⚠️ Configure **required reviewers** on ``${customerId}-prod`` in GitHub repo → Settings → Environments.
+          2. Run **Deploy Stamp** workflow with ``customer_id = $customerId``.
+          3. If using platform ACR, assign ``AcrPull`` to the kubelet identity after the first deploy.
+          4. Submit GPU quota requests if ``enableGpuPools = true`` is needed.
+          "@
+
+          $summary >> $env:GITHUB_STEP_SUMMARY

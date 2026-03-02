@@ -1,0 +1,15 @@
+apiVersion: v2
+name: directai
+description: DirectAI — High-performance AI inference platform
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - ai
+  - inference
+  - llm
+  - embeddings
+  - openai-compatible
+maintainers:
+  - name: DirectAI
+    url: https://github.com/TheManInTheBox/DirectAI

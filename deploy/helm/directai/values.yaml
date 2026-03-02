@@ -1,0 +1,149 @@
+# ============================================================================
+# DirectAI Helm Chart — Default Values
+# ============================================================================
+
+global:
+  namespace: directai
+
+# ── API Server ─────────────────────────────────────────────────────────────
+apiServer:
+  replicaCount: 2
+
+  image:
+    repository: directai.azurecr.io/api-server
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 8000
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 1Gi
+
+  env:
+    DIRECTAI_LOG_LEVEL: "info"
+    DIRECTAI_BACKEND_TIMEOUT: "300"
+    DIRECTAI_BACKEND_CONNECT_TIMEOUT: "5"
+
+  # Mount path for model config YAMLs (ConfigMap or volume)
+  modelConfigDir: /app/models
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+
+# ── Ingress ────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    # Enable SSE streaming
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+  hosts:
+    - host: api.directai.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: directai-tls
+  #    hosts:
+  #      - api.directai.local
+
+# ── Inference Backends ─────────────────────────────────────────────────────
+# Each entry here creates a Deployment + Service + optional KEDA ScaledObject.
+# Keys match metadata.name from ModelDeployment YAMLs.
+backends: {}
+  # Example: uncomment to deploy
+  # llama-3-1-70b-instruct:
+  #   image: directai.azurecr.io/trtllm-llama-70b:latest
+  #   modality: chat
+  #   replicas: 1
+  #   gpu:
+  #     count: 2
+  #     sku: Standard_ND96asr_v4
+  #     nodePoolLabel: gpu-a100       # matches AKS node pool label
+  #   port: 8001
+  #   resources:
+  #     requests:
+  #       cpu: "4"
+  #       memory: 32Gi
+  #     limits:
+  #       cpu: "8"
+  #       memory: 64Gi
+  #   env:
+  #     MODEL_NAME: llama-3.1-70b-instruct
+  #   scaling:
+  #     enabled: true
+  #     minReplicas: 1
+  #     maxReplicas: 4
+  #     targetConcurrency: 8
+  #   nvmeCache:
+  #     enabled: true
+  #     sizeMi: 200000              # 200GB for model weights
+  #   tolerations:
+  #     - key: "nvidia.com/gpu"
+  #       operator: "Exists"
+  #       effect: "NoSchedule"
+  #
+  # bge-large-en-v1-5:
+  #   image: directai.azurecr.io/onnxrt-bge-large:latest
+  #   modality: embedding
+  #   replicas: 2
+  #   gpu:
+  #     count: 1
+  #     nodePoolLabel: gpu-a10g
+  #   port: 8001
+  #   resources:
+  #     requests:
+  #       cpu: "2"
+  #       memory: 8Gi
+  #     limits:
+  #       cpu: "4"
+  #       memory: 16Gi
+  #   scaling:
+  #     enabled: true
+  #     minReplicas: 2
+  #     maxReplicas: 8
+  #     targetConcurrency: 64
+
+# ── Service Account ────────────────────────────────────────────────────────
+serviceAccount:
+  create: true
+  name: directai
+  annotations: {}
+  # For Azure Workload Identity:
+  #   azure.workload.identity/client-id: <kubelet-identity-client-id>
+
+# ── Image Pull Secrets ─────────────────────────────────────────────────────
+imagePullSecrets: []
+
+# ── KEDA ───────────────────────────────────────────────────────────────────
+keda:
+  # If true, KEDA ScaledObjects are created for backends with scaling.enabled
+  enabled: true
+  pollingInterval: 15
+  cooldownPeriod: 300
+# ── Model Config Files ─────────────────────────────────────────────
+# ModelDeployment YAML files to mount into the API server.
+# Injected at deploy time via --set-file:
+#   --set-file "modelConfigs.llama\.yaml=deploy/models/llama-3.1-70b-instruct.yaml"
+modelConfigs: {}
+  # example.yaml: |
+  #   apiVersion: directai/v1
+  #   kind: ModelDeployment
+  #   ...

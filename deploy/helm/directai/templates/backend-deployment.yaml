@@ -1,0 +1,115 @@
+{{/*
+Creates a Deployment for each entry in .Values.backends.
+Each backend is an inference engine pod (TRT-LLM, ONNX Runtime, etc.)
+that the API server proxies to.
+*/}}
+{{- range $name, $backend := .Values.backends }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    {{- include "directai.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: backend
+    directai.io/model: {{ $name }}
+    directai.io/modality: {{ $backend.modality | default "chat" }}
+spec:
+  {{- if not (and $backend.scaling $backend.scaling.enabled) }}
+  replicas: {{ $backend.replicas | default 1 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "directai.backendSelectorLabels" (dict "name" $name "root" $) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "directai.backendSelectorLabels" (dict "name" $name "root" $) | nindent 8 }}
+        directai.io/modality: {{ $backend.modality | default "chat" }}
+    spec:
+      serviceAccountName: {{ include "directai.serviceAccountName" $ }}
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: inference
+          image: {{ $backend.image | quote }}
+          imagePullPolicy: {{ $backend.imagePullPolicy | default "IfNotPresent" }}
+          ports:
+            - name: http
+              containerPort: {{ $backend.port | default 8001 }}
+              protocol: TCP
+          {{- if $backend.env }}
+          env:
+            {{- range $key, $value := $backend.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          {{- end }}
+          resources:
+            {{- if $backend.resources }}
+            {{- toYaml $backend.resources | nindent 12 }}
+            {{- end }}
+            {{- if and $backend.gpu $backend.gpu.count }}
+            limits:
+              nvidia.com/gpu: {{ $backend.gpu.count | quote }}
+            {{- end }}
+          {{- if and $backend.nvmeCache $backend.nvmeCache.enabled }}
+          volumeMounts:
+            - name: nvme-cache
+              mountPath: /nvme-cache
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 5
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 3
+            timeoutSeconds: 5
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            # GPU models can take minutes to load. 60 * 10s = 10 min max.
+            failureThreshold: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+      {{- if and $backend.nvmeCache $backend.nvmeCache.enabled }}
+      volumes:
+        - name: nvme-cache
+          emptyDir:
+            medium: ""
+            sizeLimit: {{ $backend.nvmeCache.sizeMi | default 100000 }}Mi
+      {{- end }}
+      {{- if and $backend.gpu $backend.gpu.nodePoolLabel }}
+      nodeSelector:
+        directai.io/gpu-pool: {{ $backend.gpu.nodePoolLabel }}
+      {{- end }}
+      {{- if $backend.tolerations }}
+      tolerations:
+        {{- toYaml $backend.tolerations | nindent 8 }}
+      {{- end }}
+      # Ensure all GPUs for a replica land on the same node (multi-GPU TP)
+      {{- if and $backend.gpu (gt (int ($backend.gpu.count | default 1)) 1) }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    directai.io/model: {{ $name }}
+                topologyKey: kubernetes.io/hostname
+      {{- end }}
+{{- end }}

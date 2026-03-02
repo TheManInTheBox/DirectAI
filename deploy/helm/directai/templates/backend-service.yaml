@@ -1,0 +1,25 @@
+{{/*
+Creates a ClusterIP Service for each backend.
+The API server proxies to: http://{name}.{namespace}.svc.cluster.local:{port}
+*/}}
+{{- range $name, $backend := .Values.backends }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    {{- include "directai.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: backend
+    directai.io/model: {{ $name }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ $backend.port | default 8001 }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "directai.backendSelectorLabels" (dict "name" $name "root" $) | nindent 4 }}
+{{- end }}

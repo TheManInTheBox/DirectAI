@@ -1,9 +1,10 @@
 {
   "$schema": "Customer manifest — defines subscription, deployment config, and contact info for a DirectAI customer.",
-  "customerId": "acme",
+  "customerId": "550e8400-e29b-41d4-a716-446655440000",
   "displayName": "Acme Corp",
   "subscriptionId": "00000000-0000-0000-0000-000000000000",
   "tenantId": "00000000-0000-0000-0000-000000000000",
+  "appRegistrationId": "00000000-0000-0000-0000-000000000000",
   "allowedRegions": {
     "eastus2": "eus2",
     "westus3": "wus3"
@@ -14,5 +15,6 @@
     "technical": "ops@acme.example.com",
     "billing": "finance@acme.example.com"
   },
-  "notes": "Commercial customer. Uses shared platform ACR."
+  "notes": "Commercial customer. Uses shared platform ACR.",
+  "onboardedAt": "2026-01-15T12:00:00Z"
 }

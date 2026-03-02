@@ -150,16 +150,228 @@ Pre-warmed replicas and true zero-cost idle are **mutually exclusive per model.*
 ```
 DirectAI/
 ├── .github/
-│   ├── copilot-instructions.md   # This file
+│   ├── copilot-instructions.md       # This file
 │   └── workflows/
-│       └── deploy-stamp.yml      # Regional stamp deployment pipeline
-├── infra/                        # All Bicep IaC lives here
-│   ├── main.bicep                # Stamp orchestrator — single entry point
-│   ├── customers/                # Customer manifests (one JSON per customer)
+│       ├── onboard-customer.yml      # Automated customer onboarding pipeline
+│       ├── deploy-stamp.yml          # Regional stamp deployment pipeline
+│       ├── build-api-server.yml      # CI: lint, test, build API server image
+│       └── build-engines.yml         # CI: build embeddings + TRT-LLM engine images
+├── infra/                            # All Bicep IaC lives here
+│   ├── main.bicep                    # Stamp orchestrator — single entry point
+│   ├── customers/                    # Customer manifests (one JSON per customer)
 │   │   └── _example.commercial.json
-│   └── environments/             # Per-environment, per-region parameter files
-│       ├── dev.eus2.bicepparam   # Dev stamp in East US 2
-│       └── prod.eus2.bicepparam  # Prod stamp in East US 2
+│   └── environments/                 # Per-environment, per-region parameter files
+│       ├── internal.dev.eus2.bicepparam
+│       ├── internal.prod.eus2.bicepparam
+│       └── {customerId}.{env}.{region}.bicepparam
+├── src/
+│   ├── api-server/                   # OpenAI-compatible API gateway (routing proxy)
+│   ├── embeddings-engine/            # ONNX Runtime GPU embedding inference server
+│   │   ├── engine/
+│   │   │   ├── config.py             # EMBED_ env prefix, model/batch config
+│   │   │   ├── model.py             # ONNX session, tokenize, mean pool, L2 norm
+│   │   │   ├── batcher.py           # Async dynamic batcher (queue → GPU batch)
+│   │   │   ├── metrics.py           # Prometheus: inflight, latency, batch size
+│   │   │   ├── main.py              # FastAPI: /v1/embeddings, health, metrics
+│   │   │   └── export.py            # HuggingFace → ONNX export utility
+│   │   ├── Dockerfile               # Multi-stage: optional model bake + runtime
+│   │   └── pyproject.toml
+│   └── trtllm-engine/                # TensorRT-LLM chat/completion inference server
+│       ├── engine/
+│       │   ├── config.py             # TRTLLM_ env prefix, TP/PP, KV cache config
+│       │   ├── runner.py             # TRT-LLM HLAPI wrapper, stub mode for dev
+│       │   ├── chat_format.py        # Chat template + OpenAI response formatting
+│       │   ├── metrics.py            # Prometheus: TTFT, latency, token counts
+│       │   └── main.py              # FastAPI: /v1/chat/completions (SSE + sync)
+│       ├── Dockerfile               # NVIDIA TRT-LLM base + MPI entrypoint
+│       └── pyproject.toml
+│       ├── app/
+│       │   ├── main.py               # FastAPI app, lifespan, health probes
+│       │   ├── config.py             # pydantic-settings, DIRECTAI_ env prefix
+│       │   ├── auth/
+│       │   │   └── api_key.py        # Bearer token auth dependency
+│       │   ├── middleware/
+│       │   │   ├── correlation_id.py # X-Request-ID propagation
+│       │   │   └── request_logging.py# Structured JSON request logging
+│       │   ├── routes/
+│       │   │   ├── chat_completions.py   # POST /v1/chat/completions
+│       │   │   ├── embeddings.py         # POST /v1/embeddings
+│       │   │   ├── audio_transcriptions.py # POST /v1/audio/transcriptions
+│       │   │   └── models.py            # GET /v1/models
+│       │   ├── routing/
+│       │   │   ├── model_registry.py # YAML → ModelSpec, alias resolution
+│       │   │   └── backend_client.py # httpx async HTTP/2 proxy client
+│       │   └── schemas/
+│       │       ├── chat.py           # ChatCompletion request/response/chunk
+│       │       ├── embeddings.py     # Embedding request/response
+│       │       ├── audio.py          # Transcription request/response
+│       │       └── models.py         # Model list response
+│       ├── tests/
+│       │   ├── conftest.py           # Fixtures: test model YAMLs, TestClient
+│       │   ├── test_chat.py
+│       │   ├── test_embeddings.py
+│       │   ├── test_health.py
+│       │   └── test_models.py
+│       ├── Dockerfile
+│       └── pyproject.toml
+└── deploy/
+    ├── models/                       # ModelDeployment YAML configs (one per model)
+    │   ├── llama-3.1-70b-instruct.yaml
+    │   ├── bge-large-en-v1.5.yaml
+    │   ├── whisper-large-v3.yaml
+    │   └── README.md
+    └── helm/                         # Helm chart for K8s deployment
+        └── directai/
+```
+
+### Application Layer — API Server
+
+The API server is a **stateless routing proxy** that sits between clients and inference backend pods. It does NOT run inference — it resolves model names, validates requests, and proxies traffic to the correct backend service.
+
+**Stack:** Python 3.11, FastAPI, httpx (HTTP/2), Pydantic v2, pydantic-settings, PyYAML, uvicorn.
+
+#### OpenAI-Compatible Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/v1/chat/completions` | Chat completions — streaming (SSE) + non-streaming. Proxied to TRT-LLM backend. |
+| `POST` | `/v1/embeddings` | Text embeddings. Proxied to ONNX Runtime backend. |
+| `POST` | `/v1/audio/transcriptions` | Audio transcription (multipart). Proxied to TRT-LLM Whisper backend. |
+| `GET`  | `/v1/models` | Lists all registered models (every alias is a separate entry). |
+| `GET`  | `/healthz` | Liveness probe — always 200. |
+| `GET`  | `/readyz` | Readiness probe — 200 if models loaded, 503 otherwise. |
+
+#### Request Flow
+
+```
+Client → API Server (auth → correlation ID → logging → route handler)
+  → ModelRegistry.resolve(model_name)     # alias lookup → ModelSpec
+  → BackendClient.post_json/post_stream   # proxy to http://{svc}.directai.svc.cluster.local:8001
+  → Inference backend (TRT-LLM / ONNX Runtime)
+  → Response streamed back to client
+```
+
+#### Model Registry
+
+The `ModelRegistry` loads `ModelDeployment` YAML files from a directory at startup and builds an in-memory alias index.
+
+- Each YAML defines: metadata name, display name, owned_by, modality (`chat`/`embedding`/`transcription`), engine config, hardware requirements, scaling policy, and API aliases.
+- `resolve(model_name)` does **case-insensitive** alias lookup → returns `ModelSpec` or `None`.
+- Backend URL pattern: `http://{service-name}.{namespace}.svc.cluster.local:{port}` (defaults: namespace=`directai`, port=`8001`).
+- Config directory is set via `DIRECTAI_MODEL_CONFIG_DIR` env var (default: `/app/models`).
+
+#### Configuration (Environment Variables)
+
+All settings use the `DIRECTAI_` prefix.
+
+| Variable | Default | Description |
+|---|---|---|
+| `DIRECTAI_HOST` | `0.0.0.0` | Bind address |
+| `DIRECTAI_PORT` | `8000` | Bind port |
+| `DIRECTAI_LOG_LEVEL` | `info` | Log level (debug/info/warning/error) |
+| `DIRECTAI_MODEL_CONFIG_DIR` | `/app/models` | Path to ModelDeployment YAML directory |
+| `DIRECTAI_API_KEYS` | *(empty)* | Comma-separated API keys. Empty = auth disabled (dev only) |
+| `DIRECTAI_BACKEND_TIMEOUT` | `300` | Backend request timeout (seconds) |
+| `DIRECTAI_BACKEND_CONNECT_TIMEOUT` | `5` | Backend connect-phase timeout (seconds) |
+
+#### Auth
+
+- Bearer token via `Authorization: Bearer <key>` header.
+- **Auth is disabled when `DIRECTAI_API_KEYS` is empty** — dev mode only, never in production.
+- Returns 401 with `WWW-Authenticate: Bearer` on failure.
+
+#### Observability
+
+- **Correlation IDs:** Every request gets an `X-Request-ID` (from client header or auto-generated UUID). Propagated through logs and response headers.
+- **Structured logging:** JSON format — `ts`, `level`, `logger`, `msg`, `method`, `path`, `status_code`, `duration_ms`, `request_id`.
+- **Error responses:** OpenAI-compatible error JSON with `X-Request-ID` header.
+
+#### Running Locally
+
+```bash
+cd src/api-server
+pip install -e ".[dev]"
+DIRECTAI_MODEL_CONFIG_DIR=../../deploy/models python -m uvicorn app.main:app --reload
+```
+
+#### Running Tests
+
+```bash
+cd src/api-server
+python -m pytest tests/ -v
+```
+
+### Inference Engines
+
+The API server is a routing proxy — it does NOT run inference. Actual inference runs in dedicated engine containers on GPU pods.
+
+#### Embeddings Engine (`src/embeddings-engine/`)
+
+ONNX Runtime GPU server for embedding/reranking models. Optimized for high-throughput batch parallelism.
+
+**Stack:** Python 3.11, FastAPI, ONNX Runtime GPU, HuggingFace tokenizers (Rust), prometheus-client.
+
+| Component | Purpose |
+|---|---|
+| `engine/model.py` | ONNX session, tokenization, mean pooling, L2 normalization |
+| `engine/batcher.py` | Async dynamic batcher — collects requests into GPU-efficient batches |
+| `engine/export.py` | HuggingFace → ONNX export with optional FP16 conversion |
+| `engine/main.py` | FastAPI: `POST /v1/embeddings`, health probes, metrics |
+
+**Key design:** Dynamic batching via asyncio queue. Requests accumulate up to `max_batch_size` (256) or `batch_timeout_ms` (5ms), then fire as a single GPU batch. Individual futures scatter results back.
+
+**Config prefix:** `EMBED_` — model_path, tokenizer_path, max_seq_length (512), max_batch_size (256), execution_provider (CUDAExecutionProvider).
+
+#### TRT-LLM Engine (`src/trtllm-engine/`)
+
+TensorRT-LLM inference server for LLMs and STT. Wraps TRT-LLM's High-Level API behind an OpenAI-compatible HTTP interface.
+
+**Stack:** Python 3.11, FastAPI, TensorRT-LLM (HLAPI), HuggingFace transformers (tokenizer), prometheus-client.
+
+| Component | Purpose |
+|---|---|
+| `engine/runner.py` | TRT-LLM HLAPI wrapper — deferred import, stub mode when not installed |
+| `engine/chat_format.py` | Chat template application + OpenAI ChatCompletion format conversion |
+| `engine/main.py` | FastAPI: `POST /v1/chat/completions` (SSE + non-streaming), health, metrics |
+| `engine/metrics.py` | Prometheus: TTFT, latency, inflight, prompt/completion token counts |
+
+**Key design:** TRT-LLM import is deferred — the engine runs in stub mode when `tensorrt_llm` isn't installed, so the codebase can be developed and tested without GPU hardware. Production runs inside NVIDIA TRT-LLM containers with pre-compiled engines mounted at `/models`.
+
+**Config prefix:** `TRTLLM_` — engine_dir, tokenizer_dir, tp_size, pp_size, kv_cache_free_gpu_mem_fraction (0.85), max_batch_size (64).
+
+**Metrics:** `directai_llm_time_to_first_token_seconds`, `directai_llm_request_duration_seconds`, `directai_llm_tokens_generated_total`, `directai_llm_prompt_tokens_total`, `directai_llm_inflight_requests`.
+
+### Model Deployment Config Schema
+
+Models are declared as YAML files using the `directai/v1 ModelDeployment` kind. See `deploy/models/README.md` for the full field reference.
+
+```yaml
+apiVersion: directai/v1
+kind: ModelDeployment
+metadata:
+  name: <k8s-service-name>     # Becomes the K8s Service name
+spec:
+  displayName: "<human-readable>"
+  ownedBy: <org>
+  modality: chat | embedding | transcription
+  engine:
+    type: tensorrt-llm | onnxruntime
+    image: "<registry>/<image>:<tag>"
+    weightsUri: "az://<container>/<path>"
+    maxBatchSize: <int>         # Embeddings only
+  hardware:
+    gpuSku: <azure-vm-sku>
+    gpuCount: <int>
+    nvmeCacheEnabled: true|false
+  scaling:
+    tier: always-warm | scale-to-zero
+    minReplicas: <int>
+    maxReplicas: <int>
+    targetConcurrency: <int>
+  api:
+    aliases:                    # All names this model responds to
+      - <alias-1>
+      - <org>/<alias-2>
 ```
 
 ### Multi-Subscription Customer Isolation
@@ -191,7 +403,7 @@ Kubelet identity gets **read-only** Key Vault access (Secrets User, not Secrets 
 
 - **Azure Verified Modules (AVM)** from the Bicep public registry are the building blocks. Never write raw resource definitions when an AVM module exists.
 - **One stamp = one `main.bicep`** deployment. A stamp is the complete set of Azure resources for one customer region: VNet, AKS, Storage, (optional) ACR, Key Vault, Log Analytics, 2 Managed Identities.
-- **Naming convention:** `dai-{customer}-{resource}-{env}-{regionShort}` (e.g., `aks-dai-acme-prod-eus2`). Globally unique names use `uniqueString()` suffix.
+- **Naming convention:** `dai-{customerId}-{env}-{regionShort}` pattern (customer ID is a GUID). Length-constrained names (Key Vault, Storage, ACR) use a deterministic 8-char hash via `uniqueString()`.
 - **Parameter files:** `.bicepparam` format (not JSON). One file per environment × region: `{env}.{regionShort}.bicepparam`.
 - **GPU pools are conditional:** `enableGpuPools = false` for dev (avoids GPU quota issues), `true` for prod.
 - **ACR is conditional:** `platformAcrLoginServer` parameter controls whether the stamp deploys its own ACR or uses the shared platform ACR.
@@ -211,11 +423,36 @@ Kubelet identity gets **read-only** Key Vault access (Secrets User, not Secrets 
 
 ### Adding a New Customer
 
-1. Create `infra/customers/{customerId}.json` from the example manifest.
-2. Create a GitHub environment `{customerId}-{env}` with secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` (the customer's subscription).
-3. Ensure OIDC App Registration has `Contributor` + `User Access Administrator` on the customer's subscription.
-4. If using platform ACR: assign `AcrPull` to the customer's kubelet identity on the platform ACR after first deploy.
-5. Run the `Deploy Stamp` workflow with the customer ID and target region.
+Customer onboarding is **fully automated** via the `Onboard Customer` workflow (`onboard-customer.yml`). Run it from GitHub Actions → workflow_dispatch with these inputs:
+
+| Input | Description |
+|---|---|
+| `display_name` | Human-readable company name |
+| `billing_scope` | EA enrollment account resource ID (for subscription creation) |
+| `regions` | Comma-separated Azure regions (e.g., `eastus2,westus3`) |
+| `gpu_tier` | `starter`, `enterprise`, or `dedicated` |
+| `use_platform_acr` | `true` for shared ACR, `false` for air-gapped/sovereign |
+| `contact_technical` | Technical contact email |
+| `contact_billing` | Billing contact email |
+| `existing_subscription_id` | Optional — skip subscription creation if already provisioned |
+
+**What the workflow does (zero manual steps):**
+
+1. **Generates customer ID** — new GUID.
+2. **Validates** — region names.
+3. **Creates Azure Subscription** — under the billing enrollment account (or uses existing).
+4. **Creates App Registration** — `sp-dai-{customerId}` with Service Principal in Entra ID.
+5. **Creates OIDC Federated Credentials** — one per GitHub environment (`{customerId}-dev`, `{customerId}-prod`).
+6. **Assigns RBAC** — `Contributor` + `User Access Administrator` on the new subscription.
+7. **Creates GitHub Environments** — with `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` secrets.
+8. **Commits files** — customer manifest (`infra/customers/{customerId}.json`) and Bicep parameter files (`infra/environments/{customerId}.{env}.{region}.bicepparam`).
+
+**After the workflow completes:**
+
+1. Configure **required reviewers** on `{customerId}-prod` in GitHub repo → Settings → Environments.
+2. Run the **Deploy Stamp** workflow for the first region.
+3. If using platform ACR: assign `AcrPull` to the customer's kubelet identity on the platform ACR after first deploy.
+4. Submit GPU quota requests on the customer subscription if `enableGpuPools = true` is needed.
 
 ### Adding a New Region
 
@@ -226,16 +463,34 @@ Kubelet identity gets **read-only** Key Vault access (Secrets User, not Secrets 
 ### CI/CD
 
 - **GitHub Actions** with **OIDC federated credentials** (no stored secrets — uses `azure/login@v2` with `id-token: write`).
-- **Stamp deployment flow:** Validate → What-If → Approval Gate → Deploy.
+- **Four workflows:**
+  - **`onboard-customer.yml`** — Creates subscription, identity, RBAC, GitHub environments, manifest, and param files. Run once per customer.
+  - **`deploy-stamp.yml`** — Deploys a regional stamp (Validate → What-If → Approval Gate → Deploy). Run per region.
+  - **`build-api-server.yml`** — Lint, test, build API server Docker image, push to ACR, optional Helm deploy.
+  - **`build-engines.yml`** — Build and push inference engine images (embeddings + TRT-LLM) to ACR. Supports stub mode for CI.
 - **GitHub environments** are named `{customerId}-{env}` (e.g., `acme-prod`, `internal-dev`). Each environment has its own `AZURE_SUBSCRIPTION_ID` pointing to the customer's subscription.
 - **Prod requires environment protection rules** — configure required reviewers in GitHub repo settings under Environments → `{customerId}-prod`.
-- **Required GitHub secrets per environment:** `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`.
+- **Required GitHub secrets per customer environment:** `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` — all set automatically by the onboarding workflow.
+
+### Platform Environment
+
+The `Onboard Customer` workflow runs under a `platform` GitHub environment with elevated permissions:
+
+| Secret | Description |
+|---|---|
+| `ONBOARDING_AZURE_CLIENT_ID` | App Registration with EA enrollment access + Entra ID Application Administrator |
+| `ONBOARDING_AZURE_TENANT_ID` | DirectAI tenant ID |
+| `ONBOARDING_AZURE_SUBSCRIPTION_ID` | Platform/management subscription ID |
+| `ONBOARDING_PAT` | GitHub PAT with `repo`, `admin:org` scopes (to create environments + set secrets) |
 
 ### OIDC Setup (Azure ↔ GitHub)
 
-Before the workflow can run, create a federated credential in Azure:
+OIDC federated credentials are **created automatically** by the onboarding workflow. For each customer, the workflow:
 
-1. Create an App Registration in Entra ID (one per customer, or one shared with multi-sub RBAC for MVP).
-2. Add a Federated Credential for the GitHub repo (`repo:TheManInTheBox/DirectAI:environment:{customerId}-{env}`).
-3. Grant the App Registration `Contributor` + `User Access Administrator` on the customer's subscription.
-4. Store the App Registration's client ID, tenant ID, and subscription ID as GitHub environment secrets.
+1. Creates an App Registration in Entra ID (`sp-dai-{customerId}`).
+2. Creates a Service Principal for the app.
+3. Adds Federated Credentials for each GitHub environment (`repo:TheManInTheBox/DirectAI:environment:{customerId}-dev`, `...prod`).
+4. Assigns `Contributor` + `User Access Administrator` on the customer's subscription.
+5. Sets `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` as GitHub environment secrets.
+
+**No manual OIDC setup is needed unless you are bootstrapping the platform environment itself.**

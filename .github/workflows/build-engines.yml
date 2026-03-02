@@ -1,0 +1,215 @@
+# ============================================================================
+# DirectAI — Build & Push Inference Engine Images
+# Builds the embeddings-engine and trtllm-engine Docker images, pushes to ACR.
+#
+# Triggers:
+#   - Push to main that changes src/embeddings-engine/** or src/trtllm-engine/**
+#   - Manual dispatch with engine selection
+#
+# Auth: OIDC federated credentials targeting the platform subscription.
+#
+# Notes:
+#   - The TRT-LLM image is large (~15GB+). Build runners need adequate disk.
+#   - For CI testing, TRT-LLM builds use INSTALL_TRTLLM=false (stub mode).
+#   - Production TRT-LLM images are built with INSTALL_TRTLLM=true.
+# ============================================================================
+
+name: Build Inference Engines
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/embeddings-engine/**'
+      - 'src/trtllm-engine/**'
+  workflow_dispatch:
+    inputs:
+      engines:
+        description: 'Which engines to build'
+        required: true
+        type: choice
+        options:
+          - all
+          - embeddings
+          - trtllm
+        default: all
+      trtllm_mode:
+        description: 'TRT-LLM build mode'
+        required: false
+        type: choice
+        options:
+          - production
+          - stub
+        default: production
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  # ── Determine which engines changed ──────────────────────────────
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      embeddings: ${{ steps.filter.outputs.embeddings }}
+      trtllm: ${{ steps.filter.outputs.trtllm }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            embeddings:
+              - 'src/embeddings-engine/**'
+            trtllm:
+              - 'src/trtllm-engine/**'
+
+  # ── Embeddings Engine ────────────────────────────────────────────
+  build-embeddings:
+    name: Build Embeddings Engine
+    needs: changes
+    if: |
+      needs.changes.outputs.embeddings == 'true' ||
+      github.event.inputs.engines == 'all' ||
+      github.event.inputs.engines == 'embeddings'
+    runs-on: ubuntu-latest
+    environment: platform
+    outputs:
+      image_tag: ${{ steps.meta.outputs.version }}
+      image_digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: src/embeddings-engine/pyproject.toml
+
+      - name: Install deps & lint
+        working-directory: src/embeddings-engine
+        run: |
+          pip install -e ".[dev]"
+          ruff check engine/
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.PLATFORM_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.PLATFORM_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.PLATFORM_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Login to ACR
+        run: az acr login --name ${{ vars.ACR_NAME }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ vars.ACR_LOGIN_SERVER }}/embeddings-engine
+          tags: |
+            type=sha,prefix=
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: src/embeddings-engine
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            BAKE_MODEL=0
+
+      - name: Image summary
+        run: |
+          echo "### 🧮 Embeddings Engine pushed" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags:** ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Digest:** ${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
+
+  # ── TRT-LLM Engine ──────────────────────────────────────────────
+  build-trtllm:
+    name: Build TRT-LLM Engine
+    needs: changes
+    if: |
+      needs.changes.outputs.trtllm == 'true' ||
+      github.event.inputs.engines == 'all' ||
+      github.event.inputs.engines == 'trtllm'
+    runs-on: ubuntu-latest
+    environment: platform
+    outputs:
+      image_tag: ${{ steps.meta.outputs.version }}
+      image_digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: src/trtllm-engine/pyproject.toml
+
+      - name: Install deps & lint
+        working-directory: src/trtllm-engine
+        run: |
+          pip install -e "."
+          ruff check engine/ || true  # TRT-LLM imports may not resolve in CI
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.PLATFORM_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.PLATFORM_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.PLATFORM_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Login to ACR
+        run: az acr login --name ${{ vars.ACR_NAME }}
+
+      - name: Set TRT-LLM build arg
+        id: trtllm-mode
+        run: |
+          MODE="${{ github.event.inputs.trtllm_mode }}"
+          if [ "$MODE" = "stub" ]; then
+            echo "install=false" >> $GITHUB_OUTPUT
+          else
+            echo "install=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ vars.ACR_LOGIN_SERVER }}/trtllm-engine
+          tags: |
+            type=sha,prefix=
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Free disk space
+        # TRT-LLM base images are large — free runner disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo docker image prune --all --force
+          df -h
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: src/trtllm-engine
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            INSTALL_TRTLLM=${{ steps.trtllm-mode.outputs.install }}
+
+      - name: Image summary
+        run: |
+          echo "### 🚀 TRT-LLM Engine pushed" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags:** ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Digest:** ${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
+          echo "**TRT-LLM installed:** ${{ steps.trtllm-mode.outputs.install }}" >> $GITHUB_STEP_SUMMARY

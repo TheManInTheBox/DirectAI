@@ -1,0 +1,159 @@
+# ============================================================================
+# DirectAI — Build & Push API Server
+# Builds the API server Docker image, pushes to ACR, and optionally deploys
+# to the target AKS cluster via Helm.
+#
+# Triggers:
+#   - Push to main that changes src/api-server/** or deploy/models/**
+#   - Manual dispatch with optional deploy toggle
+#
+# Auth: OIDC federated credentials targeting the platform subscription.
+# ============================================================================
+
+name: Build API Server
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/api-server/**'
+      - 'deploy/models/**'
+      - 'deploy/helm/directai/**'
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: 'Deploy to AKS after build?'
+        required: false
+        type: boolean
+        default: false
+      customer_id:
+        description: 'Customer ID for deploy target (e.g., "internal")'
+        required: false
+        type: string
+        default: 'internal'
+      environment:
+        description: 'Target environment for deploy'
+        required: false
+        type: choice
+        options:
+          - dev
+          - prod
+        default: dev
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  IMAGE_NAME: api-server
+  DOCKER_CONTEXT: src/api-server
+
+jobs:
+  # ── Lint & Test ──────────────────────────────────────────────────
+  test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: src/api-server/pyproject.toml
+
+      - name: Install dependencies
+        working-directory: src/api-server
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        working-directory: src/api-server
+        run: ruff check app/ tests/
+
+      - name: Test
+        working-directory: src/api-server
+        run: python -m pytest tests/ -v
+
+  # ── Build & Push ─────────────────────────────────────────────────
+  build:
+    name: Build & Push Image
+    needs: test
+    runs-on: ubuntu-latest
+    environment: platform
+    outputs:
+      image_tag: ${{ steps.meta.outputs.version }}
+      image_digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.PLATFORM_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.PLATFORM_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.PLATFORM_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Login to ACR
+        run: az acr login --name ${{ vars.ACR_NAME }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ vars.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.DOCKER_CONTEXT }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Image summary
+        run: |
+          echo "### 🐳 Image pushed" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags:** ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Digest:** ${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
+
+  # ── Deploy (optional) ────────────────────────────────────────────
+  deploy:
+    name: Deploy to AKS
+    needs: build
+    if: inputs.deploy == true
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.customer_id }}-${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group rg-dai-${{ inputs.customer_id }}-${{ inputs.environment }}-eus2 \
+            --name aks-dai-${{ inputs.customer_id }}-${{ inputs.environment }}-eus2
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Helm upgrade
+        run: |
+          helm upgrade --install directai deploy/helm/directai \
+            --namespace directai --create-namespace \
+            --set apiServer.image.repository=${{ vars.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }} \
+            --set apiServer.image.tag=${{ needs.build.outputs.image_tag }} \
+            --set-file "modelConfigs.llama-3\.1-70b-instruct\.yaml=deploy/models/llama-3.1-70b-instruct.yaml" \
+            --set-file "modelConfigs.bge-large-en-v1\.5\.yaml=deploy/models/bge-large-en-v1.5.yaml" \
+            --set-file "modelConfigs.whisper-large-v3\.yaml=deploy/models/whisper-large-v3.yaml" \
+            --wait --timeout 5m

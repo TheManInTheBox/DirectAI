@@ -1,0 +1,26 @@
+apiVersion: directai/v1
+kind: ModelDeployment
+metadata:
+  name: whisper-large-v3
+spec:
+  displayName: "OpenAI Whisper Large v3"
+  ownedBy: openai
+  modality: transcription
+  engine:
+    type: tensorrt-llm
+    image: "${ACR_LOGIN_SERVER}/directai/trtllm-whisper:0.1.0"
+    weightsUri: "az://models/whisper-large-v3/weights/"
+    engineUri: "az://models/whisper-large-v3/engine/"
+  hardware:
+    gpuSku: Standard_ND96asr_v4     # A100 80GB node pool
+    gpuCount: 1
+    nvmeCacheEnabled: true
+  scaling:
+    tier: scale-to-zero
+    minReplicas: 0
+    maxReplicas: 4
+    targetConcurrency: 4
+  api:
+    aliases:
+      - whisper-large-v3
+      - whisper-1
