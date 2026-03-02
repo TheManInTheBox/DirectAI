@@ -214,8 +214,14 @@ def _parse_version(version_str: str) -> tuple[int, int]:
     try:
         major = int(parts[0]) if parts else 0
         minor_raw = parts[1] if len(parts) > 1 else "0"
-        # Strip non-digit suffixes (e.g. "12dev0" → 12, "14rc1" → 14)
-        minor = int("".join(c for c in minor_raw if c.isdigit()) or "0")
+        # Take leading digits only (e.g. "12rc1" → 12, "14dev0" → 14)
+        digits = ""
+        for c in minor_raw:
+            if c.isdigit():
+                digits += c
+            else:
+                break
+        minor = int(digits) if digits else 0
         return major, minor
     except (ValueError, IndexError):
         return 0, 0
