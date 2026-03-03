@@ -99,6 +99,8 @@ spec:
               readOnly: true
             - name: tmp
               mountPath: /tmp
+            - name: data
+              mountPath: /app/data
       volumes:
         - name: model-config
           configMap:
@@ -107,6 +109,9 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 64Mi
+        - name: data
+          emptyDir:
+            sizeLimit: 128Mi
       {{- with .Values.apiServer.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

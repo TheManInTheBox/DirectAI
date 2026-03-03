@@ -31,6 +31,7 @@ apiServer:
     DIRECTAI_LOG_LEVEL: "debug"
     DIRECTAI_BACKEND_TIMEOUT: "300"
     DIRECTAI_BACKEND_CONNECT_TIMEOUT: "10"
+    DIRECTAI_OTEL_ENABLED: "false"
 
   modelConfigDir: /app/models
 
