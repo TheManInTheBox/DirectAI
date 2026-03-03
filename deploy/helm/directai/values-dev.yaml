@@ -59,8 +59,36 @@ workloadIdentity:
   enabled: true
   clientId: "0d60bdcc-b4e9-4cee-b1a5-53995135fa45"
 
-# ── No backends in initial deploy — API server only ────────────────────────
-backends: {}
+# ── Inference Backends ──────────────────────────────────────────────────────
+# Model baked into image via BAKE_MODEL=1 — no weightsUri / init container.
+backends:
+  bge-large-en-v1-5:
+    image: "acrplatformdaiv7fgid.azurecr.io/embeddings-engine:bge-baked"
+    imagePullPolicy: Always
+    modality: embedding
+    replicas: 1
+    port: 8001
+    gpu:
+      count: 1
+      nodePoolLabel: "t4"           # matches directai.io/gpu-pool label
+    resources:
+      requests:
+        cpu: "2"
+        memory: 4Gi
+      limits:
+        cpu: "4"
+        memory: 8Gi
+    env:
+      EMBED_LOG_LEVEL: "debug"
+      EMBED_MAX_BATCH_SIZE: "256"
+      EMBED_EXECUTION_PROVIDER: "CUDAExecutionProvider"
+    scaling:
+      enabled: false                # single replica for dev
+    tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Equal"
+        value: "t4"
+        effect: "NoSchedule"
 
 # ── Network Policy ─────────────────────────────────────────────────────────
 networkPolicy:

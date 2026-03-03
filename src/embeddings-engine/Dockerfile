@@ -17,26 +17,24 @@
 # ============================================================================
 
 # ── Stage 1: Export (optional — only when BAKE_MODEL=1) ─────────────────
+# Uses engine/export.py for the HuggingFace → ONNX conversion.
+# Torch CPU-only keeps the exporter stage small.
 
 FROM python:3.11-slim AS exporter
 
 ARG BAKE_MODEL=0
 ARG MODEL_ID=BAAI/bge-large-en-v1.5
 
+COPY engine/export.py /tmp/export_model.py
+
 RUN if [ "$BAKE_MODEL" = "1" ]; then \
-        pip install --no-cache-dir \
-            optimum[onnxruntime] \
-            transformers \
-            torch --index-url https://download.pytorch.org/whl/cpu \
-        && python -c " \
-from optimum.onnxruntime import ORTModelForFeatureExtraction; \
-from transformers import AutoTokenizer; \
-m = ORTModelForFeatureExtraction.from_pretrained('${MODEL_ID}', export=True); \
-m.save_pretrained('/export'); \
-t = AutoTokenizer.from_pretrained('${MODEL_ID}'); \
-t.save_pretrained('/export'); \
-print('Export complete') \
-        "; \
+        pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+        && pip install --no-cache-dir "optimum[onnxruntime]" transformers \
+        && python /tmp/export_model.py \
+             --model-id "$MODEL_ID" \
+             --output-dir /export \
+             --no-fp16 \
+        && echo "Export complete"; \
     else \
         mkdir -p /export && echo 'Skipping model export — mount weights at /models'; \
     fi
