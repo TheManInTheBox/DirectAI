@@ -2,12 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-from unittest.mock import AsyncMock, patch
-
-import pytest
-from fastapi.testclient import TestClient
-
 
 def test_backpressure_429(client):
     """

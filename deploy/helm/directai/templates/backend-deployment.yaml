@@ -43,6 +43,9 @@ spec:
     spec:
       serviceAccountName: {{ include "directai.serviceAccountName" $ }}
       terminationGracePeriodSeconds: 310
+      {{- if $.Values.priorityClass.enabled }}
+      priorityClassName: {{ $.Values.priorityClass.name }}
+      {{- end }}
       securityContext:
         seccompProfile:
           type: RuntimeDefault

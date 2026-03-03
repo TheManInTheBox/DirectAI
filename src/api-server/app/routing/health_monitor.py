@@ -9,9 +9,10 @@ health and by route handlers to fast-fail requests to known-down backends.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import httpx
 
@@ -73,10 +74,8 @@ class BackendHealthMonitor:
     async def stop(self) -> None:
         if self._task:
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
         if self._client:
             await self._client.aclose()
         logger.info("Backend health monitor stopped.")

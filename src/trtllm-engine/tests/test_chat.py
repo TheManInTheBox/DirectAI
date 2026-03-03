@@ -74,7 +74,7 @@ def test_chat_streaming(client):
     assert "text/event-stream" in resp.headers["content-type"]
 
     lines = resp.text.strip().split("\n")
-    data_lines = [l for l in lines if l.startswith("data: ")]
+    data_lines = [dl for dl in lines if dl.startswith("data: ")]
 
     # Must end with [DONE]
     assert data_lines[-1] == "data: [DONE]"
@@ -111,7 +111,7 @@ def test_chat_streaming_include_usage(client):
     assert resp.status_code == 200
 
     lines = resp.text.strip().split("\n")
-    data_lines = [l for l in lines if l.startswith("data: ")]
+    data_lines = [dl for dl in lines if dl.startswith("data: ")]
 
     # The line before [DONE] should be the usage chunk
     assert data_lines[-1] == "data: [DONE]"
@@ -139,7 +139,7 @@ def test_chat_streaming_no_usage_by_default(client):
         },
     )
     lines = resp.text.strip().split("\n")
-    data_lines = [l for l in lines if l.startswith("data: ")]
+    data_lines = [dl for dl in lines if dl.startswith("data: ")]
 
     # No chunk should have a "usage" key
     for line in data_lines:

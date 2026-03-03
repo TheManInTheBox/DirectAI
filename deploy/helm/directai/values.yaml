@@ -74,11 +74,10 @@ ingress:
       paths:
         - path: /
           pathType: Prefix
-  tls: []
-  # Production TLS — uncomment and set your domain:
-  #  - secretName: directai-tls
-  #    hosts:
-  #      - api.directai.example.com
+  tls:
+    - secretName: directai-tls
+      hosts:
+        - api.directai.local
 
 # ── Inference Backends ─────────────────────────────────────────────────────
 # Each entry here creates a Deployment + Service + optional KEDA ScaledObject.
@@ -180,6 +179,16 @@ workloadIdentity:
 initContainer:
   image: "mcr.microsoft.com/azure-cli:2.67.0"
 
+# ── Priority Class ─────────────────────────────────────────────────────────
+# PriorityClass for GPU inference pods — prevents preemption by lower-priority
+# workloads. GPU cold starts are expensive; protect running inference.
+priorityClass:
+  enabled: true
+  name: directai-inference
+  value: 1000000
+  preemptionPolicy: PreemptLowerPriority
+  description: "High priority for DirectAI GPU inference pods"
+
 # ── NVMe Init DaemonSet ───────────────────────────────────────────────────
 # Formats and mounts node-local NVMe SSDs on GPU inference nodes.
 # Required when any backend uses nvmeCache.enabled = true.
@@ -191,10 +200,10 @@ nvmeInit:
 
 # ── TLS / cert-manager ────────────────────────────────────────────────────
 tls:
-  enabled: false
+  enabled: true
   secretName: directai-tls
   certManager:
-    enabled: false
+    enabled: true
     issuer: letsencrypt-prod  # example.yaml: |
   #   apiVersion: directai/v1
   #   kind: ModelDeployment

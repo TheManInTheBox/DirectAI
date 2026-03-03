@@ -16,6 +16,7 @@ This catches:
 
 from __future__ import annotations
 
+import io
 import json
 import socket
 import threading
@@ -28,7 +29,6 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.testclient import TestClient
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # Mock Backend — mimics the TRT-LLM / ONNX Runtime engine HTTP surface
@@ -508,8 +508,6 @@ spec:
 # ═══════════════════════════════════════════════════════════════════════
 # Audio transcription proxy tests
 # ═══════════════════════════════════════════════════════════════════════
-
-import io
 
 
 class TestAudioProxy:

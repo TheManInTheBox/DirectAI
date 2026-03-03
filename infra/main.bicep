@@ -40,6 +40,9 @@ param endpointsSubnetPrefix string = '10.0.4.0/24'
 @description('Enable GPU node pools. Disable in dev to avoid quota issues.')
 param enableGpuPools bool = false
 
+@description('Enable Private Endpoints for Storage, Key Vault, and ACR. Strongly recommended for all environments. Disable only if dev subscription lacks Private DNS Zone support.')
+param enablePrivateEndpoints bool = true
+
 @description('AKS system pool min node count.')
 param systemPoolMinCount int = 1
 
@@ -65,6 +68,7 @@ var deployPerCustomerAcr = empty(platformAcrLoginServer)
 var identityControlPlaneName = 'id-cp-${baseName}'
 var identityKubeletName = 'id-kubelet-${baseName}'
 var logAnalyticsName = 'log-${baseName}'
+var appInsightsName = 'appi-${baseName}'
 var vnetName = 'vnet-${baseName}'
 var keyVaultName = 'kv${prefix}${customerHash}${take(uniqueSuffix, 6)}' // 3-24 chars
 var storageAccountName = 'st${prefix}${customerHash}${take(uniqueSuffix, 6)}' // 3-24 chars
@@ -132,7 +136,69 @@ module logAnalytics 'br/public:avm/res/operational-insights/workspace:0.9.1' = {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Virtual Network — AKS nodes + private endpoints
+// 2b. Application Insights — centralized distributed tracing + live metrics
+//     Workspace-based (backed by Log Analytics above). Connection string is
+//     stored in Key Vault for pods to consume via CSI SecretProviderClass.
+// ---------------------------------------------------------------------------
+
+module appInsights 'br/public:avm/res/insights/component:0.4.2' = {
+  name: 'appInsights'
+  params: {
+    name: appInsightsName
+    workspaceResourceId: logAnalytics.outputs.resourceId
+    location: location
+    applicationType: 'web'
+    retentionInDays: environment == 'prod' ? 90 : 30
+    disableLocalAuth: true
+    tags: defaultTags
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 3a. Network Security Group — endpoints subnet
+//     Restricts inbound traffic to VNet-internal only. AKS subnet does NOT
+//     get a custom NSG — AKS manages its own and custom NSGs conflict.
+// ---------------------------------------------------------------------------
+
+module nsgEndpoints 'br/public:avm/res/network/network-security-group:0.5.0' = if (enablePrivateEndpoints) {
+  name: 'nsgEndpoints'
+  params: {
+    name: 'nsg-snet-endpoints-${baseName}'
+    location: location
+    securityRules: [
+      {
+        name: 'AllowVNetInbound'
+        properties: {
+          access: 'Allow'
+          direction: 'Inbound'
+          priority: 100
+          protocol: '*'
+          sourceAddressPrefix: 'VirtualNetwork'
+          sourcePortRange: '*'
+          destinationAddressPrefix: 'VirtualNetwork'
+          destinationPortRange: '*'
+        }
+      }
+      {
+        name: 'DenyAllInternetInbound'
+        properties: {
+          access: 'Deny'
+          direction: 'Inbound'
+          priority: 4096
+          protocol: '*'
+          sourceAddressPrefix: 'Internet'
+          sourcePortRange: '*'
+          destinationAddressPrefix: '*'
+          destinationPortRange: '*'
+        }
+      }
+    ]
+    tags: defaultTags
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 3b. Virtual Network — AKS nodes + private endpoints
 // ---------------------------------------------------------------------------
 
 module vnet 'br/public:avm/res/network/virtual-network:0.5.2' = {
@@ -145,17 +211,69 @@ module vnet 'br/public:avm/res/network/virtual-network:0.5.2' = {
       {
         name: 'snet-aks'
         addressPrefix: aksSubnetPrefix
+        // No NSG — AKS manages its own NSG on the node subnet.
       }
       {
         name: 'snet-endpoints'
         addressPrefix: endpointsSubnetPrefix
         privateEndpointNetworkPolicies: 'Disabled'
+        networkSecurityGroupResourceId: enablePrivateEndpoints ? nsgEndpoints!.outputs.resourceId : null
       }
     ]
     diagnosticSettings: [
       {
         workspaceResourceId: logAnalytics.outputs.resourceId
         metricCategories: [{ category: 'AllMetrics' }]
+      }
+    ]
+    tags: defaultTags
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 3c. Private DNS Zones — required for Private Endpoints to resolve
+//     Zone names are Azure-mandated for each PaaS service.
+// ---------------------------------------------------------------------------
+
+module dnsZoneBlob 'br/public:avm/res/network/private-dns-zone:0.7.0' = if (enablePrivateEndpoints) {
+  name: 'dnsZoneBlob'
+  params: {
+    name: 'privatelink.blob.${az.environment().suffixes.storage}'
+    location: 'global'
+    virtualNetworkLinks: [
+      {
+        virtualNetworkResourceId: vnet.outputs.resourceId
+        registrationEnabled: false
+      }
+    ]
+    tags: defaultTags
+  }
+}
+
+module dnsZoneVault 'br/public:avm/res/network/private-dns-zone:0.7.0' = if (enablePrivateEndpoints) {
+  name: 'dnsZoneVault'
+  params: {
+    name: 'privatelink.vaultcore.azure.net'
+    location: 'global'
+    virtualNetworkLinks: [
+      {
+        virtualNetworkResourceId: vnet.outputs.resourceId
+        registrationEnabled: false
+      }
+    ]
+    tags: defaultTags
+  }
+}
+
+module dnsZoneAcr 'br/public:avm/res/network/private-dns-zone:0.7.0' = if (enablePrivateEndpoints && deployPerCustomerAcr) {
+  name: 'dnsZoneAcr'
+  params: {
+    name: 'privatelink.azurecr.io'
+    location: 'global'
+    virtualNetworkLinks: [
+      {
+        virtualNetworkResourceId: vnet.outputs.resourceId
+        registrationEnabled: false
       }
     ]
     tags: defaultTags
@@ -175,6 +293,12 @@ module keyVault 'br/public:avm/res/key-vault/vault:0.11.1' = {
     enablePurgeProtection: true
     enableSoftDelete: true
     softDeleteRetentionInDays: 90
+    secrets: [
+      {
+        name: 'appinsights-connection-string'
+        value: appInsights.outputs.connectionString
+      }
+    ]
     roleAssignments: [
       {
         principalId: identityKubelet.outputs.principalId
@@ -182,6 +306,21 @@ module keyVault 'br/public:avm/res/key-vault/vault:0.11.1' = {
         roleDefinitionIdOrName: 'Key Vault Secrets User' // Read-only — kubelet should never write secrets
       }
     ]
+    privateEndpoints: enablePrivateEndpoints
+      ? [
+          {
+            service: 'vault'
+            subnetResourceId: vnet.outputs.subnetResourceIds[1]
+            privateDnsZoneGroup: {
+              privateDnsZoneGroupConfigs: [
+                {
+                  privateDnsZoneResourceId: dnsZoneVault!.outputs.resourceId
+                }
+              ]
+            }
+          }
+        ]
+      : []
     diagnosticSettings: [
       {
         workspaceResourceId: logAnalytics.outputs.resourceId
@@ -222,6 +361,21 @@ module storage 'br/public:avm/res/storage/storage-account:0.15.0' = {
         roleDefinitionIdOrName: 'Storage Blob Data Contributor' // Kubelet needs write for checkpoint uploads
       }
     ]
+    privateEndpoints: enablePrivateEndpoints
+      ? [
+          {
+            service: 'blob'
+            subnetResourceId: vnet.outputs.subnetResourceIds[1]
+            privateDnsZoneGroup: {
+              privateDnsZoneGroupConfigs: [
+                {
+                  privateDnsZoneResourceId: dnsZoneBlob!.outputs.resourceId
+                }
+              ]
+            }
+          }
+        ]
+      : []
     diagnosticSettings: [
       {
         workspaceResourceId: logAnalytics.outputs.resourceId
@@ -252,6 +406,21 @@ module acr 'br/public:avm/res/container-registry/registry:0.6.0' = if (deployPer
         roleDefinitionIdOrName: 'AcrPull'
       }
     ]
+    privateEndpoints: enablePrivateEndpoints
+      ? [
+          {
+            service: 'registry'
+            subnetResourceId: vnet.outputs.subnetResourceIds[1]
+            privateDnsZoneGroup: {
+              privateDnsZoneGroupConfigs: [
+                {
+                  privateDnsZoneResourceId: dnsZoneAcr!.outputs.resourceId
+                }
+              ]
+            }
+          }
+        ]
+      : []
     diagnosticSettings: [
       {
         workspaceResourceId: logAnalytics.outputs.resourceId
@@ -515,3 +684,9 @@ output kubeletIdentityPrincipalId string = identityKubelet.outputs.principalId
 
 @description('Kubelet identity client ID.')
 output kubeletIdentityClientId string = identityKubelet.outputs.clientId
+
+@description('Application Insights connection string.')
+output appInsightsConnectionString string = appInsights.outputs.connectionString
+
+@description('Application Insights resource ID.')
+output appInsightsResourceId string = appInsights.outputs.resourceId

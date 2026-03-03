@@ -10,7 +10,6 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-
 # ── Request ─────────────────────────────────────────────────────────────
 # Note: The actual request is multipart/form-data. FastAPI handles the
 # file upload via UploadFile; the remaining fields come from Form().

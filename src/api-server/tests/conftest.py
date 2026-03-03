@@ -5,7 +5,6 @@ Shared test fixtures for the DirectAI API server.
 from __future__ import annotations
 
 import os
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -119,6 +118,8 @@ def test_client(model_config_dir: Path, monkeypatch: pytest.MonkeyPatch):
     this is what populates app.state.model_registry / backend_client.
     """
     monkeypatch.setenv("DIRECTAI_MODEL_CONFIG_DIR", str(model_config_dir))
+    monkeypatch.setenv("DIRECTAI_DATABASE_PATH", ":memory:")
+    monkeypatch.setenv("DIRECTAI_OTEL_ENABLED", "false")
 
     # Clear cached settings so env var takes effect
     from app.config import get_settings

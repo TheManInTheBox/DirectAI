@@ -15,9 +15,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
+from opentelemetry.propagate import inject
 
 from app.config import get_settings
 
@@ -145,11 +147,14 @@ class BackendClient:
         if cb.is_open:
             raise CircuitOpenError(url, cb.reset_at)
 
+        headers = dict(headers or {})
+        inject(headers)  # W3C traceparent propagation
+
         last_exc: Exception | None = None
         for attempt in range(_MAX_RETRIES + 1):
             try:
                 response = await self._client.post(
-                    url, json=payload, headers=headers or {}
+                    url, json=payload, headers=headers
                 )
                 if response.status_code in _RETRYABLE_STATUS and attempt < _MAX_RETRIES:
                     logger.warning(
@@ -200,18 +205,21 @@ class BackendClient:
         if cb.is_open:
             raise CircuitOpenError(url, cb.reset_at)
 
+        headers = dict(headers or {})
+        inject(headers)  # W3C traceparent propagation
+
         try:
             async with self._client.stream(
                 "POST",
                 url,
                 json=payload,
-                headers=headers or {},
+                headers=headers,
             ) as response:
                 response.raise_for_status()
                 cb.record_success()
                 async for chunk in response.aiter_bytes():
                     yield chunk
-        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+        except (httpx.ConnectError, httpx.ConnectTimeout):
             cb.record_failure()
             raise
         except httpx.HTTPStatusError as exc:
@@ -236,6 +244,9 @@ class BackendClient:
         if cb.is_open:
             raise CircuitOpenError(url, cb.reset_at)
 
+        headers = dict(headers or {})
+        inject(headers)  # W3C traceparent propagation
+
         last_exc: Exception | None = None
         for attempt in range(_MAX_RETRIES + 1):
             try:
@@ -243,7 +254,7 @@ class BackendClient:
                     url,
                     files=files,
                     data=data or {},
-                    headers=headers or {},
+                    headers=headers,
                 )
                 if response.status_code in _RETRYABLE_STATUS and attempt < _MAX_RETRIES:
                     await asyncio.sleep(_RETRY_BACKOFF_BASE * (2 ** attempt))

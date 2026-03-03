@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 import httpx
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
 from app.auth import require_api_key
 from app.metrics import track_request
@@ -51,7 +51,7 @@ def _check_backend_response(response, model: str) -> None:
 )
 async def create_transcription(
     request: Request,
-    file: UploadFile = File(...),
+    file: UploadFile = File(...),  # noqa: B008
     model: str = Form(...),
     language: str | None = Form(default=None),
     prompt: str | None = Form(default=None),
@@ -105,16 +105,16 @@ async def create_transcription(
             status_code=503,
             detail=f"Backend for '{model}' is temporarily unavailable (circuit open).",
             headers={"Retry-After": "30"},
-        )
+        ) from None
     except (httpx.ConnectError, httpx.ConnectTimeout):
         logger.warning("Backend connect failed for model '%s' — may be scaling up", model)
         raise HTTPException(
             status_code=503,
             detail=f"Backend for '{model}' is starting up. Retry shortly.",
             headers={"Retry-After": "15"},
-        )
+        ) from None
     except HTTPException:
         raise
     except Exception:
         logger.exception("Backend error for model '%s'", model)
-        raise HTTPException(status_code=502, detail="Inference backend unavailable.")
+        raise HTTPException(status_code=502, detail="Inference backend unavailable.") from None

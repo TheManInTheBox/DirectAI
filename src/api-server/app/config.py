@@ -7,11 +7,11 @@ nothing is hardcoded for a specific cluster or customer.
 
 from __future__ import annotations
 
-from pathlib import Path
 from functools import lru_cache
+from pathlib import Path
 
-from pydantic_settings import BaseSettings
 from pydantic import Field
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -38,6 +38,43 @@ class Settings(BaseSettings):
     api_keys: str = Field(
         default="",
         description="Comma-separated API keys. Empty = auth disabled (dev only).",
+    )
+    # ── Rate limiting ───────────────────────────────────────────────
+    rate_limit_rps: float = Field(
+        default=60.0,
+        description="Max sustained requests per second per API key / IP.",
+    )
+    rate_limit_burst: int = Field(
+        default=120,
+        description="Token-bucket burst size (max concurrent spike).",
+    )
+    rate_limit_max_buckets: int = Field(
+        default=50_000,
+        description="Hard cap on tracked keys — prevents OOM under DDoS.",
+    )    # ── Database (model lifecycle persistence) ──────────────────
+    database_path: str = Field(
+        default="/app/data/directai.db",
+        description="SQLite database file path. Use ':memory:' for ephemeral storage.",
+    )
+
+    # ── Tracing (OpenTelemetry) ──────────────────────────────────
+    otel_enabled: bool = Field(
+        default=True,
+        description="Enable OpenTelemetry tracing. Requires at least one exporter.",
+    )
+    appinsights_connection_string: str = Field(
+        default="",
+        description="Azure Application Insights connection string. Empty = no Azure export.",
+    )
+    otlp_endpoint: str = Field(
+        default="",
+        description="OTLP gRPC endpoint for local dev (e.g., http://localhost:4317).",
+    )
+    otel_sample_rate: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Trace sampling rate (0.0 = none, 1.0 = all).",
     )
 
     # ── Backend ─────────────────────────────────────────────────────────

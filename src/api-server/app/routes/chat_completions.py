@@ -11,12 +11,12 @@ import json
 import logging
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
 import httpx
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 
 from app.auth import require_api_key
-from app.metrics import track_request, INFLIGHT_REQUESTS, REQUEST_DURATION, REQUESTS_TOTAL
+from app.metrics import INFLIGHT_REQUESTS, REQUEST_DURATION, REQUESTS_TOTAL, track_request
 from app.routing.backend_client import CircuitOpenError
 from app.schemas.chat import ChatCompletionRequest, ChatCompletionResponse
 
@@ -108,21 +108,21 @@ async def create_chat_completion(
             response = await backend.post_json(url, payload, headers=headers)
         _check_backend_response(response, body.model)
         return response.json()
-    except CircuitOpenError as exc:
+    except CircuitOpenError:
         raise HTTPException(
             status_code=503,
             detail=f"Backend for '{body.model}' is temporarily unavailable (circuit open).",
             headers={"Retry-After": "30"},
-        )
+        ) from None
     except (httpx.ConnectError, httpx.ConnectTimeout):
         logger.warning("Backend connect failed for model '%s' — may be scaling up", body.model)
         raise HTTPException(
             status_code=503,
             detail=f"Backend for '{body.model}' is starting up. Retry shortly.",
             headers={"Retry-After": "15"},
-        )
+        ) from None
     except HTTPException:
         raise
     except Exception:
         logger.exception("Backend error for model '%s'", body.model)
-        raise HTTPException(status_code=502, detail="Inference backend unavailable.")
+        raise HTTPException(status_code=502, detail="Inference backend unavailable.") from None

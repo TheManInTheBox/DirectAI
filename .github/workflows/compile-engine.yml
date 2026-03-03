@@ -97,6 +97,21 @@ on:
         required: true
         type: string
         default: 'eus2'
+      model_id:
+        description: 'Model ID in the registry (from POST /api/v1/models). If set, compile-engine will PATCH model status to building/ready/failed.'
+        required: false
+        type: string
+        default: ''
+      api_server_url:
+        description: 'DirectAI API server URL for registry callbacks (e.g., https://api.directai.io). Required if model_id is set.'
+        required: false
+        type: string
+        default: ''
+      api_key:
+        description: 'API key for registry callbacks (set as secret). Leave empty if auth is disabled.'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   id-token: write
@@ -116,7 +131,7 @@ jobs:
       cache_key: ${{ steps.check.outputs.cache_key }}
     steps:
       - name: Azure Login (OIDC)
-        uses: azure/login@v2
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -158,7 +173,7 @@ jobs:
     environment: ${{ inputs.customer_id }}-${{ inputs.environment }}
     steps:
       - name: Azure Login (OIDC)
-        uses: azure/login@v2
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -196,6 +211,24 @@ jobs:
             CMD="$CMD --remove_input_padding enable"
             CMD="$CMD --paged_kv_cache enable"
             echo "cmd=${CMD}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Mark model as building
+        if: inputs.model_id != ''
+        run: |
+          echo "Updating model ${{ inputs.model_id }} → building"
+          AUTH_HEADER=""
+          if [ -n "${{ inputs.api_key }}" ]; then
+            AUTH_HEADER="Authorization: Bearer ${{ inputs.api_key }}"
+          fi
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X PATCH "${{ inputs.api_server_url }}/api/v1/models/${{ inputs.model_id }}" \
+            -H "Content-Type: application/json" \
+            ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
+            -d '{"status": "building"}')
+          echo "Registry responded: HTTP ${HTTP_CODE}"
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::warning::Registry callback failed (HTTP ${HTTP_CODE}) — continuing anyway"
           fi
 
       - name: Submit compilation Job
@@ -345,6 +378,53 @@ jobs:
             echo "::error::No engine blobs found after compilation!"
             exit 1
           fi
+
+      - name: Mark model as ready with engine artifact
+        if: inputs.model_id != '' && success()
+        run: |
+          echo "Updating model ${{ inputs.model_id }} → ready"
+          AUTH_HEADER=""
+          if [ -n "${{ inputs.api_key }}" ]; then
+            AUTH_HEADER="Authorization: Bearer ${{ inputs.api_key }}"
+          fi
+
+          # Build engine_artifacts map: GPU SKU → engine output URI
+          PAYLOAD=$(cat <<EOF
+          {
+            "status": "ready",
+            "engine_artifacts": {
+              "${{ inputs.gpu_sku }}": "${{ inputs.engine_output_uri }}"
+            }
+          }
+          EOF
+          )
+
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X PATCH "${{ inputs.api_server_url }}/api/v1/models/${{ inputs.model_id }}" \
+            -H "Content-Type: application/json" \
+            ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
+            -d "$PAYLOAD")
+          echo "Registry responded: HTTP ${HTTP_CODE}"
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::error::Failed to update model registry (HTTP ${HTTP_CODE})"
+            exit 1
+          fi
+          echo "### ✅ Model registry updated → ready" >> $GITHUB_STEP_SUMMARY
+
+      - name: Mark model as failed
+        if: inputs.model_id != '' && failure()
+        run: |
+          echo "Updating model ${{ inputs.model_id }} → failed"
+          AUTH_HEADER=""
+          if [ -n "${{ inputs.api_key }}" ]; then
+            AUTH_HEADER="Authorization: Bearer ${{ inputs.api_key }}"
+          fi
+          curl -s -o /dev/null -w "HTTP %{http_code}" \
+            -X PATCH "${{ inputs.api_server_url }}/api/v1/models/${{ inputs.model_id }}" \
+            -H "Content-Type: application/json" \
+            ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
+            -d '{"status": "failed"}' || true
+          echo "### ❌ Model registry updated → failed" >> $GITHUB_STEP_SUMMARY
 
   # ── Summary ──────────────────────────────────────────────────────
   summary:

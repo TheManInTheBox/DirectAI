@@ -20,6 +20,16 @@ initContainer:
 nvmeInit:
   enabled: true
 
+# ── Priority Class ─────────────────────────────────────────────────────────
+priorityClass:
+  enabled: true
+  name: directai-inference
+  value: 1000000
+
+# ── Prometheus Monitoring ──────────────────────────────────────────────────
+prometheusRules:
+  enabled: true
+
 # ── TLS ────────────────────────────────────────────────────────────────────
 tls:
   enabled: true

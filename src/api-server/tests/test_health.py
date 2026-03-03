@@ -1,8 +1,8 @@
 """Tests for health endpoints."""
 
 from pathlib import Path
-from unittest.mock import PropertyMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 

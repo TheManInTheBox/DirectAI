@@ -18,6 +18,7 @@ dependencies = [
     "prometheus-client>=0.21,<1",
     "numpy>=1.26,<3",
     "transformers>=4.40,<5",
+    "tiktoken>=0.7,<1",
 ]
 
 [project.optional-dependencies]

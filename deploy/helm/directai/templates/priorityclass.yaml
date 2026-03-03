@@ -1,0 +1,18 @@
+{{/*
+PriorityClass for GPU inference pods.
+Ensures inference workloads are not preempted by lower-priority pods
+(e.g., batch jobs, development workloads). GPU pods are expensive to
+cold-start — eviction wastes minutes of model loading time.
+*/}}
+{{- if .Values.priorityClass.enabled }}
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: {{ .Values.priorityClass.name }}
+  labels:
+    {{- include "directai.labels" . | nindent 4 }}
+value: {{ .Values.priorityClass.value }}
+globalDefault: false
+preemptionPolicy: {{ .Values.priorityClass.preemptionPolicy | default "PreemptLowerPriority" }}
+description: {{ .Values.priorityClass.description | default "High priority for DirectAI GPU inference pods" | quote }}
+{{- end }}

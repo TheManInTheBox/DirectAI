@@ -40,6 +40,11 @@ class ModelRegistry:
     """
     Loads model configs from YAML files and provides lookup by alias.
 
+    Supports two model sources:
+    - **Static** — loaded from YAML files at startup (read-only).
+    - **Dynamic** — registered at runtime via ``register_dynamic()``
+      when a deployment transitions to running.
+
     Usage:
         registry = ModelRegistry.from_directory(Path("/app/models"))
         spec = registry.resolve("llama-3.1-70b-instruct")
@@ -49,6 +54,7 @@ class ModelRegistry:
     def __init__(self) -> None:
         self._models: dict[str, ModelSpec] = {}      # name → spec
         self._alias_index: dict[str, str] = {}        # alias → name
+        self._dynamic: set[str] = set()               # names of dynamically registered models
 
     @classmethod
     def from_directory(
@@ -121,14 +127,67 @@ class ModelRegistry:
 
     def resolve(self, model_name: str) -> ModelSpec | None:
         """Resolve a client-provided model name to a ModelSpec."""
-        name = self._alias_index.get(model_name.lower())
-        if name is None:
-            return None
-        return self._models[name]
+        from app.telemetry import get_tracer
+
+        tracer = get_tracer()
+        with tracer.start_as_current_span(
+            "model_registry.resolve",
+            attributes={"directai.model.requested": model_name},
+        ) as span:
+            name = self._alias_index.get(model_name.lower())
+            if name is None:
+                span.set_attribute("directai.model.resolved", False)
+                return None
+            spec = self._models[name]
+            span.set_attribute("directai.model.resolved", True)
+            span.set_attribute("directai.model.name", spec.name)
+            span.set_attribute("directai.model.modality", spec.modality)
+            span.set_attribute("directai.model.backend_url", spec.backend_url)
+            return spec
 
     def list_models(self) -> list[ModelSpec]:
         """Return all registered models."""
         return list(self._models.values())
+
+    def register_dynamic(self, spec: ModelSpec) -> None:
+        """Add a dynamically deployed model to the routing table.
+
+        Called when a deployment transitions to 'running'.  Overwrites
+        any existing dynamic model with the same name (redeployment).
+        """
+        old_spec = self._models.get(spec.name)
+        if old_spec and spec.name in self._dynamic:
+            for alias in old_spec.aliases:
+                self._alias_index.pop(alias.lower(), None)
+
+        self._models[spec.name] = spec
+        for alias in spec.aliases:
+            lower = alias.lower()
+            if lower in self._alias_index and self._alias_index[lower] != spec.name:
+                logger.warning(
+                    "Dynamic model alias '%s' shadows existing model '%s'",
+                    alias, self._alias_index[lower],
+                )
+            self._alias_index[lower] = spec.name
+        self._dynamic.add(spec.name)
+        logger.info("Registered dynamic model: %s (%d aliases)", spec.name, len(spec.aliases))
+
+    def unregister_dynamic(self, name: str) -> bool:
+        """Remove a dynamically registered model from the routing table.
+
+        Returns True if removed.  Only dynamic models can be
+        unregistered — YAML-loaded models are permanent.
+        """
+        if name not in self._dynamic:
+            return False
+        spec = self._models.pop(name, None)
+        if spec:
+            for alias in spec.aliases:
+                if self._alias_index.get(alias.lower()) == name:
+                    del self._alias_index[alias.lower()]
+        self._dynamic.discard(name)
+        logger.info("Unregistered dynamic model: %s", name)
+        return True
 
     def __len__(self) -> int:
         return len(self._models)

@@ -18,9 +18,19 @@ from starlette.responses import Response
 
 from app.config import get_settings
 from app.metrics import metrics_content_type, metrics_response_body
-from app.middleware import CorrelationIdMiddleware, RequestLoggingMiddleware, RateLimitMiddleware
+from app.middleware import CorrelationIdMiddleware, RateLimitMiddleware, RequestLoggingMiddleware
+from app.models import ModelRepository
+from app.routes import (
+    audio_router,
+    chat_router,
+    embeddings_router,
+    models_router,
+    native_deployments_router,
+    native_models_router,
+    native_system_router,
+)
 from app.routing import BackendClient, BackendHealthMonitor, ModelRegistry
-from app.routes import audio_router, chat_router, embeddings_router, models_router
+from app.telemetry import configure_tracing, shutdown_tracing
 
 
 class _JSONFormatter(logging.Formatter):
@@ -56,13 +66,29 @@ async def lifespan(app: FastAPI):
     _configure_logging()
     logger = logging.getLogger(__name__)
 
+    # Record startup time for /api/v1/health uptime calculation.
+    from app.routes.native_system import _set_startup_time
+    _set_startup_time()
+
     settings = get_settings()
+
+    # ── Tracing (OpenTelemetry) ─────────────────────────────────────
+    if settings.otel_enabled:
+        configure_tracing(
+            appinsights_connection_string=settings.appinsights_connection_string,
+            otlp_endpoint=settings.otlp_endpoint,
+            sample_rate=settings.otel_sample_rate,
+        )
 
     # ── Model registry ──────────────────────────────────────────────
     registry = ModelRegistry.from_directory(settings.model_config_dir)
     app.state.model_registry = registry
     logger.info("Loaded %d models from %s", len(registry), settings.model_config_dir)
-
+    # ── Model repository (SQLite) ─────────────────────────
+    repository = ModelRepository(settings.database_path)
+    await repository.startup()
+    app.state.model_repository = repository
+    logger.info("Model repository ready (%s)", settings.database_path)
     # ── Backend HTTP client ─────────────────────────────────────────
     backend = BackendClient()
     await backend.startup()
@@ -82,7 +108,9 @@ async def lifespan(app: FastAPI):
 
     # ── Shutdown ────────────────────────────────────────────────────
     await monitor.stop()
+    await repository.shutdown()
     await backend.shutdown()
+    shutdown_tracing()
     logger.info("API server shut down.")
 
 
@@ -95,7 +123,13 @@ app = FastAPI(
 
 # ── Middleware (order matters: outermost first) ─────────────────────
 app.add_middleware(RequestLoggingMiddleware)
-app.add_middleware(RateLimitMiddleware)
+_settings = get_settings()
+app.add_middleware(
+    RateLimitMiddleware,
+    rate=_settings.rate_limit_rps,
+    burst=_settings.rate_limit_burst,
+    max_buckets=_settings.rate_limit_max_buckets,
+)
 app.add_middleware(CorrelationIdMiddleware)
 
 # ── Routes ──────────────────────────────────────────────────────────
@@ -103,6 +137,9 @@ app.include_router(chat_router)
 app.include_router(embeddings_router)
 app.include_router(audio_router)
 app.include_router(models_router)
+app.include_router(native_models_router)
+app.include_router(native_deployments_router)
+app.include_router(native_system_router)
 
 
 # ── Health probes ───────────────────────────────────────────────────

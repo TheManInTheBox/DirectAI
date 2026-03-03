@@ -11,14 +11,13 @@ Validates:
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 # Import model YAML fixtures from the conftest in this package
 from conftest import CHAT_MODEL_YAML, EMBEDDING_MODEL_YAML, TRANSCRIPTION_MODEL_YAML
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture()

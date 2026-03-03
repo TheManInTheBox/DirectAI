@@ -85,7 +85,7 @@ async def lifespan(app: FastAPI):
         from engine.whisper import register_whisper_routes
 
         logger.info("Modality: transcription — loading Whisper engine...")
-        whisper_runner = register_whisper_routes(
+        register_whisper_routes(
             app,
             engine_dir=settings.engine_dir,
             tokenizer_dir=settings.tokenizer_dir,

@@ -46,6 +46,10 @@ FROM base AS runtime
 
 WORKDIR /app
 
+# ffmpeg is required for Whisper audio decoding (any format → PCM)
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install Python deps (without tensorrt_llm — already in base)
 COPY pyproject.toml .
 COPY engine/ engine/

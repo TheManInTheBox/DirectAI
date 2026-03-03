@@ -40,7 +40,7 @@ def _constant_time_key_check(candidate: str, valid_keys: set[str]) -> bool:
 
 
 async def require_api_key(
-    credentials: HTTPAuthorizationCredentials | None = Security(_bearer_scheme),
+    credentials: HTTPAuthorizationCredentials | None = Security(_bearer_scheme),  # noqa: B008
 ) -> str:
     """
     FastAPI dependency — extracts and validates the Bearer token.

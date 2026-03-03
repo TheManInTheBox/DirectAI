@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import re
 
-from starlette.testclient import TestClient
 from fastapi import FastAPI, Request
 from starlette.responses import JSONResponse
+from starlette.testclient import TestClient
 
 from app.middleware.correlation_id import CorrelationIdMiddleware
 

@@ -43,6 +43,21 @@ on:
         required: true
         type: string
         default: 'eus2'
+      deployment_id:
+        description: 'Deployment ID in the registry (from POST /api/v1/deployments). If set, deploy-model will PATCH deployment status through provisioning/running/failed.'
+        required: false
+        type: string
+        default: ''
+      api_server_url:
+        description: 'DirectAI API server URL for registry callbacks (e.g., https://api.directai.io). Required if deployment_id is set.'
+        required: false
+        type: string
+        default: ''
+      api_key:
+        description: 'API key for registry callbacks. Leave empty if auth is disabled.'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   id-token: write
@@ -64,7 +79,7 @@ jobs:
       modality: ${{ steps.parse.outputs.modality }}
       engine_type: ${{ steps.parse.outputs.engine_type }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install yq
         run: |
@@ -114,10 +129,10 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ inputs.customer_id }}-${{ inputs.environment }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Azure Login (OIDC)
-        uses: azure/login@v2
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -158,7 +173,25 @@ jobs:
           sudo chmod +x /usr/local/bin/yq
 
       - name: Install Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
+
+      - name: Mark deployment as provisioning
+        if: inputs.deployment_id != ''
+        run: |
+          echo "Updating deployment ${{ inputs.deployment_id }} → provisioning"
+          AUTH_HEADER=""
+          if [ -n "${{ inputs.api_key }}" ]; then
+            AUTH_HEADER="Authorization: Bearer ${{ inputs.api_key }}"
+          fi
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X PATCH "${{ inputs.api_server_url }}/api/v1/deployments/${{ inputs.deployment_id }}" \
+            -H "Content-Type: application/json" \
+            ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
+            -d '{"status": "provisioning"}')
+          echo "Registry responded: HTTP ${HTTP_CODE}"
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::warning::Registry callback failed (HTTP ${HTTP_CODE}) — continuing anyway"
+          fi
 
       - name: Generate Helm values and deploy
         run: |
@@ -279,6 +312,44 @@ jobs:
             --namespace ${{ env.NAMESPACE }} \
             --image=curlimages/curl:latest -- \
             curl -sf "http://${NAME}:8001/healthz"
+
+      - name: Mark deployment as running
+        if: inputs.deployment_id != '' && success()
+        run: |
+          NAME="${{ needs.validate.outputs.model_name }}"
+          ENDPOINT_URL="http://${NAME}.${{ env.NAMESPACE }}.svc.cluster.local:8001"
+          echo "Updating deployment ${{ inputs.deployment_id }} → running (endpoint: ${ENDPOINT_URL})"
+          AUTH_HEADER=""
+          if [ -n "${{ inputs.api_key }}" ]; then
+            AUTH_HEADER="Authorization: Bearer ${{ inputs.api_key }}"
+          fi
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X PATCH "${{ inputs.api_server_url }}/api/v1/deployments/${{ inputs.deployment_id }}" \
+            -H "Content-Type: application/json" \
+            ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
+            -d "{\"status\": \"running\", \"endpoint_url\": \"${ENDPOINT_URL}\"}")
+          echo "Registry responded: HTTP ${HTTP_CODE}"
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::error::Failed to update deployment registry (HTTP ${HTTP_CODE})"
+            exit 1
+          fi
+          echo "### ✅ Deployment registry updated → running" >> $GITHUB_STEP_SUMMARY
+          echo "Endpoint: \`${ENDPOINT_URL}\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Mark deployment as failed
+        if: inputs.deployment_id != '' && failure()
+        run: |
+          echo "Updating deployment ${{ inputs.deployment_id }} → failed"
+          AUTH_HEADER=""
+          if [ -n "${{ inputs.api_key }}" ]; then
+            AUTH_HEADER="Authorization: Bearer ${{ inputs.api_key }}"
+          fi
+          curl -s -o /dev/null -w "HTTP %{http_code}" \
+            -X PATCH "${{ inputs.api_server_url }}/api/v1/deployments/${{ inputs.deployment_id }}" \
+            -H "Content-Type: application/json" \
+            ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
+            -d '{"status": "failed"}' || true
+          echo "### ❌ Deployment registry updated → failed" >> $GITHUB_STEP_SUMMARY
 
       - name: Deployment summary
         run: |

@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request
 import httpx
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.auth import require_api_key
 from app.metrics import track_request
@@ -78,16 +78,16 @@ async def create_embedding(
             status_code=503,
             detail=f"Backend for '{body.model}' is temporarily unavailable (circuit open).",
             headers={"Retry-After": "30"},
-        )
+        ) from None
     except (httpx.ConnectError, httpx.ConnectTimeout):
         logger.warning("Backend connect failed for model '%s' — may be scaling up", body.model)
         raise HTTPException(
             status_code=503,
             detail=f"Backend for '{body.model}' is starting up. Retry shortly.",
             headers={"Retry-After": "15"},
-        )
+        ) from None
     except HTTPException:
         raise
     except Exception:
         logger.exception("Backend error for model '%s'", body.model)
-        raise HTTPException(status_code=502, detail="Inference backend unavailable.")
+        raise HTTPException(status_code=502, detail="Inference backend unavailable.") from None

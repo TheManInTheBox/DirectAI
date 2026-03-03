@@ -1,0 +1,9 @@
+# Patterns to ignore when packaging with `helm package`.
+.DS_Store
+.git/
+.gitignore
+.idea/
+*.swp
+*.bak
+*.tmp
+ci/

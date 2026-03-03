@@ -11,16 +11,16 @@ The /metrics endpoint is mounted directly on the FastAPI app.
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Generator
 
 from prometheus_client import (
+    CONTENT_TYPE_LATEST,
     CollectorRegistry,
     Counter,
     Gauge,
     Histogram,
     generate_latest,
-    CONTENT_TYPE_LATEST,
 )
 
 # ── Dedicated registry (avoids default process metrics noise) ──────
