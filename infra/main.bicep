@@ -1,7 +1,9 @@
 // ============================================================================
 // DirectAI Regional Stamp — main.bicep
 // Deploys the complete set of Azure resources for a DirectAI inference region.
-// Uses Azure Verified Modules (AVM) from the Bicep public registry.
+//
+// Uses direct resource declarations instead of AVM modules to avoid
+// ARM deployment engine issues with nested deployment output evaluation.
 // ============================================================================
 
 targetScope = 'resourceGroup'
@@ -44,13 +46,13 @@ param enableGpuPools bool = false
 @allowed(['production', 'dev'])
 param gpuPoolTier string = 'production'
 
-@description('VM size for the dev GPU pool. Only used when gpuPoolTier is "dev". Default: Standard_NC16as_T4_v3 (1× T4 16GB, 16 vCPUs, 112 GB RAM).')
+@description('VM size for the dev GPU pool. Only used when gpuPoolTier is "dev".')
 param devGpuVmSize string = 'Standard_NC16as_T4_v3'
 
 @description('Max node count for the dev GPU pool. Only used when gpuPoolTier is "dev".')
 param devGpuMaxCount int = 2
 
-@description('Enable Private Endpoints for Storage, Key Vault, and ACR. Strongly recommended for all environments. Disable only if dev subscription lacks Private DNS Zone support.')
+@description('Enable Private Endpoints for Storage, Key Vault, and ACR.')
 param enablePrivateEndpoints bool = true
 
 @description('AKS system pool min node count.')
@@ -59,20 +61,20 @@ param systemPoolMinCount int = 1
 @description('AKS system pool max node count.')
 param systemPoolMaxCount int = 3
 
-@description('Customer identifier (GUID for onboarded customers, or alias like "internal" for platform stamps).')
+@description('Customer identifier.')
 param customerId string
 
-@description('Platform ACR login server (e.g., acrplatform.azurecr.io). When provided, the stamp skips deploying its own ACR and uses the platform ACR instead. Leave empty to deploy a per-customer ACR.')
+@description('Platform ACR login server. Leave empty to deploy a per-customer ACR.')
 param platformAcrLoginServer string = ''
 
 // ---------------------------------------------------------------------------
-// Naming convention: dai-{customer}-{resource}-{env}-{regionShort}
+// Naming
 // ---------------------------------------------------------------------------
 
 var prefix = 'dai'
 var baseName = '${prefix}-${customerId}-${environment}-${regionShort}'
 var uniqueSuffix = uniqueString(resourceGroup().id, baseName)
-var customerHash = take(uniqueString(customerId), 8) // Deterministic 8-char hash for length-constrained names
+var customerHash = take(uniqueString(customerId), 8)
 var deployPerCustomerAcr = empty(platformAcrLoginServer)
 
 var identityControlPlaneName = 'id-cp-${baseName}'
@@ -80,9 +82,9 @@ var identityKubeletName = 'id-kubelet-${baseName}'
 var logAnalyticsName = 'log-${baseName}'
 var appInsightsName = 'appi-${baseName}'
 var vnetName = 'vnet-${baseName}'
-var keyVaultName = 'kv${prefix}${customerHash}${take(uniqueSuffix, 6)}' // 3-24 chars
-var storageAccountName = 'st${prefix}${customerHash}${take(uniqueSuffix, 6)}' // 3-24 chars
-var acrName = 'acr${prefix}${customerHash}${take(uniqueSuffix, 6)}' // 5-50 chars
+var keyVaultName = 'kv${prefix}${customerHash}${take(uniqueSuffix, 6)}'
+var storageAccountName = 'st${prefix}${customerHash}${take(uniqueSuffix, 6)}'
+var acrName = 'acr${prefix}${customerHash}${take(uniqueSuffix, 6)}'
 var aksName = 'aks-${baseName}'
 
 var defaultTags = union(tags, {
@@ -93,88 +95,87 @@ var defaultTags = union(tags, {
   'managed-by': 'bicep'
 })
 
-// ---------------------------------------------------------------------------
-// 1a. Control Plane Identity — used by AKS resource provider
-//     Does NOT get data-plane access to Storage/ACR/KV.
-// ---------------------------------------------------------------------------
+// ── Role Definition IDs ────────────────────────────────────────────
+var managedIdentityOperatorRoleId = subscriptionResourceId(
+  'Microsoft.Authorization/roleDefinitions',
+  'f1a07417-d97a-45cb-824c-7a7467783830'
+)
+var keyVaultSecretsUserRoleId = subscriptionResourceId(
+  'Microsoft.Authorization/roleDefinitions',
+  '4633458b-17de-408a-b874-0445c86b69e6'
+)
+var storageBlobDataContributorRoleId = subscriptionResourceId(
+  'Microsoft.Authorization/roleDefinitions',
+  'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
+)
+var acrPullRoleId = subscriptionResourceId(
+  'Microsoft.Authorization/roleDefinitions',
+  '7f951dda-4ed3-4680-a7ca-43fe172d538d'
+)
 
-module identityControlPlane 'br/public:avm/res/managed-identity/user-assigned-identity:0.4.0' = {
-  name: 'identityControlPlane'
-  params: {
-    name: identityControlPlaneName
-    location: location
-    tags: defaultTags
+// ===========================================================================
+// 1. Managed Identities
+// ===========================================================================
+
+resource identityControlPlane 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: identityControlPlaneName
+  location: location
+  tags: defaultTags
+}
+
+resource identityKubelet 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: identityKubeletName
+  location: location
+  tags: defaultTags
+}
+
+// Control plane → Managed Identity Operator on kubelet identity
+resource roleKubeletOperator 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(identityKubelet.id, identityControlPlane.id, managedIdentityOperatorRoleId)
+  scope: identityKubelet
+  properties: {
+    principalId: identityControlPlane.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: managedIdentityOperatorRoleId
   }
 }
 
-// ---------------------------------------------------------------------------
-// 1b. Kubelet Identity — assigned to VMSS nodes via identityProfile
-//     Least-privilege: pull images, read blobs/secrets. NO write access to KV.
-//     Control plane gets Managed Identity Operator here so AKS can assign
-//     this identity to the underlying VMSS node pools.
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// 2. Observability — Log Analytics + Application Insights
+// ===========================================================================
 
-module identityKubelet 'br/public:avm/res/managed-identity/user-assigned-identity:0.4.0' = {
-  name: 'identityKubelet'
-  params: {
-    name: identityKubeletName
-    location: location
-    tags: defaultTags
-    roleAssignments: [
-      {
-        principalId: identityControlPlane.outputs.principalId
-        principalType: 'ServicePrincipal'
-        roleDefinitionIdOrName: 'Managed Identity Operator'
-      }
-    ]
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 2. Log Analytics Workspace — observability sink for AKS and all resources
-// ---------------------------------------------------------------------------
-
-module logAnalytics 'br/public:avm/res/operational-insights/workspace:0.9.1' = {
-  name: 'logAnalytics'
-  params: {
-    name: logAnalyticsName
-    location: location
-    skuName: 'PerGB2018'
-    dataRetention: environment == 'prod' ? 90 : 30
-    tags: defaultTags
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 2b. Application Insights — centralized distributed tracing + live metrics
-//     Workspace-based (backed by Log Analytics above). Connection string is
-//     stored in Key Vault for pods to consume via CSI SecretProviderClass.
-// ---------------------------------------------------------------------------
-
-module appInsights 'br/public:avm/res/insights/component:0.4.2' = {
-  name: 'appInsights'
-  params: {
-    name: appInsightsName
-    workspaceResourceId: logAnalytics.outputs.resourceId
-    location: location
-    applicationType: 'web'
+resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
+  name: logAnalyticsName
+  location: location
+  tags: defaultTags
+  properties: {
+    sku: { name: 'PerGB2018' }
     retentionInDays: environment == 'prod' ? 90 : 30
-    disableLocalAuth: true
-    tags: defaultTags
   }
 }
 
-// ---------------------------------------------------------------------------
-// 3a. Network Security Group — endpoints subnet
-//     Restricts inbound traffic to VNet-internal only. AKS subnet does NOT
-//     get a custom NSG — AKS manages its own and custom NSGs conflict.
-// ---------------------------------------------------------------------------
+resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
+  name: appInsightsName
+  location: location
+  kind: 'web'
+  tags: defaultTags
+  properties: {
+    Application_Type: 'web'
+    WorkspaceResourceId: logAnalytics.id
+    RetentionInDays: environment == 'prod' ? 90 : 30
+    DisableLocalAuth: true
+  }
+}
 
-module nsgEndpoints 'br/public:avm/res/network/network-security-group:0.5.0' = if (enablePrivateEndpoints) {
-  name: 'nsgEndpoints'
-  params: {
-    name: 'nsg-snet-endpoints-${baseName}'
-    location: location
+// ===========================================================================
+// 3. Networking — VNet, NSG, Private DNS Zones
+// ===========================================================================
+
+resource nsgEndpoints 'Microsoft.Network/networkSecurityGroups@2024-01-01' = if (enablePrivateEndpoints) {
+  name: 'nsg-snet-endpoints-${baseName}'
+  location: location
+  tags: defaultTags
+  properties: {
     securityRules: [
       {
         name: 'AllowVNetInbound'
@@ -203,258 +204,344 @@ module nsgEndpoints 'br/public:avm/res/network/network-security-group:0.5.0' = i
         }
       }
     ]
-    tags: defaultTags
   }
 }
 
-// ---------------------------------------------------------------------------
-// 3b. Virtual Network — AKS nodes + private endpoints
-// ---------------------------------------------------------------------------
-
-module vnet 'br/public:avm/res/network/virtual-network:0.5.2' = {
-  name: 'vnet'
-  params: {
-    name: vnetName
-    location: location
-    addressPrefixes: [vnetAddressPrefix]
+resource vnet 'Microsoft.Network/virtualNetworks@2024-01-01' = {
+  name: vnetName
+  location: location
+  tags: defaultTags
+  properties: {
+    addressSpace: { addressPrefixes: [vnetAddressPrefix] }
     subnets: [
       {
         name: 'snet-aks'
-        addressPrefix: aksSubnetPrefix
-        // No NSG — AKS manages its own NSG on the node subnet.
+        properties: {
+          addressPrefix: aksSubnetPrefix
+        }
       }
       {
         name: 'snet-endpoints'
-        addressPrefix: endpointsSubnetPrefix
-        privateEndpointNetworkPolicies: 'Disabled'
-        networkSecurityGroupResourceId: enablePrivateEndpoints ? nsgEndpoints!.outputs.resourceId : null
+        properties: {
+          addressPrefix: endpointsSubnetPrefix
+          privateEndpointNetworkPolicies: 'Disabled'
+          networkSecurityGroup: enablePrivateEndpoints
+            ? { id: nsgEndpoints.id }
+            : null
+        }
       }
     ]
-    diagnosticSettings: [
-      {
-        workspaceResourceId: logAnalytics.outputs.resourceId
-        metricCategories: [{ category: 'AllMetrics' }]
-      }
-    ]
-    tags: defaultTags
   }
 }
 
-// ---------------------------------------------------------------------------
-// 3c. Private DNS Zones — required for Private Endpoints to resolve
-//     Zone names are Azure-mandated for each PaaS service.
-// ---------------------------------------------------------------------------
-
-module dnsZoneBlob 'br/public:avm/res/network/private-dns-zone:0.7.0' = if (enablePrivateEndpoints) {
-  name: 'dnsZoneBlob'
-  params: {
-    name: 'privatelink.blob.${az.environment().suffixes.storage}'
-    location: 'global'
-    virtualNetworkLinks: [
-      {
-        virtualNetworkResourceId: vnet.outputs.resourceId
-        registrationEnabled: false
-      }
-    ]
-    tags: defaultTags
+resource vnetDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: 'diag-${vnetName}'
+  scope: vnet
+  properties: {
+    workspaceId: logAnalytics.id
+    metrics: [{ category: 'AllMetrics', enabled: true }]
   }
 }
 
-module dnsZoneVault 'br/public:avm/res/network/private-dns-zone:0.7.0' = if (enablePrivateEndpoints) {
-  name: 'dnsZoneVault'
-  params: {
-    name: 'privatelink.vaultcore.azure.net'
-    location: 'global'
-    virtualNetworkLinks: [
-      {
-        virtualNetworkResourceId: vnet.outputs.resourceId
-        registrationEnabled: false
-      }
-    ]
-    tags: defaultTags
+// Private DNS Zones
+resource dnsZoneBlob 'Microsoft.Network/privateDnsZones@2024-06-01' = if (enablePrivateEndpoints) {
+  name: 'privatelink.blob.${az.environment().suffixes.storage}'
+  location: 'global'
+  tags: defaultTags
+}
+
+resource dnsZoneBlobLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01' = if (enablePrivateEndpoints) {
+  parent: dnsZoneBlob
+  name: 'link-${vnetName}'
+  location: 'global'
+  properties: {
+    virtualNetwork: { id: vnet.id }
+    registrationEnabled: false
   }
 }
 
-module dnsZoneAcr 'br/public:avm/res/network/private-dns-zone:0.7.0' = if (enablePrivateEndpoints && deployPerCustomerAcr) {
-  name: 'dnsZoneAcr'
-  params: {
-    name: 'privatelink.azurecr.io'
-    location: 'global'
-    virtualNetworkLinks: [
-      {
-        virtualNetworkResourceId: vnet.outputs.resourceId
-        registrationEnabled: false
-      }
-    ]
-    tags: defaultTags
+resource dnsZoneVault 'Microsoft.Network/privateDnsZones@2024-06-01' = if (enablePrivateEndpoints) {
+  name: 'privatelink.vaultcore.azure.net'
+  location: 'global'
+  tags: defaultTags
+}
+
+resource dnsZoneVaultLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01' = if (enablePrivateEndpoints) {
+  parent: dnsZoneVault
+  name: 'link-${vnetName}'
+  location: 'global'
+  properties: {
+    virtualNetwork: { id: vnet.id }
+    registrationEnabled: false
   }
 }
 
-// ---------------------------------------------------------------------------
-// 4. Key Vault — secrets, API keys, model configs
-// ---------------------------------------------------------------------------
+resource dnsZoneAcr 'Microsoft.Network/privateDnsZones@2024-06-01' = if (enablePrivateEndpoints && deployPerCustomerAcr) {
+  name: 'privatelink.azurecr.io'
+  location: 'global'
+  tags: defaultTags
+}
 
-module keyVault 'br/public:avm/res/key-vault/vault:0.11.1' = {
-  name: 'keyVault'
-  params: {
-    name: keyVaultName
-    location: location
+resource dnsZoneAcrLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01' = if (enablePrivateEndpoints && deployPerCustomerAcr) {
+  parent: dnsZoneAcr
+  name: 'link-${vnetName}'
+  location: 'global'
+  properties: {
+    virtualNetwork: { id: vnet.id }
+    registrationEnabled: false
+  }
+}
+
+// ===========================================================================
+// 4. Key Vault
+// ===========================================================================
+
+resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
+  name: keyVaultName
+  location: location
+  tags: defaultTags
+  properties: {
+    tenantId: subscription().tenantId
+    sku: { family: 'A', name: 'standard' }
     enableRbacAuthorization: true
     enablePurgeProtection: true
     enableSoftDelete: true
     softDeleteRetentionInDays: 90
-    secrets: [
-      {
-        name: 'appinsights-connection-string'
-        value: appInsights.outputs.connectionString
-      }
-    ]
-    roleAssignments: [
-      {
-        principalId: identityKubelet.outputs.principalId
-        principalType: 'ServicePrincipal'
-        roleDefinitionIdOrName: 'Key Vault Secrets User' // Read-only — kubelet should never write secrets
-      }
-    ]
-    privateEndpoints: enablePrivateEndpoints
-      ? [
-          {
-            service: 'vault'
-            subnetResourceId: vnet.outputs.subnetResourceIds[1]
-            privateDnsZoneGroup: {
-              privateDnsZoneGroupConfigs: [
-                {
-                  privateDnsZoneResourceId: dnsZoneVault!.outputs.resourceId
-                }
-              ]
-            }
-          }
-        ]
-      : []
-    diagnosticSettings: [
-      {
-        workspaceResourceId: logAnalytics.outputs.resourceId
-        metricCategories: [{ category: 'AllMetrics' }]
-      }
-    ]
-    tags: defaultTags
+    networkAcls: {
+      defaultAction: enablePrivateEndpoints ? 'Deny' : 'Allow'
+      bypass: 'AzureServices'
+    }
   }
 }
 
-// ---------------------------------------------------------------------------
-// 5. Storage Account — model weights, compiled engines, checkpoints
-//    Identity gets Storage Blob Data Contributor for pull/push.
-// ---------------------------------------------------------------------------
+resource roleKvSecretsUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(keyVault.id, identityKubelet.id, keyVaultSecretsUserRoleId)
+  scope: keyVault
+  properties: {
+    principalId: identityKubelet.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRoleId
+  }
+}
 
-module storage 'br/public:avm/res/storage/storage-account:0.15.0' = {
-  name: 'storage'
-  params: {
-    name: storageAccountName
-    location: location
-    kind: 'StorageV2'
-    skuName: environment == 'prod' ? 'Standard_ZRS' : 'Standard_LRS'
+resource kvSecretAppInsights 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'appinsights-connection-string'
+  properties: {
+    value: appInsights.properties.ConnectionString
+  }
+}
+
+resource kvDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: 'diag-${keyVaultName}'
+  scope: keyVault
+  properties: {
+    workspaceId: logAnalytics.id
+    metrics: [{ category: 'AllMetrics', enabled: true }]
+  }
+}
+
+resource kvPe 'Microsoft.Network/privateEndpoints@2024-01-01' = if (enablePrivateEndpoints) {
+  name: 'pe-${keyVaultName}'
+  location: location
+  tags: defaultTags
+  properties: {
+    subnet: { id: vnet.properties.subnets[1].id }
+    privateLinkServiceConnections: [
+      {
+        name: 'vault'
+        properties: {
+          privateLinkServiceId: keyVault.id
+          groupIds: ['vault']
+        }
+      }
+    ]
+  }
+}
+
+resource kvPeDnsGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2024-01-01' = if (enablePrivateEndpoints) {
+  parent: kvPe
+  name: 'default'
+  properties: {
+    privateDnsZoneConfigs: [
+      {
+        name: 'vault'
+        properties: { privateDnsZoneId: dnsZoneVault.id }
+      }
+    ]
+  }
+}
+
+// ===========================================================================
+// 5. Storage Account
+// ===========================================================================
+
+resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
+  name: storageAccountName
+  location: location
+  tags: defaultTags
+  kind: 'StorageV2'
+  sku: { name: environment == 'prod' ? 'Standard_ZRS' : 'Standard_LRS' }
+  properties: {
     allowBlobPublicAccess: false
     allowSharedKeyAccess: false
     minimumTlsVersion: 'TLS1_2'
-    blobServices: {
-      containers: [
-        { name: 'models', publicAccess: 'None' }
-        { name: 'engines', publicAccess: 'None' }
-        { name: 'checkpoints', publicAccess: 'None' }
-        { name: 'configs', publicAccess: 'None' }
-      ]
+    supportsHttpsTrafficOnly: true
+    networkAcls: {
+      defaultAction: enablePrivateEndpoints ? 'Deny' : 'Allow'
+      bypass: 'AzureServices'
     }
-    roleAssignments: [
-      {
-        principalId: identityKubelet.outputs.principalId
-        principalType: 'ServicePrincipal'
-        roleDefinitionIdOrName: 'Storage Blob Data Contributor' // Kubelet needs write for checkpoint uploads
-      }
-    ]
-    privateEndpoints: enablePrivateEndpoints
-      ? [
-          {
-            service: 'blob'
-            subnetResourceId: vnet.outputs.subnetResourceIds[1]
-            privateDnsZoneGroup: {
-              privateDnsZoneGroupConfigs: [
-                {
-                  privateDnsZoneResourceId: dnsZoneBlob!.outputs.resourceId
-                }
-              ]
-            }
-          }
-        ]
-      : []
-    diagnosticSettings: [
-      {
-        workspaceResourceId: logAnalytics.outputs.resourceId
-        metricCategories: [{ category: 'AllMetrics' }]
-      }
-    ]
-    tags: defaultTags
   }
 }
 
-// ---------------------------------------------------------------------------
-// 6. Container Registry — inference server images
-//    Deployed per-customer ONLY when no platform ACR is provided.
-//    Commercial customers use the shared platform ACR (cross-sub AcrPull).
-//    Gov/air-gapped customers deploy their own (no cross-cloud access).
-// ---------------------------------------------------------------------------
+resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = {
+  parent: storage
+  name: 'default'
+}
 
-module acr 'br/public:avm/res/container-registry/registry:0.6.0' = if (deployPerCustomerAcr) {
-  name: 'acr'
-  params: {
-    name: acrName
-    location: location
-    acrSku: environment == 'prod' ? 'Premium' : 'Basic'
-    roleAssignments: [
-      {
-        principalId: identityKubelet.outputs.principalId
-        principalType: 'ServicePrincipal'
-        roleDefinitionIdOrName: 'AcrPull'
-      }
-    ]
-    privateEndpoints: enablePrivateEndpoints
-      ? [
-          {
-            service: 'registry'
-            subnetResourceId: vnet.outputs.subnetResourceIds[1]
-            privateDnsZoneGroup: {
-              privateDnsZoneGroupConfigs: [
-                {
-                  privateDnsZoneResourceId: dnsZoneAcr!.outputs.resourceId
-                }
-              ]
-            }
-          }
-        ]
-      : []
-    diagnosticSettings: [
-      {
-        workspaceResourceId: logAnalytics.outputs.resourceId
-        metricCategories: [{ category: 'AllMetrics' }]
-      }
-    ]
-    tags: defaultTags
+resource containerModels 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: blobService
+  name: 'models'
+  properties: { publicAccess: 'None' }
+}
+
+resource containerEngines 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: blobService
+  name: 'engines'
+  properties: { publicAccess: 'None' }
+}
+
+resource containerCheckpoints 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: blobService
+  name: 'checkpoints'
+  properties: { publicAccess: 'None' }
+}
+
+resource containerConfigs 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: blobService
+  name: 'configs'
+  properties: { publicAccess: 'None' }
+}
+
+resource roleStorageBlob 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storage.id, identityKubelet.id, storageBlobDataContributorRoleId)
+  scope: storage
+  properties: {
+    principalId: identityKubelet.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: storageBlobDataContributorRoleId
   }
 }
 
-// ---------------------------------------------------------------------------
-// 7. AKS Cluster — inference orchestration
-//    - Azure CNI Overlay (pod IPs separate from VNet)
-//    - OIDC + Workload Identity for pod-level auth
-//    - KEDA for request-based autoscaling
-//    - Key Vault Secrets Provider CSI driver
-//    - Blob CSI driver for model weight mounts
-//    - System pool tainted for system workloads only
-//    - GPU node pools added conditionally
-// ---------------------------------------------------------------------------
+resource storageDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: 'diag-${storageAccountName}'
+  scope: storage
+  properties: {
+    workspaceId: logAnalytics.id
+    metrics: [{ category: 'AllMetrics', enabled: true }]
+  }
+}
 
-// Production GPU pools — A100/H100 for inference, A100 for embeddings
+resource storagePe 'Microsoft.Network/privateEndpoints@2024-01-01' = if (enablePrivateEndpoints) {
+  name: 'pe-${storageAccountName}'
+  location: location
+  tags: defaultTags
+  properties: {
+    subnet: { id: vnet.properties.subnets[1].id }
+    privateLinkServiceConnections: [
+      {
+        name: 'blob'
+        properties: {
+          privateLinkServiceId: storage.id
+          groupIds: ['blob']
+        }
+      }
+    ]
+  }
+}
+
+resource storagePeDnsGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2024-01-01' = if (enablePrivateEndpoints) {
+  parent: storagePe
+  name: 'default'
+  properties: {
+    privateDnsZoneConfigs: [
+      {
+        name: 'blob'
+        properties: { privateDnsZoneId: dnsZoneBlob.id }
+      }
+    ]
+  }
+}
+
+// ===========================================================================
+// 6. Container Registry (per-customer only)
+// ===========================================================================
+
+resource acr 'Microsoft.ContainerRegistry/registries@2023-11-01-preview' = if (deployPerCustomerAcr) {
+  name: acrName
+  location: location
+  tags: defaultTags
+  sku: { name: environment == 'prod' ? 'Premium' : 'Basic' }
+  properties: {
+    adminUserEnabled: false
+  }
+}
+
+resource roleAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployPerCustomerAcr) {
+  name: guid(acr.id, identityKubelet.id, acrPullRoleId)
+  scope: acr
+  properties: {
+    principalId: identityKubelet.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: acrPullRoleId
+  }
+}
+
+resource acrDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (deployPerCustomerAcr) {
+  name: 'diag-${acrName}'
+  scope: acr
+  properties: {
+    workspaceId: logAnalytics.id
+    metrics: [{ category: 'AllMetrics', enabled: true }]
+  }
+}
+
+resource acrPe 'Microsoft.Network/privateEndpoints@2024-01-01' = if (enablePrivateEndpoints && deployPerCustomerAcr) {
+  name: 'pe-${acrName}'
+  location: location
+  tags: defaultTags
+  properties: {
+    subnet: { id: vnet.properties.subnets[1].id }
+    privateLinkServiceConnections: [
+      {
+        name: 'registry'
+        properties: {
+          privateLinkServiceId: acr.id
+          groupIds: ['registry']
+        }
+      }
+    ]
+  }
+}
+
+resource acrPeDnsGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2024-01-01' = if (enablePrivateEndpoints && deployPerCustomerAcr) {
+  parent: acrPe
+  name: 'default'
+  properties: {
+    privateDnsZoneConfigs: [
+      {
+        name: 'acr'
+        properties: { privateDnsZoneId: dnsZoneAcr.id }
+      }
+    ]
+  }
+}
+
+// ===========================================================================
+// 7. AKS Cluster
+// ===========================================================================
+
 var productionGpuPools = [
-  // A100 80GB pool — large LLMs and STT (TP up to 8-way)
   {
     name: 'gpua100'
     mode: 'User'
@@ -466,14 +553,13 @@ var productionGpuPools = [
     osType: 'Linux'
     osDiskSizeGB: 128
     type: 'VirtualMachineScaleSets'
-    vnetSubnetResourceId: vnet.outputs.subnetResourceIds[0]
+    vnetSubnetID: vnet.properties.subnets[0].id
     nodeLabels: {
       'directai.io/gpu-pool': 'a100'
       'directai.io/pool': 'inference'
     }
     nodeTaints: ['nvidia.com/gpu=a100:NoSchedule']
   }
-  // H100 80GB pool — highest throughput (TP up to 8-way)
   {
     name: 'gpuh100'
     mode: 'User'
@@ -485,14 +571,13 @@ var productionGpuPools = [
     osType: 'Linux'
     osDiskSizeGB: 128
     type: 'VirtualMachineScaleSets'
-    vnetSubnetResourceId: vnet.outputs.subnetResourceIds[0]
+    vnetSubnetID: vnet.properties.subnets[0].id
     nodeLabels: {
       'directai.io/gpu-pool': 'h100'
       'directai.io/pool': 'inference'
     }
     nodeTaints: ['nvidia.com/gpu=h100:NoSchedule']
   }
-  // Embeddings/reranking pool — smaller GPUs, no NVMe required
   {
     name: 'embeddings'
     mode: 'User'
@@ -504,7 +589,7 @@ var productionGpuPools = [
     osType: 'Linux'
     osDiskSizeGB: 128
     type: 'VirtualMachineScaleSets'
-    vnetSubnetResourceId: vnet.outputs.subnetResourceIds[0]
+    vnetSubnetID: vnet.properties.subnets[0].id
     nodeLabels: {
       'directai.io/gpu-pool': 'embeddings'
       'directai.io/pool': 'embeddings'
@@ -513,7 +598,6 @@ var productionGpuPools = [
   }
 ]
 
-// Dev GPU pool — single T4 node for all workloads (inference + embeddings)
 var devGpuPools = [
   {
     name: 'gput4'
@@ -526,7 +610,7 @@ var devGpuPools = [
     osType: 'Linux'
     osDiskSizeGB: 128
     type: 'VirtualMachineScaleSets'
-    vnetSubnetResourceId: vnet.outputs.subnetResourceIds[0]
+    vnetSubnetID: vnet.properties.subnets[0].id
     nodeLabels: {
       'directai.io/gpu-pool': 't4'
       'directai.io/pool': 'inference'
@@ -539,208 +623,147 @@ var gpuAgentPools = enableGpuPools
   ? (gpuPoolTier == 'dev' ? devGpuPools : productionGpuPools)
   : []
 
-module aks 'br/public:avm/res/container-service/managed-cluster:0.5.3' = {
-  name: 'aks'
-  params: {
-    name: aksName
-    location: location
-    kubernetesVersion: kubernetesVersion
-    skuTier: environment == 'prod' ? 'Standard' : 'Free'
-
-    // Identity — split for least privilege
-    // Control plane identity: cluster management operations
-    managedIdentities: {
-      userAssignedResourcesIds: [identityControlPlane.outputs.resourceId]
+resource aks 'Microsoft.ContainerService/managedClusters@2024-09-01' = {
+  name: aksName
+  location: location
+  tags: defaultTags
+  sku: {
+    name: 'Base'
+    tier: environment == 'prod' ? 'Standard' : 'Free'
+  }
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${identityControlPlane.id}': {}
     }
-    // Kubelet identity: node-level operations (image pull, blob mount, secret read)
+  }
+  properties: {
+    kubernetesVersion: kubernetesVersion
+    dnsPrefix: aksName
     identityProfile: {
       kubeletidentity: {
-        resourceId: identityKubelet.outputs.resourceId
+        resourceId: identityKubelet.id
+        clientId: identityKubelet.properties.clientId
+        objectId: identityKubelet.properties.principalId
       }
     }
-
-    // AAD integration — Azure RBAC for K8s authz
     aadProfile: {
-      aadProfileEnableAzureRBAC: true
-      aadProfileManaged: true
+      enableAzureRBAC: true
+      managed: true
     }
     disableLocalAccounts: true
-
-    // Networking — Azure CNI Overlay (pod IPs decoupled from VNet)
-    networkPlugin: 'azure'
-    networkPluginMode: 'overlay'
-    networkDataplane: 'azure'
-    networkPolicy: 'azure'
-    dnsServiceIP: '10.10.200.10'
-    serviceCidr: '10.10.200.0/24'
-
-    // System node pool
-    primaryAgentPoolProfiles: [
-      {
-        name: 'system'
-        mode: 'System'
-        vmSize: 'Standard_DS4_v2'
-        count: systemPoolMinCount
-        minCount: systemPoolMinCount
-        maxCount: systemPoolMaxCount
-        enableAutoScaling: true
-        osType: 'Linux'
-        osDiskSizeGB: 128
-        type: 'VirtualMachineScaleSets'
-        availabilityZones: environment == 'prod' ? [1, 2, 3] : [1]
-        vnetSubnetResourceId: vnet.outputs.subnetResourceIds[0]
-        nodeTaints: ['CriticalAddonsOnly=true:NoSchedule']
-      }
-    ]
-
-    // GPU node pools (conditional)
-    agentPools: gpuAgentPools
-
-    // Add-ons — KEDA, KV secrets, Blob CSI, OIDC, Workload Identity
-    kedaAddon: true
-    enableKeyvaultSecretsProvider: true
-    enableSecretRotation: true
-    enableOidcIssuerProfile: true
-    enableWorkloadIdentity: true
-    enableStorageProfileBlobCSIDriver: true
-    enableStorageProfileDiskCSIDriver: true
-
-    // Monitoring
-    omsAgentEnabled: true
-    monitoringWorkspaceResourceId: logAnalytics.outputs.resourceId
-    enableAzureMonitorProfileMetrics: true
-
-    // Auto-upgrade
-    autoUpgradeProfileUpgradeChannel: 'stable'
-    autoNodeOsUpgradeProfileUpgradeChannel: 'SecurityPatch'
-
-    // Maintenance windows
-    maintenanceConfigurations: [
-      {
-        name: 'aksManagedAutoUpgradeSchedule'
-        maintenanceWindow: {
-          durationHours: 4
-          schedule: { weekly: { dayOfWeek: 'Sunday', intervalWeeks: 1 } }
-          startDate: '2025-01-01'
-          startTime: '04:00'
-          utcOffset: '+00:00'
+    networkProfile: {
+      networkPlugin: 'azure'
+      networkPluginMode: 'overlay'
+      networkDataplane: 'azure'
+      networkPolicy: 'azure'
+      dnsServiceIP: '10.10.200.10'
+      serviceCidr: '10.10.200.0/24'
+    }
+    agentPoolProfiles: concat(
+      [
+        {
+          name: 'system'
+          mode: 'System'
+          vmSize: 'Standard_DS4_v2'
+          count: systemPoolMinCount
+          minCount: systemPoolMinCount
+          maxCount: systemPoolMaxCount
+          enableAutoScaling: true
+          osType: 'Linux'
+          osDiskSizeGB: 128
+          type: 'VirtualMachineScaleSets'
+          availabilityZones: environment == 'prod' ? ['1', '2', '3'] : ['1']
+          vnetSubnetID: vnet.properties.subnets[0].id
+          nodeTaints: ['CriticalAddonsOnly=true:NoSchedule']
         }
+      ],
+      gpuAgentPools
+    )
+    addonProfiles: {
+      omsagent: {
+        enabled: true
+        config: { logAnalyticsWorkspaceResourceID: logAnalytics.id }
       }
-      {
-        name: 'aksManagedNodeOSUpgradeSchedule'
-        maintenanceWindow: {
-          durationHours: 4
-          schedule: { weekly: { dayOfWeek: 'Sunday', intervalWeeks: 1 } }
-          startDate: '2025-01-01'
-          startTime: '04:00'
-          utcOffset: '+00:00'
-        }
+      azureKeyvaultSecretsProvider: {
+        enabled: true
+        config: { enableSecretRotation: 'true' }
       }
-    ]
+    }
+    oidcIssuerProfile: { enabled: true }
+    securityProfile: { workloadIdentity: { enabled: true } }
+    storageProfile: {
+      blobCSIDriver: { enabled: true }
+      diskCSIDriver: { enabled: true }
+    }
+    workloadAutoScalerProfile: { keda: { enabled: true } }
+    azureMonitorProfile: { metrics: { enabled: true } }
+    autoUpgradeProfile: { upgradeChannel: 'stable', nodeOSUpgradeChannel: 'SecurityPatch' }
+  }
+  dependsOn: [roleKubeletOperator]
+}
 
-    // Diagnostics
-    diagnosticSettings: [
-      {
-        workspaceResourceId: logAnalytics.outputs.resourceId
-        logCategoriesAndGroups: [
-          { category: 'kube-apiserver' }
-          { category: 'kube-controller-manager' }
-          { category: 'kube-scheduler' }
-          { category: 'cluster-autoscaler' }
-          { category: 'kube-audit-admin' }
-          { category: 'guard' }
-        ]
-        metricCategories: [{ category: 'AllMetrics' }]
-      }
+resource aksDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: 'diag-${aksName}'
+  scope: aks
+  properties: {
+    workspaceId: logAnalytics.id
+    logs: [
+      { category: 'kube-apiserver', enabled: true }
+      { category: 'kube-controller-manager', enabled: true }
+      { category: 'kube-scheduler', enabled: true }
+      { category: 'cluster-autoscaler', enabled: true }
+      { category: 'kube-audit-admin', enabled: true }
+      { category: 'guard', enabled: true }
     ]
-
-    tags: defaultTags
+    metrics: [{ category: 'AllMetrics', enabled: true }]
   }
 }
 
-// ---------------------------------------------------------------------------
-// 8. Observability Workbook — Azure Monitor dashboard
-//    Per-model latency, throughput, error rate, TTFT, inflight requests,
-//    GPU utilization, node pool health, and cluster autoscaler events.
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// 8. Observability Workbook
+// ===========================================================================
 
 module observabilityWorkbook 'modules/workbook.bicep' = {
   name: 'observabilityWorkbook'
   params: {
     location: location
-    logAnalyticsWorkspaceId: logAnalytics.outputs.resourceId
-    appInsightsResourceId: appInsights.outputs.resourceId
+    logAnalyticsWorkspaceId: logAnalytics.id
+    appInsightsResourceId: appInsights.id
     tags: defaultTags
   }
 }
 
-// ---------------------------------------------------------------------------
+// ===========================================================================
 // 9. Federated Identity Credential — Workload Identity for K8s pods
-//    Links the kubelet managed identity to the AKS OIDC issuer.
-//    Pods in the "directai" namespace using the "directai" ServiceAccount
-//    (annotated with azure.workload.identity/client-id) can authenticate
-//    as this identity to access Blob Storage, Key Vault, etc.
-// ---------------------------------------------------------------------------
-
-resource existingKubeletIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' existing = {
-  name: identityKubeletName
-}
+// ===========================================================================
 
 resource kubeletFederatedCredential 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = {
-  parent: existingKubeletIdentity
+  parent: identityKubelet
   name: 'fic-aks-directai'
   properties: {
-    issuer: aks.outputs.oidcIssuerUrl
+    issuer: aks.properties.oidcIssuerProfile.issuerURL
     subject: 'system:serviceaccount:directai:directai'
     audiences: ['api://AzureADTokenExchange']
   }
 }
 
-// ---------------------------------------------------------------------------
+// ===========================================================================
 // Outputs
-// ---------------------------------------------------------------------------
+// ===========================================================================
 
-@description('AKS cluster name.')
-output aksName string = aks.outputs.name
-
-@description('AKS cluster resource ID.')
-output aksResourceId string = aks.outputs.resourceId
-
-@description('AKS OIDC issuer URL for workload identity federation.')
-output aksOidcIssuerUrl string = aks.outputs.oidcIssuerUrl
-
-@description('AKS control plane FQDN.')
-output aksControlPlaneFqdn string = aks.outputs.controlPlaneFQDN
-
-@description('Storage account name for model weights and engines.')
-output storageAccountName string = storage.outputs.name
-
-@description('ACR login server for inference images. Per-customer ACR when deployed, otherwise platform ACR.')
-output acrLoginServer string = deployPerCustomerAcr ? acr!.outputs.loginServer : platformAcrLoginServer
-
-@description('Key Vault URI.')
-output keyVaultUri string = keyVault.outputs.uri
-
-@description('Log Analytics workspace resource ID.')
-output logAnalyticsWorkspaceId string = logAnalytics.outputs.resourceId
-
-@description('Control plane identity principal ID.')
-output controlPlaneIdentityPrincipalId string = identityControlPlane.outputs.principalId
-
-@description('Control plane identity client ID.')
-output controlPlaneIdentityClientId string = identityControlPlane.outputs.clientId
-
-@description('Kubelet identity principal ID.')
-output kubeletIdentityPrincipalId string = identityKubelet.outputs.principalId
-
-@description('Kubelet identity client ID.')
-output kubeletIdentityClientId string = identityKubelet.outputs.clientId
-
-@description('Application Insights connection string.')
-output appInsightsConnectionString string = appInsights.outputs.connectionString
-
-@description('Application Insights resource ID.')
-output appInsightsResourceId string = appInsights.outputs.resourceId
-
-@description('Observability workbook resource ID.')
+output aksName string = aks.name
+output aksResourceId string = aks.id
+output aksOidcIssuerUrl string = aks.properties.oidcIssuerProfile.issuerURL
+output aksControlPlaneFqdn string = aks.properties.fqdn
+output storageAccountName string = storage.name
+output acrLoginServer string = deployPerCustomerAcr ? acr!.properties.loginServer : platformAcrLoginServer
+output keyVaultUri string = keyVault.properties.vaultUri
+output logAnalyticsWorkspaceId string = logAnalytics.id
+output controlPlaneIdentityPrincipalId string = identityControlPlane.properties.principalId
+output controlPlaneIdentityClientId string = identityControlPlane.properties.clientId
+output kubeletIdentityPrincipalId string = identityKubelet.properties.principalId
+output kubeletIdentityClientId string = identityKubelet.properties.clientId
+output appInsightsConnectionString string = appInsights.properties.ConnectionString
+output appInsightsResourceId string = appInsights.id
 output observabilityWorkbookId string = observabilityWorkbook.outputs.workbookResourceId
