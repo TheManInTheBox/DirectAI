@@ -53,7 +53,7 @@ permissions:
 
 env:
   IMAGE_NAME: api-server
-  DOCKER_CONTEXT: src/api-server
+  BUILD_CONTEXT: src/api-server
 
 jobs:
   # ── Lint & Test ──────────────────────────────────────────────────
@@ -152,7 +152,7 @@ jobs:
         id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
-          context: ${{ env.DOCKER_CONTEXT }}
+          context: ${{ env.BUILD_CONTEXT }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
