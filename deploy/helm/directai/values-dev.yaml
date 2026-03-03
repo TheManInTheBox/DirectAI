@@ -1,0 +1,94 @@
+# ============================================================================
+# DirectAI Helm Chart — Dev Environment Values (internal-dev-scus)
+# AKS: aks-dai-internal-dev-scus  |  ACR: acrplatformdaiv7fgid.azurecr.io
+# ============================================================================
+
+global:
+  namespace: directai
+
+# ── API Server ─────────────────────────────────────────────────────────────
+apiServer:
+  replicaCount: 1
+
+  image:
+    repository: acrplatformdaiv7fgid.azurecr.io/api-server
+    tag: "latest"
+    pullPolicy: Always
+
+  service:
+    type: ClusterIP
+    port: 8000
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
+  env:
+    DIRECTAI_LOG_LEVEL: "debug"
+    DIRECTAI_BACKEND_TIMEOUT: "300"
+    DIRECTAI_BACKEND_CONNECT_TIMEOUT: "10"
+
+  modelConfigDir: /app/models
+
+  autoscaling:
+    enabled: false
+
+# ── Ingress — disabled for dev (use port-forward) ─────────────────────────
+ingress:
+  enabled: false
+
+# ── TLS — disabled for dev ─────────────────────────────────────────────────
+tls:
+  enabled: false
+  certManager:
+    enabled: false
+
+# ── Service Account (Workload Identity) ────────────────────────────────────
+serviceAccount:
+  create: true
+  name: directai
+  annotations:
+    azure.workload.identity/client-id: "0d60bdcc-b4e9-4cee-b1a5-53995135fa45"
+
+workloadIdentity:
+  enabled: true
+  clientId: "0d60bdcc-b4e9-4cee-b1a5-53995135fa45"
+
+# ── No backends in initial deploy — API server only ────────────────────────
+backends: {}
+
+# ── Network Policy ─────────────────────────────────────────────────────────
+networkPolicy:
+  enabled: true
+
+# ── KEDA — enabled on cluster but no ScaledObjects until backends added ────
+keda:
+  enabled: true
+  pollingInterval: 15
+  cooldownPeriod: 300
+
+# ── Prometheus / monitoring — disabled until Prometheus Operator installed ──
+prometheusRules:
+  enabled: false
+
+# ── Priority Class — enabled for when GPU backends come online ─────────────
+priorityClass:
+  enabled: true
+  name: directai-inference
+  value: 1000000
+
+# ── NVMe init — disabled, T4 dev nodes don't have local NVMe ──────────────
+nvmeInit:
+  enabled: false
+
+# ── DCGM Exporter — disabled for dev ──────────────────────────────────────
+dcgmExporter:
+  enabled: false
+
+# ── Datadog — disabled ────────────────────────────────────────────────────
+datadogOtlp:
+  enabled: false

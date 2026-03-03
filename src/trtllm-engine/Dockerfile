@@ -12,34 +12,29 @@
 # Production: use the pre-built NVIDIA TRT-LLM container.
 # CI/stub mode: use a lightweight CUDA base without tensorrt_llm.
 #   Build with: docker build --build-arg USE_STUB=true .
-ARG TRTLLM_VERSION=0.16.0
+#
+# To avoid resolving the (potentially unavailable) NGC TRT-LLM image
+# during CI/stub builds, we parameterize the base image directly.
+# The workflow sets BASE_IMAGE based on the build mode.
 ARG USE_STUB=false
+ARG TRTLLM_VERSION=0.16.0
+ARG BASE_IMAGE=nvidia/cuda:12.4.1-devel-ubuntu22.04
 
-# ---- Production base: full TRT-LLM runtime ----
-FROM nvcr.io/nvidia/tensorrt-llm/release:${TRTLLM_VERSION} AS base-prod
+FROM ${BASE_IMAGE} AS base
 
-# ---- CI/stub base: no TRT-LLM, runs in stub mode ----
-FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS base-stub
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.11 \
-    python3.11-dev \
-    python3.11-venv \
-    python3-pip \
-    curl \
-    openmpi-bin \
-    libopenmpi-dev \
-    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
-    && update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 \
-    && rm -rf /var/lib/apt/lists/*
 
-# ---- Select base ----
-# Docker doesn't support conditional FROM directly, so we use the
-# build stage target approach: build with --target runtime for prod,
-# or --build-arg USE_STUB=true && --target runtime for CI.
-FROM base-prod AS base-false
-FROM base-stub AS base-true
-FROM base-${USE_STUB} AS base
+# When in stub mode (no TRT-LLM), install Python 3.11 and MPI.
+# In production, TRT-LLM base already has Python and MPI.
+ARG USE_STUB
+RUN if [ "$USE_STUB" = "true" ]; then \
+      apt-get update && apt-get install -y --no-install-recommends \
+        python3.11 python3.11-dev python3.11-venv python3-pip \
+        curl openmpi-bin libopenmpi-dev \
+      && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
+      && update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 \
+      && rm -rf /var/lib/apt/lists/*; \
+    fi
 
 # ── App layer ───────────────────────────────────────────────
 FROM base AS runtime

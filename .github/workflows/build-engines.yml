@@ -198,10 +198,13 @@ jobs:
         id: trtllm-mode
         run: |
           MODE="${{ github.event.inputs.trtllm_mode }}"
-          if [ "$MODE" = "stub" ]; then
+          # Default to stub for push-triggered builds (no inputs available)
+          if [ -z "$MODE" ] || [ "$MODE" = "stub" ]; then
             echo "use_stub=true" >> $GITHUB_OUTPUT
+            echo "base_image=nvidia/cuda:12.4.1-devel-ubuntu22.04" >> $GITHUB_OUTPUT
           else
             echo "use_stub=false" >> $GITHUB_OUTPUT
+            echo "base_image=nvcr.io/nvidia/tensorrt-llm/release:0.16.0" >> $GITHUB_OUTPUT
           fi
 
       - name: Docker metadata
@@ -234,6 +237,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             USE_STUB=${{ steps.trtllm-mode.outputs.use_stub }}
+            BASE_IMAGE=${{ steps.trtllm-mode.outputs.base_image }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

@@ -281,6 +281,8 @@ spec:
 
     monkeypatch.setenv("DIRECTAI_MODEL_CONFIG_DIR", str(tmp_path))
     monkeypatch.setenv("DIRECTAI_API_KEYS", "")
+    monkeypatch.setenv("DIRECTAI_DATABASE_PATH", ":memory:")
+    monkeypatch.setenv("DIRECTAI_OTEL_ENABLED", "false")
 
     from app.config import get_settings
 
@@ -486,6 +488,8 @@ spec:
         (tmp_path / "dead.yaml").write_text(yaml_content)
         monkeypatch.setenv("DIRECTAI_MODEL_CONFIG_DIR", str(tmp_path))
         monkeypatch.setenv("DIRECTAI_API_KEYS", "")
+        monkeypatch.setenv("DIRECTAI_DATABASE_PATH", ":memory:")
+        monkeypatch.setenv("DIRECTAI_OTEL_ENABLED", "false")
 
         from app.config import get_settings
 
