@@ -1,0 +1,177 @@
+# ============================================================================
+# DirectAI — Populate Engine Cache
+# Pre-compiles TRT-LLM engines for popular architectures × GPU SKUs.
+#
+# This workflow dispatches compile-engine.yml for each combination in
+# the matrix.  Run manually or trigger on TRT-LLM version bumps.
+#
+# The cache eliminates the 30-60 min compile step for standard
+# architecture deployments — engines are pulled from Blob Storage in
+# seconds instead.
+#
+# SECURITY: Pin third-party actions to commit SHAs before going to production.
+# ============================================================================
+
+name: Populate Engine Cache
+
+on:
+  workflow_dispatch:
+    inputs:
+      trtllm_image:
+        description: 'TRT-LLM compiler image (e.g., nvidia/tensorrt-llm:0.16.0)'
+        required: false
+        type: string
+        default: 'nvidia/tensorrt-llm:0.16.0'
+      customer_id:
+        description: 'Customer ID for target cluster'
+        required: true
+        type: string
+        default: 'internal'
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+        default: dev
+      region_short:
+        description: 'Region short name (e.g., eus2)'
+        required: true
+        type: string
+        default: 'eus2'
+      storage_account:
+        description: 'Storage account name for engine blobs'
+        required: true
+        type: string
+      api_server_url:
+        description: 'DirectAI API server URL for cache registration callbacks (optional)'
+        required: false
+        type: string
+        default: ''
+      api_key:
+        description: 'API key for cache registration (optional)'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  actions: write   # needed to dispatch child workflows
+
+# ── Engine Matrix ──────────────────────────────────────────────────
+# Each entry defines an architecture × parameter count × GPU SKU
+# combination to pre-compile.  This covers the acceptance criteria:
+#   - ≥3 architectures (Llama, Qwen, Mistral, DeepSeek, Whisper)
+#   - × 2 GPU SKUs (A100, H100)
+#
+# Fine-tuned models with standard architectures reuse these engines —
+# only the weights differ.
+# ──────────────────────────────────────────────────────────────────
+
+jobs:
+  build-matrix:
+    name: Build Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: Generate engine matrix
+        id: matrix
+        run: |
+          cat <<'EOF' > matrix.json
+          {
+            "include": [
+              {"arch": "llama",    "params": "7b",         "tp": "1", "dtype": "float16", "weights_path": "llama-3.1-7b/weights/",    "engine_path": "llama-3.1-7b/engine/"},
+              {"arch": "llama",    "params": "13b",        "tp": "1", "dtype": "float16", "weights_path": "llama-3.1-13b/weights/",   "engine_path": "llama-3.1-13b/engine/"},
+              {"arch": "llama",    "params": "70b",        "tp": "2", "dtype": "float16", "weights_path": "llama-3.1-70b/weights/",   "engine_path": "llama-3.1-70b/engine/"},
+              {"arch": "qwen",     "params": "7b",         "tp": "1", "dtype": "float16", "weights_path": "qwen-2.5-7b/weights/",     "engine_path": "qwen-2.5-7b/engine/"},
+              {"arch": "qwen",     "params": "14b",        "tp": "1", "dtype": "float16", "weights_path": "qwen-2.5-14b/weights/",    "engine_path": "qwen-2.5-14b/engine/"},
+              {"arch": "qwen",     "params": "72b",        "tp": "4", "dtype": "float16", "weights_path": "qwen-2.5-72b/weights/",    "engine_path": "qwen-2.5-72b/engine/"},
+              {"arch": "mistral",  "params": "7b",         "tp": "1", "dtype": "float16", "weights_path": "mistral-7b/weights/",      "engine_path": "mistral-7b/engine/"},
+              {"arch": "mistral",  "params": "8x7b",       "tp": "2", "dtype": "float16", "weights_path": "mixtral-8x7b/weights/",    "engine_path": "mixtral-8x7b/engine/"},
+              {"arch": "deepseek", "params": "7b",         "tp": "1", "dtype": "float16", "weights_path": "deepseek-7b/weights/",     "engine_path": "deepseek-7b/engine/"},
+              {"arch": "deepseek", "params": "67b",        "tp": "4", "dtype": "float16", "weights_path": "deepseek-67b/weights/",    "engine_path": "deepseek-67b/engine/"},
+              {"arch": "whisper",  "params": "large-v3",       "tp": "1", "dtype": "float16", "weights_path": "whisper-large-v3/weights/",      "engine_path": "whisper-large-v3/engine/"},
+              {"arch": "whisper",  "params": "large-v3-turbo", "tp": "1", "dtype": "float16", "weights_path": "whisper-large-v3-turbo/weights/", "engine_path": "whisper-large-v3-turbo/engine/"}
+            ]
+          }
+          EOF
+          echo "matrix=$(cat matrix.json | jq -c)" >> $GITHUB_OUTPUT
+
+  # ── Dispatch compilation for each architecture × GPU SKU ─────────
+  compile-a100:
+    name: "Compile ${{ matrix.arch }}-${{ matrix.params }} (A100)"
+    needs: build-matrix
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJson(needs.build-matrix.outputs.matrix) }}
+    uses: ./.github/workflows/compile-engine.yml
+    with:
+      model_name: "${{ matrix.arch }}-${{ matrix.params }}"
+      architecture: "${{ matrix.arch }}"
+      parameter_count: "${{ matrix.params }}"
+      weights_uri: "https://${{ inputs.storage_account }}.blob.core.windows.net/models/${{ matrix.weights_path }}"
+      engine_output_uri: "https://${{ inputs.storage_account }}.blob.core.windows.net/engines/${{ matrix.arch }}/${{ matrix.params }}/a100/${{ matrix.engine_path }}"
+      gpu_sku: Standard_ND96asr_v4
+      tp_size: "${{ matrix.tp }}"
+      dtype: "${{ matrix.dtype }}"
+      trtllm_image: "${{ inputs.trtllm_image }}"
+      customer_id: "${{ inputs.customer_id }}"
+      environment: "${{ inputs.environment }}"
+      region_short: "${{ inputs.region_short }}"
+      api_server_url: "${{ inputs.api_server_url }}"
+      api_key: "${{ inputs.api_key }}"
+    secrets: inherit
+
+  compile-h100:
+    name: "Compile ${{ matrix.arch }}-${{ matrix.params }} (H100)"
+    needs: build-matrix
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJson(needs.build-matrix.outputs.matrix) }}
+    uses: ./.github/workflows/compile-engine.yml
+    with:
+      model_name: "${{ matrix.arch }}-${{ matrix.params }}"
+      architecture: "${{ matrix.arch }}"
+      parameter_count: "${{ matrix.params }}"
+      weights_uri: "https://${{ inputs.storage_account }}.blob.core.windows.net/models/${{ matrix.weights_path }}"
+      engine_output_uri: "https://${{ inputs.storage_account }}.blob.core.windows.net/engines/${{ matrix.arch }}/${{ matrix.params }}/h100/${{ matrix.engine_path }}"
+      gpu_sku: Standard_ND96isr_H100_v5
+      tp_size: "${{ matrix.tp }}"
+      dtype: "${{ matrix.dtype }}"
+      trtllm_image: "${{ inputs.trtllm_image }}"
+      customer_id: "${{ inputs.customer_id }}"
+      environment: "${{ inputs.environment }}"
+      region_short: "${{ inputs.region_short }}"
+      api_server_url: "${{ inputs.api_server_url }}"
+      api_key: "${{ inputs.api_key }}"
+    secrets: inherit
+
+  # ── Summary ──────────────────────────────────────────────────────
+  summary:
+    name: Cache Population Summary
+    needs: [compile-a100, compile-h100]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report
+        run: |
+          echo "## 🗄️ Engine Cache Population Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **TRT-LLM Image** | \`${{ inputs.trtllm_image }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Cluster** | \`${{ inputs.customer_id }}-${{ inputs.environment }}-${{ inputs.region_short }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Storage** | \`${{ inputs.storage_account }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **A100 Jobs** | \`${{ needs.compile-a100.result }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **H100 Jobs** | \`${{ needs.compile-h100.result }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Architectures" >> $GITHUB_STEP_SUMMARY
+          echo "- Llama (7B, 13B, 70B)" >> $GITHUB_STEP_SUMMARY
+          echo "- Qwen (7B, 14B, 72B)" >> $GITHUB_STEP_SUMMARY
+          echo "- Mistral (7B, 8x7B MoE)" >> $GITHUB_STEP_SUMMARY
+          echo "- DeepSeek (7B, 67B)" >> $GITHUB_STEP_SUMMARY
+          echo "- Whisper (large-v3, large-v3-turbo)" >> $GITHUB_STEP_SUMMARY

@@ -220,6 +220,40 @@ jobs:
           WEIGHTS_URI=$(resolve_uri "$(yq '.spec.engine.weightsUri // ""' "$CONFIG")")
           ENGINE_URI=$(resolve_uri "$(yq '.spec.engine.engineUri // ""' "$CONFIG")")
 
+          # ── Engine cache lookup ──────────────────────────────────────
+          # If the API server is reachable, check the pre-compiled engine
+          # cache before deploying.  A cache hit replaces ENGINE_URI with
+          # the cached artifact, skipping the compile step entirely.
+          if [ -n "${{ inputs.api_server_url }}" ]; then
+            ENGINE_TYPE=$(yq '.spec.engine.type' "$CONFIG")
+            if [ "$ENGINE_TYPE" = "tensorrt-llm" ]; then
+              ARCH=$(yq '.spec.engine.architecture // ""' "$CONFIG")
+              PARAMS=$(yq '.spec.engine.parameterCount // ""' "$CONFIG")
+              QUANT=$(yq '.spec.engine.quantization // "float16"' "$CONFIG")
+              TRTLLM_VER=$(yq '.spec.engine.trtllmVersion // ""' "$CONFIG")
+              AUTH_HEADER=""
+              if [ -n "${{ inputs.api_key }}" ]; then
+                AUTH_HEADER="Authorization: Bearer ${{ inputs.api_key }}"
+              fi
+              if [ -n "$ARCH" ] && [ -n "$PARAMS" ] && [ -n "$TRTLLM_VER" ]; then
+                CACHE_RESP=$(curl -sf \
+                  ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
+                  "${{ inputs.api_server_url }}/api/v1/engine-cache/lookup?architecture=${ARCH}&parameter_count=${PARAMS}&quantization=${QUANT}&tp_degree=${GPU_COUNT}&gpu_sku=${GPU_SKU}&trtllm_version=${TRTLLM_VER}" \
+                  2>/dev/null || echo '{"cache_hit": false}')
+                CACHE_HIT=$(echo "$CACHE_RESP" | jq -r '.cache_hit // false')
+                if [ "$CACHE_HIT" = "true" ]; then
+                  CACHED_URI=$(echo "$CACHE_RESP" | jq -r '.entry.engine_uri')
+                  echo "### ✅ Engine Cache HIT — using cached engine" >> $GITHUB_STEP_SUMMARY
+                  echo "Cached URI: \`${CACHED_URI}\`" >> $GITHUB_STEP_SUMMARY
+                  ENGINE_URI="$CACHED_URI"
+                else
+                  CACHE_KEY=$(echo "$CACHE_RESP" | jq -r '.cache_key // "unknown"')
+                  echo "### ❌ Engine Cache MISS (key: \`${CACHE_KEY}\`)" >> $GITHUB_STEP_SUMMARY
+                fi
+              fi
+            fi
+          fi
+
           # Hardware
           GPU_COUNT=$(yq '.spec.hardware.gpuCount // 1' "$CONFIG")
           GPU_SKU=$(yq '.spec.hardware.gpuSku // ""' "$CONFIG")

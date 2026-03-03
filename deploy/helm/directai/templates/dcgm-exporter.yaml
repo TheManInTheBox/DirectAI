@@ -1,0 +1,146 @@
+{{/*
+DCGM Exporter — NVIDIA Data Center GPU Manager metrics exporter.
+Exposes GPU utilization, memory, temperature, power, and error counters
+as Prometheus metrics on port 9400.
+
+Deployed as a DaemonSet on GPU nodes only. Requires NVIDIA drivers
+and the nvidia-container-runtime on the host (standard on AKS GPU pools).
+*/}}
+{{- if .Values.dcgmExporter.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ .Release.Name }}-dcgm-exporter
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "directai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dcgm-exporter
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Chart.Name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: dcgm-exporter
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        {{- include "directai.labels" . | nindent 8 }}
+        app.kubernetes.io/component: dcgm-exporter
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9400"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: {{ include "directai.serviceAccountName" . }}
+      hostPID: false
+      hostNetwork: false
+      containers:
+        - name: dcgm-exporter
+          image: "{{ .Values.dcgmExporter.image.repository }}:{{ .Values.dcgmExporter.image.tag }}"
+          imagePullPolicy: {{ .Values.dcgmExporter.image.pullPolicy | default "IfNotPresent" }}
+          ports:
+            - name: metrics
+              containerPort: 9400
+              protocol: TCP
+          env:
+            - name: DCGM_EXPORTER_KUBERNETES
+              value: "true"
+            - name: DCGM_EXPORTER_LISTEN
+              value: ":9400"
+            {{- if .Values.dcgmExporter.collectInterval }}
+            - name: DCGM_EXPORTER_INTERVAL
+              value: {{ .Values.dcgmExporter.collectInterval | quote }}
+            {{- end }}
+          {{- if .Values.dcgmExporter.customMetrics }}
+          args:
+            - "-f"
+            - "/etc/dcgm-exporter/custom-metrics.csv"
+          volumeMounts:
+            - name: custom-metrics
+              mountPath: /etc/dcgm-exporter
+              readOnly: true
+          {{- end }}
+          resources:
+            {{- toYaml .Values.dcgmExporter.resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: false
+            privileged: true  # Required to access GPU devices
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      {{- if .Values.dcgmExporter.customMetrics }}
+      volumes:
+        - name: custom-metrics
+          configMap:
+            name: {{ .Release.Name }}-dcgm-metrics
+      {{- end }}
+      nodeSelector:
+        {{- toYaml .Values.dcgmExporter.nodeSelector | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.dcgmExporter.tolerations | nindent 8 }}
+---
+{{/*
+ServiceMonitor for DCGM Exporter — Prometheus Operator.
+*/}}
+{{- if .Values.prometheusRules.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ .Release.Name }}-dcgm-exporter
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "directai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dcgm-exporter
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Chart.Name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: dcgm-exporter
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
+  namespaceSelector:
+    matchNames:
+      - {{ .Values.global.namespace }}
+{{- end }}
+---
+{{/*
+Service for DCGM Exporter — needed for ServiceMonitor port reference.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-dcgm-exporter
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "directai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dcgm-exporter
+spec:
+  type: ClusterIP
+  clusterIP: None  # Headless — DaemonSet, no load balancing needed
+  ports:
+    - name: metrics
+      port: 9400
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: dcgm-exporter
+{{- end }}

@@ -6,8 +6,9 @@ the need arises — callers only see the public methods, not SQL.
 
 Tables
 ------
-models       — registered model versions with lifecycle status
-deployments  — deployment records tracking K8s endpoint provisioning
+models        — registered model versions with lifecycle status
+deployments   — deployment records tracking K8s endpoint provisioning
+engine_cache  — pre-compiled TRT-LLM engine cache index
 """
 
 from __future__ import annotations
@@ -61,6 +62,20 @@ CREATE TABLE IF NOT EXISTS deployments (
     created_at         TEXT NOT NULL,
     updated_at         TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS engine_cache (
+    id              TEXT PRIMARY KEY,
+    cache_key       TEXT NOT NULL UNIQUE,
+    architecture    TEXT NOT NULL,
+    parameter_count TEXT NOT NULL,
+    quantization    TEXT NOT NULL,
+    tp_degree       INTEGER NOT NULL DEFAULT 1,
+    gpu_sku         TEXT NOT NULL,
+    trtllm_version  TEXT NOT NULL,
+    engine_uri      TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+);
 """
 
 # ------------------------------------------------------------------
@@ -84,6 +99,25 @@ def _row_to_model(row: aiosqlite.Row) -> dict[str, Any]:
 
 def _row_to_deployment(row: aiosqlite.Row) -> dict[str, Any]:
     return dict(row)
+
+
+def _row_to_cache_entry(row: aiosqlite.Row) -> dict[str, Any]:
+    return dict(row)
+
+
+def build_cache_key(
+    architecture: str,
+    parameter_count: str,
+    quantization: str,
+    tp_degree: int,
+    gpu_sku: str,
+    trtllm_version: str,
+) -> str:
+    """Build a deterministic engine cache key.
+
+    Format: {architecture}_{parameter_count}_{quantization}_tp{tp_degree}_{gpu_sku}_trtllm{version}
+    """
+    return f"{architecture}_{parameter_count}_{quantization}_tp{tp_degree}_{gpu_sku}_trtllm{trtllm_version}"
 
 
 # ------------------------------------------------------------------
@@ -365,3 +399,178 @@ class ModelRepository:
         return await self.update_deployment(
             deployment_id, status=DeploymentStatus.TERMINATED.value,
         )
+
+    # ── Engine Cache ────────────────────────────────────────────────
+
+    async def register_engine(
+        self,
+        *,
+        architecture: str,
+        parameter_count: str,
+        quantization: str,
+        tp_degree: int,
+        gpu_sku: str,
+        trtllm_version: str,
+        engine_uri: str,
+    ) -> dict[str, Any]:
+        """Register a compiled engine in the cache.
+
+        If an entry with the same cache key already exists, update its
+        engine_uri and timestamp (upsert).
+        """
+        cache_key = build_cache_key(
+            architecture, parameter_count, quantization,
+            tp_degree, gpu_sku, trtllm_version,
+        )
+        now = _now()
+        # Upsert: update if cache_key exists, insert otherwise
+        existing = await self.lookup_engine(cache_key=cache_key)
+        if existing is not None:
+            await self._conn.execute(
+                "UPDATE engine_cache SET engine_uri = ?, updated_at = ? WHERE cache_key = ?",
+                (engine_uri, now, cache_key),
+            )
+            await self._conn.commit()
+            return await self.lookup_engine(cache_key=cache_key)  # type: ignore[return-value]
+        entry_id = _new_id()
+        await self._conn.execute(
+            """
+            INSERT INTO engine_cache
+                (id, cache_key, architecture, parameter_count, quantization,
+                 tp_degree, gpu_sku, trtllm_version, engine_uri,
+                 created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                entry_id, cache_key, architecture, parameter_count,
+                quantization, tp_degree, gpu_sku, trtllm_version,
+                engine_uri, now, now,
+            ),
+        )
+        await self._conn.commit()
+        return await self.get_engine_cache_entry(entry_id)  # type: ignore[return-value]
+
+    async def lookup_engine(
+        self,
+        *,
+        cache_key: str | None = None,
+        architecture: str | None = None,
+        parameter_count: str | None = None,
+        quantization: str | None = None,
+        tp_degree: int | None = None,
+        gpu_sku: str | None = None,
+        trtllm_version: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Look up a cached engine.
+
+        If ``cache_key`` is provided, do an exact match.  Otherwise build
+        the key from component fields and match.  If ``trtllm_version``
+        doesn't match the stored entry, return ``None`` (lazy invalidation).
+        """
+        if cache_key is None:
+            if all(v is not None for v in [
+                architecture, parameter_count, quantization,
+                tp_degree, gpu_sku, trtllm_version,
+            ]):
+                cache_key = build_cache_key(
+                    architecture, parameter_count, quantization,  # type: ignore[arg-type]
+                    tp_degree, gpu_sku, trtllm_version,  # type: ignore[arg-type]
+                )
+            else:
+                # Partial lookup by architecture + gpu_sku (ignoring version)
+                query = "SELECT * FROM engine_cache WHERE 1=1"
+                params: list[Any] = []
+                if architecture:
+                    query += " AND architecture = ?"
+                    params.append(architecture)
+                if parameter_count:
+                    query += " AND parameter_count = ?"
+                    params.append(parameter_count)
+                if gpu_sku:
+                    query += " AND gpu_sku = ?"
+                    params.append(gpu_sku)
+                if quantization:
+                    query += " AND quantization = ?"
+                    params.append(quantization)
+                if tp_degree is not None:
+                    query += " AND tp_degree = ?"
+                    params.append(tp_degree)
+                query += " ORDER BY updated_at DESC LIMIT 1"
+                cursor = await self._conn.execute(query, params)
+                row = await cursor.fetchone()
+                if row is None:
+                    return None
+                entry = _row_to_cache_entry(row)
+                # Lazy invalidation: version mismatch = miss
+                if trtllm_version and entry["trtllm_version"] != trtllm_version:
+                    return None
+                return entry
+
+        cursor = await self._conn.execute(
+            "SELECT * FROM engine_cache WHERE cache_key = ?", (cache_key,),
+        )
+        row = await cursor.fetchone()
+        return _row_to_cache_entry(row) if row else None
+
+    async def get_engine_cache_entry(self, entry_id: str) -> dict[str, Any] | None:
+        """Get a single engine cache entry by ID."""
+        cursor = await self._conn.execute(
+            "SELECT * FROM engine_cache WHERE id = ?", (entry_id,),
+        )
+        row = await cursor.fetchone()
+        return _row_to_cache_entry(row) if row else None
+
+    async def list_engine_cache(
+        self,
+        *,
+        architecture: str | None = None,
+        gpu_sku: str | None = None,
+        trtllm_version: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """List cached engines with optional filters."""
+        query = "SELECT * FROM engine_cache WHERE 1=1"
+        params: list[Any] = []
+        if architecture:
+            query += " AND architecture = ?"
+            params.append(architecture)
+        if gpu_sku:
+            query += " AND gpu_sku = ?"
+            params.append(gpu_sku)
+        if trtllm_version:
+            query += " AND trtllm_version = ?"
+            params.append(trtllm_version)
+        query += " ORDER BY architecture, parameter_count, gpu_sku"
+        cursor = await self._conn.execute(query, params)
+        rows = await cursor.fetchall()
+        return [_row_to_cache_entry(r) for r in rows]
+
+    async def delete_engine_cache_entry(self, entry_id: str) -> dict[str, Any] | None:
+        """Delete a single engine cache entry."""
+        entry = await self.get_engine_cache_entry(entry_id)
+        if entry is None:
+            return None
+        await self._conn.execute("DELETE FROM engine_cache WHERE id = ?", (entry_id,))
+        await self._conn.commit()
+        return entry
+
+    async def invalidate_engine_cache_by_version(
+        self, trtllm_version: str,
+    ) -> int:
+        """Delete all cache entries for a specific TRT-LLM version.
+
+        Returns the number of entries deleted.  This supports proactive
+        invalidation when the threshold (~20 entries) is crossed.
+        """
+        cursor = await self._conn.execute(
+            "SELECT COUNT(*) AS cnt FROM engine_cache WHERE trtllm_version = ?",
+            (trtllm_version,),
+        )
+        row = await cursor.fetchone()
+        count = row["cnt"] if row else 0
+        if count > 0:
+            await self._conn.execute(
+                "DELETE FROM engine_cache WHERE trtllm_version = ?",
+                (trtllm_version,),
+            )
+            await self._conn.commit()
+        return count

@@ -1,0 +1,25 @@
+{
+  "$schema": "Customer manifest — defines subscription, deployment config, and contact info for a DirectAI customer.",
+  "customerId": "internal",
+  "displayName": "DirectAI (Internal)",
+  "subscriptions": {
+    "dev": "0ae2be9a-f470-4dfe-b2e0-b7e9726acdfb",
+    "prod": ""
+  },
+  "operationsSubscriptionId": "b03c9eb4-cddc-4987-9673-9ac44b9cc1d9",
+  "tenantId": "7dd8cf8b-3a69-4cb3-96c9-0a9e63fe6127",
+  "appRegistrationId": "291122ee-4f43-4b21-a337-c4d6e2382c8e",
+  "appRegistrationName": "DevOptimum",
+  "githubEnvironments": ["internal-dev", "internal-prod"],
+  "allowedRegions": {
+    "southcentralus": "scus"
+  },
+  "gpuTier": "dev",
+  "platformAcrLoginServer": "",
+  "contacts": {
+    "technical": "aaron.hebert@agilecloud.ai",
+    "billing": "aaron.hebert@agilecloud.ai"
+  },
+  "notes": "Internal DirectAI dev stamp. Single T4 GPU pool (NCasT4_v3). South Central US.",
+  "onboardedAt": "2026-03-02T00:00:00Z"
+}

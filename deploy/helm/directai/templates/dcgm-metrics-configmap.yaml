@@ -1,0 +1,39 @@
+{{/*
+ConfigMap with custom DCGM metric fields.
+Focused on the metrics most relevant to inference workload monitoring.
+*/}}
+{{- if and .Values.dcgmExporter.enabled .Values.dcgmExporter.customMetrics }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-dcgm-metrics
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "directai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dcgm-exporter
+data:
+  custom-metrics.csv: |
+    # GPU Utilization & Memory — core inference metrics
+    DCGM_FI_DEV_GPU_UTIL,          gauge, GPU utilization (%).
+    DCGM_FI_DEV_MEM_COPY_UTIL,     gauge, Memory utilization (%).
+    DCGM_FI_DEV_FB_FREE,           gauge, Framebuffer memory free (MiB).
+    DCGM_FI_DEV_FB_USED,           gauge, Framebuffer memory used (MiB).
+    # Tensor Core utilization — critical for inference throughput
+    DCGM_FI_PROF_SM_ACTIVE,        gauge, Streaming Multiprocessor activity ratio.
+    DCGM_FI_PROF_SM_OCCUPANCY,     gauge, Streaming Multiprocessor occupancy ratio.
+    DCGM_FI_PROF_PIPE_TENSOR_ACTIVE, gauge, Tensor Core pipeline active ratio.
+    DCGM_FI_PROF_DRAM_ACTIVE,      gauge, DRAM active ratio.
+    # PCIe / NVLink throughput — detect communication bottlenecks
+    DCGM_FI_PROF_PCIE_TX_BYTES,    counter, PCIe TX bytes.
+    DCGM_FI_PROF_PCIE_RX_BYTES,    counter, PCIe RX bytes.
+    DCGM_FI_PROF_NVLINK_TX_BYTES,  counter, NVLink TX bytes.
+    DCGM_FI_PROF_NVLINK_RX_BYTES,  counter, NVLink RX bytes.
+    # Thermal & power — capacity planning
+    DCGM_FI_DEV_GPU_TEMP,          gauge, GPU temperature (C).
+    DCGM_FI_DEV_POWER_USAGE,       gauge, Power draw (W).
+    DCGM_FI_DEV_TOTAL_ENERGY_CONSUMPTION, counter, Total energy consumed (mJ).
+    # Error counters — detect hardware degradation
+    DCGM_FI_DEV_ECC_SBE_VOL_TOTAL, counter, Single-bit ECC errors (volatile).
+    DCGM_FI_DEV_ECC_DBE_VOL_TOTAL, counter, Double-bit ECC errors (volatile).
+    DCGM_FI_DEV_XID_ERRORS,        gauge, Last XID error code.
+{{- end }}

@@ -6,7 +6,7 @@
 # GPU nodes that match the target SKU. Compiled engines are uploaded to
 # Azure Blob Storage and cached for future deployments.
 #
-# Cache key: {architecture}_{parameters}_{quantization}_{gpu_sku}_{trtllm_version}
+# Cache key: {architecture}_{parameter_count}_{quantization}_tp{tp_degree}_{gpu_sku}_trtllm{version}
 #
 # SECURITY: Pin third-party actions to commit SHAs before going to production.
 #           Run `npx pin-github-action .github/workflows/*.yml` to automate.
@@ -23,6 +23,10 @@ on:
         type: string
       architecture:
         description: 'Model architecture for cache key (e.g., llama, mistral, qwen, whisper)'
+        required: true
+        type: string
+      parameter_count:
+        description: 'Parameter count string for cache key (e.g., 7b, 13b, 70b, large-v3)'
         required: true
         type: string
       weights_uri:
@@ -141,8 +145,9 @@ jobs:
         id: check
         run: |
           # Build deterministic cache key
+          # Format: {architecture}_{parameter_count}_{quantization}_tp{tp_degree}_{gpu_sku}_trtllm{version}
           TRTLLM_VER=$(echo "${{ inputs.trtllm_image }}" | grep -oP '[\d.]+$' || echo "unknown")
-          CACHE_KEY="${{ inputs.architecture }}_tp${{ inputs.tp_size }}_${{ inputs.dtype }}_${{ inputs.gpu_sku }}_trtllm${TRTLLM_VER}"
+          CACHE_KEY="${{ inputs.architecture }}_${{ inputs.parameter_count }}_${{ inputs.dtype }}_tp${{ inputs.tp_size }}_${{ inputs.gpu_sku }}_trtllm${TRTLLM_VER}"
           echo "cache_key=${CACHE_KEY}" >> $GITHUB_OUTPUT
           echo "### 🔑 Cache Key: \`${CACHE_KEY}\`" >> $GITHUB_STEP_SUMMARY
 
@@ -410,6 +415,41 @@ jobs:
             exit 1
           fi
           echo "### ✅ Model registry updated → ready" >> $GITHUB_STEP_SUMMARY
+
+      - name: Register engine in cache index
+        if: inputs.api_server_url != '' && success()
+        run: |
+          echo "Registering compiled engine in cache index"
+          TRTLLM_VER=$(echo "${{ inputs.trtllm_image }}" | grep -oP '[\d.]+$' || echo "unknown")
+          AUTH_HEADER=""
+          if [ -n "${{ inputs.api_key }}" ]; then
+            AUTH_HEADER="Authorization: Bearer ${{ inputs.api_key }}"
+          fi
+
+          PAYLOAD=$(cat <<EOF
+          {
+            "architecture": "${{ inputs.architecture }}",
+            "parameter_count": "${{ inputs.parameter_count }}",
+            "quantization": "${{ inputs.dtype }}",
+            "tp_degree": ${{ inputs.tp_size }},
+            "gpu_sku": "${{ inputs.gpu_sku }}",
+            "trtllm_version": "${TRTLLM_VER}",
+            "engine_uri": "${{ inputs.engine_output_uri }}"
+          }
+          EOF
+          )
+
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST "${{ inputs.api_server_url }}/api/v1/engine-cache" \
+            -H "Content-Type: application/json" \
+            ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
+            -d "$PAYLOAD")
+          echo "Cache registration responded: HTTP ${HTTP_CODE}"
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::warning::Cache registration failed (HTTP ${HTTP_CODE}) — engine still available at output URI"
+          else
+            echo "### 🗄️ Engine cached (key: ${{ needs.check-cache.outputs.cache_key }})" >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Mark model as failed
         if: inputs.model_id != '' && failure()

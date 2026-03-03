@@ -218,3 +218,58 @@ class GpuPoolListResponse(BaseModel):
 
     data: list[GpuPoolInfo]
     count: int
+
+
+# ── Engine Cache ────────────────────────────────────────────────────
+
+
+class RegisterEngineCacheRequest(BaseModel):
+    """POST /api/v1/engine-cache — register a compiled engine."""
+
+    architecture: str = Field(..., min_length=1, max_length=64,
+                               description="Model architecture (e.g., 'llama', 'qwen', 'whisper').")
+    parameter_count: str = Field(..., min_length=1, max_length=32,
+                                  description="Parameter count label (e.g., '7b', '70b', 'large-v3').")
+    quantization: str = Field(default="float16",
+                               description="Quantization / dtype (float16, bfloat16, int8, int4_awq).")
+    tp_degree: int = Field(default=1, ge=1, le=8,
+                            description="Tensor parallelism degree the engine was compiled for.")
+    gpu_sku: str = Field(..., min_length=1,
+                          description="Azure VM SKU (e.g., 'Standard_ND96asr_v4').")
+    trtllm_version: str = Field(..., min_length=1,
+                                 description="TRT-LLM version used for compilation (e.g., '0.16.0').")
+    engine_uri: str = Field(..., min_length=1,
+                             description="Full Blob URI of compiled engine artifacts.")
+
+
+class EngineCacheEntry(BaseModel):
+    """Single cached engine entry."""
+
+    id: str
+    cache_key: str
+    architecture: str
+    parameter_count: str
+    quantization: str
+    tp_degree: int
+    gpu_sku: str
+    trtllm_version: str
+    engine_uri: str
+    created_at: str
+    updated_at: str
+
+
+class EngineCacheListResponse(BaseModel):
+    """GET /api/v1/engine-cache response."""
+
+    data: list[EngineCacheEntry]
+    count: int
+
+
+class EngineCacheLookupResponse(BaseModel):
+    """GET /api/v1/engine-cache/lookup response."""
+
+    cache_hit: bool = Field(description="True if a matching engine was found.")
+    cache_key: str = Field(description="The computed cache key for the query.")
+    entry: EngineCacheEntry | None = Field(
+        default=None, description="The cached engine entry, or null on miss.",
+    )

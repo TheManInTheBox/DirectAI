@@ -70,7 +70,8 @@ NVMe caching and multi-GPU tensor parallelism require specific Azure VM SKUs wit
 |---|---|---|---|---|---|
 | A100 80GB | `Standard_ND96asr_v4` | 8 | ✅ 3.8TB local | ✅ | Large models, TP up to 8-way |
 | H100 80GB | `Standard_ND96isr_H100_v5` | 8 | ✅ 3.8TB local | ✅ | Highest throughput, TP up to 8-way |
-| A10G | `Standard_NC24ads_A100_v4` or equivalent | 1-2 | Varies | ❌ | **Embeddings/reranking pool**, small models, dev |
+| A10G | `Standard_NC24ads_A100_v4` or equivalent | 1-2 | Varies | ❌ | **Embeddings/reranking pool**, small models |
+| T4 16GB | `Standard_NCasT4_v3` series | 1-4 | ❌ | ❌ | **Dev/staging pool** — single general-purpose pool for all workloads. `gpuPoolTier: 'dev'` in Bicep. Default: `Standard_NC16as_T4_v3` (1× T4, 16 vCPUs, 112 GB RAM) |
 
 - **Never use VM SKUs without local NVMe for production LLM/STT inference.** Remote disk latency kills cold start times. Exception: embeddings/reranking models are small enough (~400MB-2GB) to load directly from Blob Storage in seconds — NVMe caching is unnecessary for this pool.
 - Node pools are created per GPU SKU. Models specify their required SKU and TP degree in their deployment config.
@@ -153,11 +154,20 @@ DirectAI/
 │   ├── copilot-instructions.md       # This file
 │   └── workflows/
 │       ├── onboard-customer.yml      # Automated customer onboarding pipeline
+│       ├── deploy-platform.yml       # Shared platform infra (ACR, engine cache, monitoring)
 │       ├── deploy-stamp.yml          # Regional stamp deployment pipeline
 │       ├── build-api-server.yml      # CI: lint, test, build API server image
-│       └── build-engines.yml         # CI: build embeddings + TRT-LLM engine images
+│       ├── build-engines.yml         # CI: build embeddings + TRT-LLM engine images
+│       ├── compile-engine.yml        # Compile TRT-LLM engine for model × GPU SKU
+│       ├── deploy-model.yml          # Deploy model to customer AKS cluster
+│       └── populate-cache.yml        # Pre-compile engines for popular architectures
 ├── infra/                            # All Bicep IaC lives here
 │   ├── main.bicep                    # Stamp orchestrator — single entry point
+│   ├── platform/                     # Shared platform infra (operations subscription)
+│   │   ├── main.bicep                # ACR, engine cache, centralized monitoring
+│   │   └── environments/
+│   │       ├── platform.dev.eus2.bicepparam
+│   │       └── platform.prod.eus2.bicepparam
 │   ├── customers/                    # Customer manifests (one JSON per customer)
 │   │   └── _example.commercial.json
 │   └── environments/                 # Per-environment, per-region parameter files
@@ -222,6 +232,8 @@ DirectAI/
     │   └── README.md
     └── helm/                         # Helm chart for K8s deployment
         └── directai/
+├── scripts/
+│   └── bootstrap-oidc.ps1           # One-time OIDC identity bootstrap
 ```
 
 ### Application Layer — API Server
@@ -378,12 +390,33 @@ spec:
 
 Each customer gets their own Azure subscription. This is the isolation boundary — billing, networking, identity, and blast radius are all per-subscription.
 
-| Subscription | Owner | Contains |
-|---|---|---|
-| **Platform** | DirectAI | Shared ACR (inference images), engine cache (Blob), CI/CD identity, central monitoring dashboards |
-| **Customer N** | DirectAI (on behalf of customer) | Regional stamp(s): AKS, Storage, Key Vault, VNet, Log Analytics, customer-specific managed identities |
+**Operations subscription: `b03c9eb4-cddc-4987-9673-9ac44b9cc1d9`** — this is the centralized subscription for all shared DirectAI platform services.
 
-- **Customer manifest files** (`infra/customers/{customerId}.json`) map customer → subscription ID, allowed regions, GPU tier, platform ACR reference, contacts.
+| Subscription | Owner | Subscription ID | Contains |
+|---|---|---|---|
+| **Operations (Platform)** | DirectAI | `b03c9eb4-cddc-4987-9673-9ac44b9cc1d9` | Shared ACR (inference images), engine cache Storage Account, centralized Log Analytics + Application Insights, CI/CD identity, monitoring dashboards |
+| **Internal Dev** | DirectAI | `0ae2be9a-f470-4dfe-b2e0-b7e9726acdfb` | Dev stamp (South Central US): AKS with T4 GPU pool (`gpuPoolTier: 'dev'`), Storage, Key Vault, VNet, Log Analytics |
+| **Customer N** | DirectAI (on behalf of customer) | Per-customer GUID | Regional stamp(s): AKS, Storage (model weights), Key Vault, VNet, per-stamp Log Analytics, customer-specific managed identities |
+
+#### Platform Infrastructure (`infra/platform/main.bicep`)
+
+Shared resources deployed to the operations subscription. Deployed via the **Deploy Platform** workflow (`deploy-platform.yml`).
+
+| Resource | Purpose | Cross-Sub Access |
+|---|---|---|
+| **ACR** (Premium) | All inference images — api-server, embeddings-engine, trtllm-engine | Customer kubelet identities get `AcrPull` |
+| **Storage Account** | Pre-compiled TRT-LLM engine cache (`engine-cache` container), model registry, build artifacts | Customer stamps read via SAS or Blob Reader |
+| **Log Analytics** | Centralized monitoring sink — aggregates across all stamps | Customer stamps can forward diagnostics here |
+| **Application Insights** | Distributed tracing + live metrics for the platform as a whole | API server pods emit traces via connection string |
+
+The `platform` GitHub environment holds OIDC credentials for this subscription:
+- `PLATFORM_AZURE_CLIENT_ID` — used by build + deploy-platform workflows
+- `PLATFORM_AZURE_TENANT_ID`
+- `PLATFORM_AZURE_SUBSCRIPTION_ID` = `b03c9eb4-cddc-4987-9673-9ac44b9cc1d9`
+- `vars.ACR_NAME` — set after first deploy-platform run
+- `vars.ACR_LOGIN_SERVER` — set after first deploy-platform run
+
+- **Customer manifest files** (`infra/customers/{customerId}.json`) map customer → subscription ID, `operationsSubscriptionId`, allowed regions, GPU tier, platform ACR reference, contacts.
 - **Platform ACR** holds all inference images (DirectAI IP). Commercial customers' kubelet identities get cross-subscription `AcrPull`. Customers that need isolation (air-gap, sovereignty) deploy their own ACR by omitting `platformAcrLoginServer`.
 - **GPU quotas** are per-subscription. Each new customer subscription requires quota requests for their GPU tier before `enableGpuPools = true`.
 - **Cost isolation** is free — Azure billing is per-subscription. Tag everything with `customer-id` for drill-down.
@@ -402,12 +435,15 @@ Kubelet identity gets **read-only** Key Vault access (Secrets User, not Secrets 
 ### Infrastructure as Code (Bicep)
 
 - **Azure Verified Modules (AVM)** from the Bicep public registry are the building blocks. Never write raw resource definitions when an AVM module exists.
-- **One stamp = one `main.bicep`** deployment. A stamp is the complete set of Azure resources for one customer region: VNet, AKS, Storage, (optional) ACR, Key Vault, Log Analytics, 2 Managed Identities.
-- **Naming convention:** `dai-{customerId}-{env}-{regionShort}` pattern (customer ID is a GUID). Length-constrained names (Key Vault, Storage, ACR) use a deterministic 8-char hash via `uniqueString()`.
-- **Parameter files:** `.bicepparam` format (not JSON). One file per environment × region: `{env}.{regionShort}.bicepparam`.
+- **Two Bicep entry points:**
+  - `infra/platform/main.bicep` — shared platform resources (ACR, engine cache, centralized monitoring) deployed to the operations subscription `b03c9eb4-cddc-4987-9673-9ac44b9cc1d9`.
+  - `infra/main.bicep` — customer stamp (AKS, Storage, Key Vault, VNet, per-stamp monitoring, identities) deployed to the customer's subscription.
+- **One stamp = one `infra/main.bicep`** deployment. A stamp is the complete set of Azure resources for one customer region: VNet, AKS, Storage, (optional) ACR, Key Vault, Log Analytics, 2 Managed Identities.
+- **Naming convention:** `dai-{customerId}-{env}-{regionShort}` for stamps, `dai-platform-{env}-{regionShort}` for platform resources. Length-constrained names (Key Vault, Storage, ACR) use a deterministic 8-char hash via `uniqueString()`.
+- **Parameter files:** `.bicepparam` format (not JSON). One file per environment × region: `{env}.{regionShort}.bicepparam`. Platform params live in `infra/platform/environments/`.
 - **GPU pools are conditional:** `enableGpuPools = false` for dev (avoids GPU quota issues), `true` for prod.
 - **ACR is conditional:** `platformAcrLoginServer` parameter controls whether the stamp deploys its own ACR or uses the shared platform ACR.
-- **Resource group per stamp:** `rg-dai-{customer}-{env}-{regionShort}`.
+- **Resource group per stamp:** `rg-dai-{customer}-{env}-{regionShort}`. Platform: `rg-dai-platform-{env}-{regionShort}`.
 
 ### Security Baseline (All Customers)
 
@@ -463,24 +499,37 @@ Customer onboarding is **fully automated** via the `Onboard Customer` workflow (
 ### CI/CD
 
 - **GitHub Actions** with **OIDC federated credentials** (no stored secrets — uses `azure/login@v2` with `id-token: write`).
-- **Four workflows:**
+- **Eight workflows:**
   - **`onboard-customer.yml`** — Creates subscription, identity, RBAC, GitHub environments, manifest, and param files. Run once per customer.
-  - **`deploy-stamp.yml`** — Deploys a regional stamp (Validate → What-If → Approval Gate → Deploy). Run per region.
-  - **`build-api-server.yml`** — Lint, test, build API server Docker image, push to ACR, optional Helm deploy.
-  - **`build-engines.yml`** — Build and push inference engine images (embeddings + TRT-LLM) to ACR. Supports stub mode for CI.
-- **GitHub environments** are named `{customerId}-{env}` (e.g., `acme-prod`, `internal-dev`). Each environment has its own `AZURE_SUBSCRIPTION_ID` pointing to the customer's subscription.
+  - **`deploy-platform.yml`** — Deploys shared platform infra (ACR, engine cache, monitoring) to the operations subscription `b03c9eb4-cddc-4987-9673-9ac44b9cc1d9`. Run once per region, re-run to update.
+  - **`deploy-stamp.yml`** — Deploys a customer regional stamp (Validate → What-If → Approval Gate → Deploy). Run per region.
+  - **`build-api-server.yml`** — Lint, test, build API server Docker image, push to platform ACR, optional Helm deploy.
+  - **`build-engines.yml`** — Build and push inference engine images (embeddings + TRT-LLM) to platform ACR. Supports stub mode for CI.
+  - **`compile-engine.yml`** — Compile TRT-LLM engine for a specific model × GPU SKU. Registers result in engine cache.
+  - **`deploy-model.yml`** — Deploy a model to a customer AKS cluster. Checks engine cache before compiling.
+  - **`populate-cache.yml`** — Pre-compile engines for popular architectures (matrix: 5 arch × 2 GPU SKUs).
+- **GitHub environments** are named `{customerId}-{env}` (e.g., `acme-prod`, `internal-dev`). Each environment has its own `AZURE_SUBSCRIPTION_ID` pointing to the customer's subscription. The `platform` environment targets the operations subscription.
 - **Prod requires environment protection rules** — configure required reviewers in GitHub repo settings under Environments → `{customerId}-prod`.
 - **Required GitHub secrets per customer environment:** `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` — all set automatically by the onboarding workflow.
 
 ### Platform Environment
 
-The `Onboard Customer` workflow runs under a `platform` GitHub environment with elevated permissions:
+The `platform` GitHub environment targets the operations subscription `b03c9eb4-cddc-4987-9673-9ac44b9cc1d9` and is used by:
+- `deploy-platform.yml` — deploying shared infra
+- `build-api-server.yml` — pushing images to platform ACR
+- `build-engines.yml` — pushing engine images to platform ACR
+- `onboard-customer.yml` — creating customer subscriptions and identities
+
+**All environments use a single SPN — `DevOptimum` (`291122ee-4f43-4b21-a337-c4d6e2382c8e`)** — with OIDC federated credentials per GitHub environment. The SPN has Contributor on both the operations and dev subscriptions.
 
 | Secret | Description |
 |---|---|
-| `ONBOARDING_AZURE_CLIENT_ID` | App Registration with EA enrollment access + Entra ID Application Administrator |
-| `ONBOARDING_AZURE_TENANT_ID` | DirectAI tenant ID |
-| `ONBOARDING_AZURE_SUBSCRIPTION_ID` | Platform/management subscription ID |
+| `PLATFORM_AZURE_CLIENT_ID` | `291122ee-4f43-4b21-a337-c4d6e2382c8e` (DevOptimum SPN) |
+| `PLATFORM_AZURE_TENANT_ID` | `7dd8cf8b-3a69-4cb3-96c9-0a9e63fe6127` |
+| `PLATFORM_AZURE_SUBSCRIPTION_ID` | `b03c9eb4-cddc-4987-9673-9ac44b9cc1d9` |
+| `ONBOARDING_AZURE_CLIENT_ID` | `291122ee-4f43-4b21-a337-c4d6e2382c8e` (same SPN) |
+| `ONBOARDING_AZURE_TENANT_ID` | `7dd8cf8b-3a69-4cb3-96c9-0a9e63fe6127` |
+| `ONBOARDING_AZURE_SUBSCRIPTION_ID` | `b03c9eb4-cddc-4987-9673-9ac44b9cc1d9` |
 | `ONBOARDING_PAT` | GitHub PAT with `repo`, `admin:org` scopes (to create environments + set secrets) |
 
 ### OIDC Setup (Azure ↔ GitHub)
@@ -494,3 +543,40 @@ OIDC federated credentials are **created automatically** by the onboarding workf
 5. Sets `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` as GitHub environment secrets.
 
 **No manual OIDC setup is needed unless you are bootstrapping the platform environment itself.**
+
+#### Bootstrap (One-Time Platform Setup) — COMPLETED
+
+All environments use a single existing SPN (`DevOptimum`) rather than three dedicated App Registrations. Federated credentials were added to the existing App Registration.
+
+**SPN:** `DevOptimum`
+- **Application (Client) ID:** `291122ee-4f43-4b21-a337-c4d6e2382c8e`
+- **Object ID:** `c19a53f4-56e4-4d8e-b9fd-c643adcc3984`
+- **SP Object ID:** `18a3e365-e61d-4242-97f1-087c17a0f527`
+- **Tenant ID:** `7dd8cf8b-3a69-4cb3-96c9-0a9e63fe6127`
+
+**Federated Credentials (OIDC):**
+
+| Credential Name | GitHub Environment | Federated Subject |
+|---|---|---|
+| `directai-platform` | `platform` | `repo:TheManInTheBox/DirectAI:environment:platform` |
+| `directai-internal-dev` | `internal-dev` | `repo:TheManInTheBox/DirectAI:environment:internal-dev` |
+| `directai-internal-prod` | `internal-prod` | `repo:TheManInTheBox/DirectAI:environment:internal-prod` |
+
+**RBAC (pre-existing):**
+- Contributor on operations subscription `b03c9eb4-cddc-4987-9673-9ac44b9cc1d9`
+- Contributor on dev subscription `0ae2be9a-f470-4dfe-b2e0-b7e9726acdfb`
+
+**GitHub Environment Secrets:**
+
+| Environment | `*_CLIENT_ID` | `*_TENANT_ID` | `*_SUBSCRIPTION_ID` |
+|---|---|---|---|
+| `platform` | `PLATFORM_AZURE_CLIENT_ID` / `ONBOARDING_AZURE_CLIENT_ID` | `PLATFORM_AZURE_TENANT_ID` / `ONBOARDING_AZURE_TENANT_ID` | `PLATFORM_AZURE_SUBSCRIPTION_ID` / `ONBOARDING_AZURE_SUBSCRIPTION_ID` → ops sub |
+| `internal-dev` | `AZURE_CLIENT_ID` | `AZURE_TENANT_ID` | `AZURE_SUBSCRIPTION_ID` → dev sub |
+| `internal-prod` | `AZURE_CLIENT_ID` | `AZURE_TENANT_ID` | *(not set — no prod subscription yet)* |
+
+**Remaining manual steps:**
+
+1. Add **required reviewers** to `internal-prod` GitHub environment (Settings → Environments).
+2. Create a GitHub PAT with `repo` + `admin:org` scopes and set it as `ONBOARDING_PAT` secret on the `platform` environment.
+3. Run `deploy-platform.yml` to create shared ACR + engine cache.
+4. After the platform deploy, set `vars.ACR_NAME` and `vars.ACR_LOGIN_SERVER` on the `platform` environment from the deployment outputs.

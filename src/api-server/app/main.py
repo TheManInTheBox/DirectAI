@@ -26,6 +26,7 @@ from app.routes import (
     embeddings_router,
     models_router,
     native_deployments_router,
+    native_engine_cache_router,
     native_models_router,
     native_system_router,
 )
@@ -139,6 +140,7 @@ app.include_router(audio_router)
 app.include_router(models_router)
 app.include_router(native_models_router)
 app.include_router(native_deployments_router)
+app.include_router(native_engine_cache_router)
 app.include_router(native_system_router)
 
 

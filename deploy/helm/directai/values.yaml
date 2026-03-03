@@ -198,6 +198,53 @@ nvmeInit:
   nodeSelector:
     directai.io/pool: inference
 
+# ── DCGM Exporter — GPU metrics ──────────────────────────────────────────
+# Deploys NVIDIA DCGM Exporter as a DaemonSet on GPU nodes.
+# Exposes GPU utilization, memory, temperature, power, NVLink throughput,
+# tensor core activity, and ECC error counters as Prometheus metrics.
+dcgmExporter:
+  enabled: false
+  image:
+    repository: nvcr.io/nvidia/k8s/dcgm-exporter
+    tag: "3.3.8-3.6.0-ubuntu22.04"
+    pullPolicy: IfNotPresent
+  # Collect interval in milliseconds (default 30000 = 30s)
+  collectInterval: "15000"
+  # Enable custom metrics CSV (tensor cores, NVLink, ECC errors)
+  customMetrics: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  nodeSelector:
+    directai.io/pool: inference
+  tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+    - key: directai.io/workload
+      operator: Exists
+      effect: NoSchedule
+
+# ── Datadog Integration ──────────────────────────────────────────────────
+# To export metrics and traces to Datadog, deploy the Datadog Agent with
+# OTLP receiver enabled, then set datadogOtlp.enabled=true below.
+#
+# Install Datadog Agent:
+#   helm install datadog-agent datadog/datadog \
+#     --set datadog.apiKey=<DD_API_KEY> \
+#     --set datadog.otlp.receiver.protocols.grpc.enabled=true \
+#     --set datadog.otlp.receiver.protocols.grpc.endpoint="0.0.0.0:4317"
+#
+# The API server's OTLP exporter (DIRECTAI_OTLP_ENDPOINT) should point to
+# the Datadog Agent's OTLP gRPC endpoint.
+datadogOtlp:
+  enabled: false
+  endpoint: "http://datadog-agent.datadog.svc.cluster.local:4317"
+
 # ── TLS / cert-manager ────────────────────────────────────────────────────
 tls:
   enabled: true

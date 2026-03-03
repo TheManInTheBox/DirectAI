@@ -40,6 +40,16 @@ param endpointsSubnetPrefix string = '10.0.4.0/24'
 @description('Enable GPU node pools. Disable in dev to avoid quota issues.')
 param enableGpuPools bool = false
 
+@description('GPU pool tier. "production" deploys A100+H100+embeddings pools. "dev" deploys a single general-purpose T4 pool for all workloads.')
+@allowed(['production', 'dev'])
+param gpuPoolTier string = 'production'
+
+@description('VM size for the dev GPU pool. Only used when gpuPoolTier is "dev". Default: Standard_NC16as_T4_v3 (1× T4 16GB, 16 vCPUs, 112 GB RAM).')
+param devGpuVmSize string = 'Standard_NC16as_T4_v3'
+
+@description('Max node count for the dev GPU pool. Only used when gpuPoolTier is "dev".')
+param devGpuMaxCount int = 2
+
 @description('Enable Private Endpoints for Storage, Key Vault, and ACR. Strongly recommended for all environments. Disable only if dev subscription lacks Private DNS Zone support.')
 param enablePrivateEndpoints bool = true
 
@@ -442,66 +452,91 @@ module acr 'br/public:avm/res/container-registry/registry:0.6.0' = if (deployPer
 //    - GPU node pools added conditionally
 // ---------------------------------------------------------------------------
 
+// Production GPU pools — A100/H100 for inference, A100 for embeddings
+var productionGpuPools = [
+  // A100 80GB pool — large LLMs and STT (TP up to 8-way)
+  {
+    name: 'gpua100'
+    mode: 'User'
+    vmSize: 'Standard_ND96asr_v4'
+    count: 0
+    minCount: 0
+    maxCount: 4
+    enableAutoScaling: true
+    osType: 'Linux'
+    osDiskSizeGB: 128
+    type: 'VirtualMachineScaleSets'
+    vnetSubnetResourceId: vnet.outputs.subnetResourceIds[0]
+    nodeLabels: {
+      'directai.io/gpu-pool': 'a100'
+      'directai.io/pool': 'inference'
+    }
+    nodeTaints: ['nvidia.com/gpu=a100:NoSchedule']
+  }
+  // H100 80GB pool — highest throughput (TP up to 8-way)
+  {
+    name: 'gpuh100'
+    mode: 'User'
+    vmSize: 'Standard_ND96isr_H100_v5'
+    count: 0
+    minCount: 0
+    maxCount: 2
+    enableAutoScaling: true
+    osType: 'Linux'
+    osDiskSizeGB: 128
+    type: 'VirtualMachineScaleSets'
+    vnetSubnetResourceId: vnet.outputs.subnetResourceIds[0]
+    nodeLabels: {
+      'directai.io/gpu-pool': 'h100'
+      'directai.io/pool': 'inference'
+    }
+    nodeTaints: ['nvidia.com/gpu=h100:NoSchedule']
+  }
+  // Embeddings/reranking pool — smaller GPUs, no NVMe required
+  {
+    name: 'embeddings'
+    mode: 'User'
+    vmSize: 'Standard_NC24ads_A100_v4'
+    count: 0
+    minCount: 0
+    maxCount: 4
+    enableAutoScaling: true
+    osType: 'Linux'
+    osDiskSizeGB: 128
+    type: 'VirtualMachineScaleSets'
+    vnetSubnetResourceId: vnet.outputs.subnetResourceIds[0]
+    nodeLabels: {
+      'directai.io/gpu-pool': 'embeddings'
+      'directai.io/pool': 'embeddings'
+    }
+    nodeTaints: ['directai.io/workload=embeddings:NoSchedule']
+  }
+]
+
+// Dev GPU pool — single T4 node for all workloads (inference + embeddings)
+var devGpuPools = [
+  {
+    name: 'gput4'
+    mode: 'User'
+    vmSize: devGpuVmSize
+    count: 0
+    minCount: 0
+    maxCount: devGpuMaxCount
+    enableAutoScaling: true
+    osType: 'Linux'
+    osDiskSizeGB: 128
+    type: 'VirtualMachineScaleSets'
+    vnetSubnetResourceId: vnet.outputs.subnetResourceIds[0]
+    nodeLabels: {
+      'directai.io/gpu-pool': 't4'
+      'directai.io/pool': 'inference'
+    }
+    nodeTaints: ['nvidia.com/gpu=t4:NoSchedule']
+  }
+]
+
 var gpuAgentPools = enableGpuPools
-  ? [
-      // A100 80GB pool — large LLMs and STT (TP up to 8-way)
-      {
-        name: 'gpua100'
-        mode: 'User'
-        vmSize: 'Standard_ND96asr_v4'
-        count: 0
-        minCount: 0
-        maxCount: 4
-        enableAutoScaling: true
-        osType: 'Linux'
-        osDiskSizeGB: 128
-        type: 'VirtualMachineScaleSets'
-        vnetSubnetResourceId: vnet.outputs.subnetResourceIds[0]
-        nodeLabels: {
-          'directai.io/gpu-pool': 'a100'
-          'directai.io/pool': 'inference'
-        }
-        nodeTaints: ['nvidia.com/gpu=a100:NoSchedule']
-      }
-      // H100 80GB pool — highest throughput (TP up to 8-way)
-      {
-        name: 'gpuh100'
-        mode: 'User'
-        vmSize: 'Standard_ND96isr_H100_v5'
-        count: 0
-        minCount: 0
-        maxCount: 2
-        enableAutoScaling: true
-        osType: 'Linux'
-        osDiskSizeGB: 128
-        type: 'VirtualMachineScaleSets'
-        vnetSubnetResourceId: vnet.outputs.subnetResourceIds[0]
-        nodeLabels: {
-          'directai.io/gpu-pool': 'h100'
-          'directai.io/pool': 'inference'
-        }
-        nodeTaints: ['nvidia.com/gpu=h100:NoSchedule']
-      }
-      // Embeddings/reranking pool — smaller GPUs, no NVMe required
-      {
-        name: 'embeddings'
-        mode: 'User'
-        vmSize: 'Standard_NC24ads_A100_v4'
-        count: 0
-        minCount: 0
-        maxCount: 4
-        enableAutoScaling: true
-        osType: 'Linux'
-        osDiskSizeGB: 128
-        type: 'VirtualMachineScaleSets'
-        vnetSubnetResourceId: vnet.outputs.subnetResourceIds[0]
-        nodeLabels: {
-          'directai.io/gpu-pool': 'embeddings'
-          'directai.io/pool': 'embeddings'
-        }
-        nodeTaints: ['directai.io/workload=embeddings:NoSchedule']
-      }
-    ]
+  ? (gpuPoolTier == 'dev' ? devGpuPools : productionGpuPools)
   : []
 
 module aks 'br/public:avm/res/container-service/managed-cluster:0.5.3' = {
@@ -624,7 +659,23 @@ module aks 'br/public:avm/res/container-service/managed-cluster:0.5.3' = {
 }
 
 // ---------------------------------------------------------------------------
-// 8. Federated Identity Credential — Workload Identity for K8s pods
+// 8. Observability Workbook — Azure Monitor dashboard
+//    Per-model latency, throughput, error rate, TTFT, inflight requests,
+//    GPU utilization, node pool health, and cluster autoscaler events.
+// ---------------------------------------------------------------------------
+
+module observabilityWorkbook 'modules/workbook.bicep' = {
+  name: 'observabilityWorkbook'
+  params: {
+    location: location
+    logAnalyticsWorkspaceId: logAnalytics.outputs.resourceId
+    appInsightsResourceId: appInsights.outputs.resourceId
+    tags: defaultTags
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 9. Federated Identity Credential — Workload Identity for K8s pods
 //    Links the kubelet managed identity to the AKS OIDC issuer.
 //    Pods in the "directai" namespace using the "directai" ServiceAccount
 //    (annotated with azure.workload.identity/client-id) can authenticate
@@ -690,3 +741,6 @@ output appInsightsConnectionString string = appInsights.outputs.connectionString
 
 @description('Application Insights resource ID.')
 output appInsightsResourceId string = appInsights.outputs.resourceId
+
+@description('Observability workbook resource ID.')
+output observabilityWorkbookId string = observabilityWorkbook.outputs.workbookResourceId

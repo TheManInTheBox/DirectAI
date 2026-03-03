@@ -1,0 +1,178 @@
+# ============================================================================
+# DirectAI — Deploy Platform Infrastructure
+#
+# Deploys centralized shared resources to the Operations subscription:
+#   - Container Registry (ACR) — inference images
+#   - Storage Account — pre-compiled engine cache
+#   - Log Analytics Workspace — centralized monitoring
+#   - Application Insights — distributed tracing
+#
+# This workflow targets the OPERATIONS subscription (b03c9eb4-...) and is
+# separate from customer stamp deployments (deploy-stamp.yml).
+#
+# After first deploy:
+#   1. Note the ACR login server from outputs
+#   2. Set vars.ACR_NAME and vars.ACR_LOGIN_SERVER on the `platform` environment
+#   3. Update customer .bicepparam files with platformAcrLoginServer value
+#
+# Auth: OIDC federated credentials on the `platform` GitHub environment.
+# ============================================================================
+
+name: Deploy Platform
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Platform environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+        default: dev
+      region:
+        description: 'Azure region'
+        required: true
+        type: choice
+        options:
+          - eastus2
+          - westus3
+        default: eastus2
+      region_short:
+        description: 'Region short name'
+        required: true
+        type: choice
+        options:
+          - eus2
+          - wus3
+        default: eus2
+      action:
+        description: 'Deployment action'
+        required: true
+        type: choice
+        options:
+          - validate
+          - what-if
+          - deploy
+        default: what-if
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  OPERATIONS_SUBSCRIPTION_ID: 'b03c9eb4-cddc-4987-9673-9ac44b9cc1d9'
+
+jobs:
+  # ── Validate ──────────────────────────────────────────────────────
+  validate:
+    name: Validate Template
+    runs-on: ubuntu-latest
+    environment: platform
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2
+        with:
+          client-id: ${{ secrets.PLATFORM_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.PLATFORM_AZURE_TENANT_ID }}
+          subscription-id: ${{ env.OPERATIONS_SUBSCRIPTION_ID }}
+
+      - name: Ensure resource group exists
+        run: |
+          az group create \
+            --name "rg-dai-platform-${{ inputs.environment }}-${{ inputs.region_short }}" \
+            --location "${{ inputs.region }}" \
+            --tags project=directai component=platform environment=${{ inputs.environment }} managed-by=bicep
+
+      - name: Validate Bicep
+        run: |
+          az deployment group validate \
+            --resource-group "rg-dai-platform-${{ inputs.environment }}-${{ inputs.region_short }}" \
+            --template-file infra/platform/main.bicep \
+            --parameters "infra/platform/environments/platform.${{ inputs.environment }}.${{ inputs.region_short }}.bicepparam"
+
+  # ── What-If ───────────────────────────────────────────────────────
+  what-if:
+    name: What-If Preview
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: platform
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2
+        with:
+          client-id: ${{ secrets.PLATFORM_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.PLATFORM_AZURE_TENANT_ID }}
+          subscription-id: ${{ env.OPERATIONS_SUBSCRIPTION_ID }}
+
+      - name: What-If
+        run: |
+          az deployment group what-if \
+            --resource-group "rg-dai-platform-${{ inputs.environment }}-${{ inputs.region_short }}" \
+            --template-file infra/platform/main.bicep \
+            --parameters "infra/platform/environments/platform.${{ inputs.environment }}.${{ inputs.region_short }}.bicepparam"
+
+  # ── Deploy ────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy
+    needs: what-if
+    if: inputs.action == 'deploy'
+    runs-on: ubuntu-latest
+    environment: platform
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2
+        with:
+          client-id: ${{ secrets.PLATFORM_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.PLATFORM_AZURE_TENANT_ID }}
+          subscription-id: ${{ env.OPERATIONS_SUBSCRIPTION_ID }}
+
+      - name: Deploy platform infrastructure
+        id: deploy
+        run: |
+          OUTPUT=$(az deployment group create \
+            --resource-group "rg-dai-platform-${{ inputs.environment }}-${{ inputs.region_short }}" \
+            --template-file infra/platform/main.bicep \
+            --parameters "infra/platform/environments/platform.${{ inputs.environment }}.${{ inputs.region_short }}.bicepparam" \
+            --query 'properties.outputs' \
+            --output json)
+
+          echo "$OUTPUT" | jq .
+
+          # Extract key outputs for step summary
+          ACR_LOGIN_SERVER=$(echo "$OUTPUT" | jq -r '.acrLoginServer.value')
+          ACR_NAME=$(echo "$OUTPUT" | jq -r '.acrName.value')
+          STORAGE_NAME=$(echo "$OUTPUT" | jq -r '.storageAccountName.value')
+          LOG_ANALYTICS_ID=$(echo "$OUTPUT" | jq -r '.logAnalyticsWorkspaceId.value')
+          APPINSIGHTS_CS=$(echo "$OUTPUT" | jq -r '.appInsightsConnectionString.value')
+
+          echo "acr_login_server=${ACR_LOGIN_SERVER}" >> $GITHUB_OUTPUT
+          echo "acr_name=${ACR_NAME}" >> $GITHUB_OUTPUT
+          echo "storage_name=${STORAGE_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Deployment summary
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY <<EOF
+          ### ✅ Platform Infrastructure Deployed
+
+          | Resource | Value |
+          |----------|-------|
+          | **Subscription** | \`${{ env.OPERATIONS_SUBSCRIPTION_ID }}\` |
+          | **Resource Group** | \`rg-dai-platform-${{ inputs.environment }}-${{ inputs.region_short }}\` |
+          | **ACR Login Server** | \`${{ steps.deploy.outputs.acr_login_server }}\` |
+          | **ACR Name** | \`${{ steps.deploy.outputs.acr_name }}\` |
+          | **Storage Account** | \`${{ steps.deploy.outputs.storage_name }}\` |
+
+          #### Next Steps
+          1. Set \`vars.ACR_NAME\` = \`${{ steps.deploy.outputs.acr_name }}\` on the \`platform\` GitHub environment
+          2. Set \`vars.ACR_LOGIN_SERVER\` = \`${{ steps.deploy.outputs.acr_login_server }}\` on the \`platform\` GitHub environment
+          3. Update \`platformAcrLoginServer\` in customer \`.bicepparam\` files
+          4. For each customer stamp kubelet identity, assign \`AcrPull\` on the platform ACR
+          EOF

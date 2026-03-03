@@ -1,5 +1,5 @@
 from app.models.domain import DeploymentStatus, Modality, ModelStatus, ScalingTier
-from app.models.repository import ModelRepository
+from app.models.repository import ModelRepository, build_cache_key
 
 __all__ = [
     "DeploymentStatus",
@@ -7,4 +7,5 @@ __all__ = [
     "ModelRepository",
     "ModelStatus",
     "ScalingTier",
+    "build_cache_key",
 ]
