@@ -19,6 +19,7 @@ dependencies = [
     "numpy>=1.26,<3",
     "transformers>=4.40,<5",
     "tiktoken>=0.7,<1",
+    "python-multipart>=0.0.9,<1",
 ]
 
 [project.optional-dependencies]

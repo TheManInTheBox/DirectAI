@@ -14,15 +14,12 @@ Acceptance criteria for #27: "No sensitive data leaking."
 from __future__ import annotations
 
 import io
-import json
 import logging
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExporter, SpanExportResult
-
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -55,7 +52,7 @@ class TestApiKeyNeverLeaked:
 
     def test_invalid_key_error_does_not_contain_key(self, test_client):
         """401 response must not echo the attempted key back."""
-        resp = test_client.post(
+        test_client.post(
             "/v1/chat/completions",
             json={"model": "test-chat", "messages": [{"role": "user", "content": "hi"}]},
             headers={"Authorization": f"Bearer {SENSITIVE_API_KEY}"},
@@ -74,8 +71,9 @@ class TestApiKeyNeverLeaked:
         from app.config import get_settings
         get_settings.cache_clear()
 
-        from app.main import app
         from fastapi.testclient import TestClient
+
+        from app.main import app
 
         with TestClient(app, raise_server_exceptions=False) as client:
             resp = client.post(
@@ -99,16 +97,16 @@ class TestApiKeyNeverLeaked:
         from app.config import get_settings
         get_settings.cache_clear()
 
-        from app.main import app
         from fastapi.testclient import TestClient
 
-        with caplog.at_level(logging.WARNING):
-            with TestClient(app, raise_server_exceptions=False) as client:
-                client.post(
-                    "/v1/chat/completions",
-                    json={"model": "test-chat", "messages": [{"role": "user", "content": "hi"}]},
-                    headers={"Authorization": f"Bearer {SENSITIVE_API_KEY}"},
-                )
+        from app.main import app
+
+        with caplog.at_level(logging.WARNING), TestClient(app, raise_server_exceptions=False) as client:
+            client.post(
+                "/v1/chat/completions",
+                json={"model": "test-chat", "messages": [{"role": "user", "content": "hi"}]},
+                headers={"Authorization": f"Bearer {SENSITIVE_API_KEY}"},
+            )
 
         full_log = caplog.text
         assert SENSITIVE_API_KEY not in full_log
@@ -124,8 +122,9 @@ class TestApiKeyNeverLeaked:
         from app.config import get_settings
         get_settings.cache_clear()
 
-        from app.main import app
         from fastapi.testclient import TestClient
+
+        from app.main import app
 
         with TestClient(app, raise_server_exceptions=False) as client:
             resp = client.get(
