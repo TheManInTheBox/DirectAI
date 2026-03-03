@@ -15,7 +15,7 @@
     "southcentralus": "scus"
   },
   "gpuTier": "dev",
-  "platformAcrLoginServer": "",
+  "platformAcrLoginServer": "acrplatformdaiv7fgid.azurecr.io",
   "contacts": {
     "technical": "aaron.hebert@agilecloud.ai",
     "billing": "aaron.hebert@agilecloud.ai"
