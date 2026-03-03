@@ -5,7 +5,7 @@ using '../main.bicep'
 param customerId = 'internal'
 param regionShort = 'scus'
 param environment = 'dev'
-param kubernetesVersion = '1.30'
+param kubernetesVersion = '1.32'
 param enableGpuPools = true
 param gpuPoolTier = 'dev' // Single T4 pool for all workloads
 param devGpuVmSize = 'Standard_NC16as_T4_v3' // 1× T4 16GB, 16 vCPUs, 112 GB RAM
