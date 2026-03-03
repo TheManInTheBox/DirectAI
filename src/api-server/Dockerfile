@@ -23,9 +23,9 @@ RUN pip install --no-cache-dir . \
 RUN mkdir -p /app/models
 
 # ── Non-root user ───────────────────────────────────────────────────
-RUN adduser --system --no-create-home appuser \
-    && chown -R appuser:nogroup /app
-USER appuser
+RUN adduser --system --no-create-home --uid 10001 appuser \
+    && chown -R 10001:nogroup /app
+USER 10001
 
 EXPOSE 8000
 

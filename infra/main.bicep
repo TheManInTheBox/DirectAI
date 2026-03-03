@@ -677,6 +677,20 @@ resource aks 'Microsoft.ContainerService/managedClusters@2024-09-01' = {
           vnetSubnetID: vnet.properties.subnets[0].id
           nodeTaints: ['CriticalAddonsOnly=true:NoSchedule']
         }
+        {
+          name: 'cpu'
+          mode: 'User'
+          vmSize: 'Standard_DS2_v2'
+          count: 1
+          minCount: 1
+          maxCount: 3
+          enableAutoScaling: true
+          osType: 'Linux'
+          osDiskSizeGB: 128
+          type: 'VirtualMachineScaleSets'
+          availabilityZones: environment == 'prod' ? ['1', '2', '3'] : ['1']
+          vnetSubnetID: vnet.properties.subnets[0].id
+        }
       ],
       gpuAgentPools
     )

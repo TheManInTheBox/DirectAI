@@ -35,6 +35,7 @@ spec:
       terminationGracePeriodSeconds: 310
       securityContext:
         runAsNonRoot: true
+        runAsUser: 10001
         seccompProfile:
           type: RuntimeDefault
       {{- with .Values.imagePullSecrets }}
