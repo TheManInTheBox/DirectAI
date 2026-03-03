@@ -24,6 +24,8 @@ def test_readyz_503_no_models(monkeypatch: "pytest.MonkeyPatch", tmp_path: Path)
     # Create empty model config dir — no YAML files
     monkeypatch.setenv("DIRECTAI_MODEL_CONFIG_DIR", str(tmp_path))
     monkeypatch.setenv("DIRECTAI_API_KEYS", "")
+    monkeypatch.setenv("DIRECTAI_DATABASE_PATH", ":memory:")
+    monkeypatch.setenv("DIRECTAI_OTEL_ENABLED", "false")
 
     from app.config import get_settings
     get_settings.cache_clear()

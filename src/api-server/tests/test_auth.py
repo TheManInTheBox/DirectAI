@@ -31,6 +31,8 @@ def model_config_dir(tmp_path: Path) -> Path:
 def _make_client(monkeypatch, model_config_dir, api_keys: str = ""):
     monkeypatch.setenv("DIRECTAI_MODEL_CONFIG_DIR", str(model_config_dir))
     monkeypatch.setenv("DIRECTAI_API_KEYS", api_keys)
+    monkeypatch.setenv("DIRECTAI_DATABASE_PATH", ":memory:")
+    monkeypatch.setenv("DIRECTAI_OTEL_ENABLED", "false")
 
     from app.config import get_settings
     get_settings.cache_clear()
