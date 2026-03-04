@@ -1,6 +1,9 @@
 # ============================================================================
 # Build Web — Lint, build, push web frontend image to Platform ACR
 # Triggers on changes to src/web/ or manual dispatch.
+#
+# Auth: OIDC federated credentials targeting the platform subscription.
+# SECURITY: All third-party actions pinned to commit SHAs.
 # ============================================================================
 name: Build Web
 
@@ -9,6 +12,8 @@ on:
     branches: [main]
     paths:
       - "src/web/**"
+      - "deploy/helm/directai/templates/web-*"
+      - "deploy/helm/directai/values-platform.yaml"
       - ".github/workflows/build-web.yml"
   pull_request:
     branches: [main]
@@ -20,6 +25,22 @@ on:
         description: "Deploy to Platform AKS after build"
         type: boolean
         default: false
+      environment:
+        description: "Platform environment"
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+        default: dev
+      region_short:
+        description: "Region short name"
+        required: true
+        type: choice
+        options:
+          - eus2
+          - wus3
+        default: eus2
 
 permissions:
   id-token: write
@@ -27,6 +48,9 @@ permissions:
 
 env:
   WEB_DIR: src/web
+  # Default to dev/eus2 for push-triggered builds
+  PLATFORM_ENV: ${{ inputs.environment || 'dev' }}
+  PLATFORM_REGION: ${{ inputs.region_short || 'eus2' }}
 
 jobs:
   # ── Lint & Type Check ──────────────────────────────────────────────────
@@ -34,9 +58,9 @@ jobs:
     name: Lint & Type Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
         with:
           node-version: "22"
           cache: "npm"
@@ -64,10 +88,10 @@ jobs:
     outputs:
       image_tag: ${{ steps.meta.outputs.image_tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Azure Login (OIDC)
-        uses: azure/login@v2
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2
         with:
           client-id: ${{ secrets.PLATFORM_AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.PLATFORM_AZURE_TENANT_ID }}
@@ -99,20 +123,23 @@ jobs:
       (github.event_name == 'workflow_dispatch' && inputs.deploy)
     environment: platform
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Azure Login (OIDC)
-        uses: azure/login@v2
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2
         with:
           client-id: ${{ secrets.PLATFORM_AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.PLATFORM_AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.PLATFORM_AZURE_SUBSCRIPTION_ID }}
 
+      - name: Install Helm
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
+
       - name: Get AKS credentials
         run: |
           az aks get-credentials \
-            --resource-group rg-dai-platform-dev-eus2 \
-            --name aks-dai-platform-dev-eus2 \
+            --resource-group "rg-dai-platform-${{ env.PLATFORM_ENV }}-${{ env.PLATFORM_REGION }}" \
+            --name "aks-dai-platform-${{ env.PLATFORM_ENV }}-${{ env.PLATFORM_REGION }}" \
             --overwrite-existing
 
       - name: Helm upgrade
@@ -135,5 +162,6 @@ jobs:
           echo "| Property | Value |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
           echo "| **Image** | \`${{ vars.ACR_LOGIN_SERVER }}/web:${{ needs.build.outputs.image_tag }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| **Cluster** | Platform AKS |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Cluster** | \`aks-dai-platform-${{ env.PLATFORM_ENV }}-${{ env.PLATFORM_REGION }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Namespace** | \`directai\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| **URL** | https://agilecloud.ai |" >> "$GITHUB_STEP_SUMMARY"

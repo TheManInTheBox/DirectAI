@@ -65,6 +65,9 @@ permissions:
 
 env:
   OPERATIONS_SUBSCRIPTION_ID: 'b03c9eb4-cddc-4987-9673-9ac44b9cc1d9'
+  RESOURCE_GROUP: rg-dai-platform-${{ inputs.environment }}-${{ inputs.region_short }}
+  TEMPLATE_FILE: infra/platform/main.bicep
+  PARAMS_FILE: infra/platform/environments/platform.${{ inputs.environment }}.${{ inputs.region_short }}.bicepparam
 
 jobs:
   # ── Validate ──────────────────────────────────────────────────────
@@ -85,16 +88,19 @@ jobs:
       - name: Ensure resource group exists
         run: |
           az group create \
-            --name "rg-dai-platform-${{ inputs.environment }}-${{ inputs.region_short }}" \
+            --name "${{ env.RESOURCE_GROUP }}" \
             --location "${{ inputs.region }}" \
             --tags project=directai component=platform environment=${{ inputs.environment }} managed-by=bicep
 
       - name: Validate Bicep
-        run: |
-          az deployment group validate \
-            --resource-group "rg-dai-platform-${{ inputs.environment }}-${{ inputs.region_short }}" \
-            --template-file infra/platform/main.bicep \
-            --parameters "infra/platform/environments/platform.${{ inputs.environment }}.${{ inputs.region_short }}.bicepparam"
+        uses: azure/arm-deploy@a1361c2c2cd398621955b16ca32e01c65ea340f5 # v2
+        with:
+          scope: resourcegroup
+          resourceGroupName: ${{ env.RESOURCE_GROUP }}
+          template: ${{ env.TEMPLATE_FILE }}
+          parameters: ${{ env.PARAMS_FILE }}
+          deploymentMode: Validate
+          failOnStdErr: true
 
   # ── What-If ───────────────────────────────────────────────────────
   what-if:
@@ -113,11 +119,14 @@ jobs:
           subscription-id: ${{ env.OPERATIONS_SUBSCRIPTION_ID }}
 
       - name: What-If
-        run: |
-          az deployment group what-if \
-            --resource-group "rg-dai-platform-${{ inputs.environment }}-${{ inputs.region_short }}" \
-            --template-file infra/platform/main.bicep \
-            --parameters "infra/platform/environments/platform.${{ inputs.environment }}.${{ inputs.region_short }}.bicepparam"
+        uses: azure/arm-deploy@a1361c2c2cd398621955b16ca32e01c65ea340f5 # v2
+        with:
+          scope: resourcegroup
+          resourceGroupName: ${{ env.RESOURCE_GROUP }}
+          template: ${{ env.TEMPLATE_FILE }}
+          parameters: ${{ env.PARAMS_FILE }}
+          additionalArguments: --what-if
+          failOnStdErr: false
 
   # ── Deploy ────────────────────────────────────────────────────────
   deploy:
@@ -138,40 +147,14 @@ jobs:
 
       - name: Deploy platform infrastructure
         id: deploy
-        run: |
-          OUTPUT=$(az deployment group create \
-            --resource-group "rg-dai-platform-${{ inputs.environment }}-${{ inputs.region_short }}" \
-            --template-file infra/platform/main.bicep \
-            --parameters "infra/platform/environments/platform.${{ inputs.environment }}.${{ inputs.region_short }}.bicepparam" \
-            --query 'properties.outputs' \
-            --output json)
-
-          echo "$OUTPUT" | jq .
-
-          # Extract key outputs for step summary
-          ACR_LOGIN_SERVER=$(echo "$OUTPUT" | jq -r '.acrLoginServer.value')
-          ACR_NAME=$(echo "$OUTPUT" | jq -r '.acrName.value')
-          STORAGE_NAME=$(echo "$OUTPUT" | jq -r '.storageAccountName.value')
-          LOG_ANALYTICS_ID=$(echo "$OUTPUT" | jq -r '.logAnalyticsWorkspaceId.value')
-          APPINSIGHTS_CS=$(echo "$OUTPUT" | jq -r '.appInsightsConnectionString.value')
-          DNS_ZONE_NAME=$(echo "$OUTPUT" | jq -r '.dnsZoneName.value // empty')
-          DNS_NAME_SERVERS=$(echo "$OUTPUT" | jq -r '.dnsZoneNameServers.value // [] | join(", ")')
-          PLATFORM_AKS_NAME=$(echo "$OUTPUT" | jq -r '.platformAksName.value // empty')
-          PLATFORM_AKS_FQDN=$(echo "$OUTPUT" | jq -r '.platformAksControlPlaneFqdn.value // empty')
-          PLATFORM_KV_URI=$(echo "$OUTPUT" | jq -r '.platformKeyVaultUri.value // empty')
-          PLATFORM_KUBELET_ID=$(echo "$OUTPUT" | jq -r '.platformKubeletIdentityPrincipalId.value // empty')
-
-          echo "acr_login_server=${ACR_LOGIN_SERVER}" >> $GITHUB_OUTPUT
-          echo "acr_name=${ACR_NAME}" >> $GITHUB_OUTPUT
-          echo "storage_name=${STORAGE_NAME}" >> $GITHUB_OUTPUT
-          echo "log_analytics_id=${LOG_ANALYTICS_ID}" >> $GITHUB_OUTPUT
-          echo "appinsights_connection_string=${APPINSIGHTS_CS}" >> $GITHUB_OUTPUT
-          echo "dns_zone_name=${DNS_ZONE_NAME}" >> $GITHUB_OUTPUT
-          echo "dns_name_servers=${DNS_NAME_SERVERS}" >> $GITHUB_OUTPUT
-          echo "platform_aks_name=${PLATFORM_AKS_NAME}" >> $GITHUB_OUTPUT
-          echo "platform_aks_fqdn=${PLATFORM_AKS_FQDN}" >> $GITHUB_OUTPUT
-          echo "platform_kv_uri=${PLATFORM_KV_URI}" >> $GITHUB_OUTPUT
-          echo "platform_kubelet_id=${PLATFORM_KUBELET_ID}" >> $GITHUB_OUTPUT
+        uses: azure/arm-deploy@a1361c2c2cd398621955b16ca32e01c65ea340f5 # v2
+        with:
+          scope: resourcegroup
+          resourceGroupName: ${{ env.RESOURCE_GROUP }}
+          template: ${{ env.TEMPLATE_FILE }}
+          parameters: ${{ env.PARAMS_FILE }}
+          deploymentName: platform-${{ inputs.environment }}-${{ inputs.region_short }}-${{ github.run_number }}
+          failOnStdErr: true
 
       - name: Deployment summary
         run: |
@@ -181,25 +164,25 @@ jobs:
           | Resource | Value |
           |----------|-------|
           | **Subscription** | \`${{ env.OPERATIONS_SUBSCRIPTION_ID }}\` |
-          | **Resource Group** | \`rg-dai-platform-${{ inputs.environment }}-${{ inputs.region_short }}\` |
-          | **ACR Login Server** | \`${{ steps.deploy.outputs.acr_login_server }}\` |
-          | **ACR Name** | \`${{ steps.deploy.outputs.acr_name }}\` |
-          | **Storage Account** | \`${{ steps.deploy.outputs.storage_name }}\` |
-          | **Log Analytics** | \`${{ steps.deploy.outputs.log_analytics_id }}\` |
+          | **Resource Group** | \`${{ env.RESOURCE_GROUP }}\` |
+          | **ACR Login Server** | \`${{ steps.deploy.outputs.acrLoginServer }}\` |
+          | **ACR Name** | \`${{ steps.deploy.outputs.acrName }}\` |
+          | **Storage Account** | \`${{ steps.deploy.outputs.storageAccountName }}\` |
+          | **Log Analytics** | \`${{ steps.deploy.outputs.logAnalyticsWorkspaceId }}\` |
           | **App Insights** | _(connection string in output)_ |
-          | **DNS Zone** | \`${{ steps.deploy.outputs.dns_zone_name }}\` |
-          | **DNS Name Servers** | \`${{ steps.deploy.outputs.dns_name_servers }}\` |
-          | **Platform AKS** | \`${{ steps.deploy.outputs.platform_aks_name }}\` |
-          | **Platform AKS FQDN** | \`${{ steps.deploy.outputs.platform_aks_fqdn }}\` |
-          | **Platform Key Vault** | \`${{ steps.deploy.outputs.platform_kv_uri }}\` |
-          | **Kubelet Principal** | \`${{ steps.deploy.outputs.platform_kubelet_id }}\` |
+          | **DNS Zone** | \`${{ steps.deploy.outputs.dnsZoneName }}\` |
+          | **DNS Name Servers** | \`${{ steps.deploy.outputs.dnsZoneNameServers }}\` |
+          | **Platform AKS** | \`${{ steps.deploy.outputs.platformAksName }}\` |
+          | **Platform AKS FQDN** | \`${{ steps.deploy.outputs.platformAksControlPlaneFqdn }}\` |
+          | **Platform Key Vault** | \`${{ steps.deploy.outputs.platformKeyVaultUri }}\` |
+          | **Kubelet Principal** | \`${{ steps.deploy.outputs.platformKubeletIdentityPrincipalId }}\` |
 
           #### Next Steps
-          1. Set \`vars.ACR_NAME\` = \`${{ steps.deploy.outputs.acr_name }}\` on the \`platform\` GitHub environment
-          2. Set \`vars.ACR_LOGIN_SERVER\` = \`${{ steps.deploy.outputs.acr_login_server }}\` on the \`platform\` GitHub environment
-          3. **Delegate DNS**: Update your domain registrar's NS records for \`${{ steps.deploy.outputs.dns_zone_name }}\` to: \`${{ steps.deploy.outputs.dns_name_servers }}\`
+          1. Set \`vars.ACR_NAME\` = \`${{ steps.deploy.outputs.acrName }}\` on the \`platform\` GitHub environment
+          2. Set \`vars.ACR_LOGIN_SERVER\` = \`${{ steps.deploy.outputs.acrLoginServer }}\` on the \`platform\` GitHub environment
+          3. **Delegate DNS**: Update your domain registrar's NS records for \`${{ steps.deploy.outputs.dnsZoneName }}\` to: \`${{ steps.deploy.outputs.dnsZoneNameServers }}\`
           4. Update \`platformAcrLoginServer\` in customer \`.bicepparam\` files
           5. For each customer stamp kubelet identity, assign \`AcrPull\` on the platform ACR
-          6. Get Platform AKS credentials: \`az aks get-credentials --resource-group rg-dai-platform-${{ inputs.environment }}-${{ inputs.region_short }} --name ${{ steps.deploy.outputs.platform_aks_name }}\`
+          6. Get Platform AKS credentials: \`az aks get-credentials --resource-group ${{ env.RESOURCE_GROUP }} --name ${{ steps.deploy.outputs.platformAksName }}\`
           7. Install NGINX Ingress + cert-manager on Platform AKS
           EOF
