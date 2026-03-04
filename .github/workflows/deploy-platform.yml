@@ -6,6 +6,8 @@
 #   - Storage Account — pre-compiled engine cache
 #   - Log Analytics Workspace — centralized monitoring
 #   - Application Insights — distributed tracing
+#   - Platform AKS (CPU-only) — web app, metering, webhooks
+#   - Key Vault — Stripe keys, NextAuth secret, DB connection strings
 #
 # This workflow targets the OPERATIONS subscription (b03c9eb4-...) and is
 # separate from customer stamp deployments (deploy-stamp.yml).
@@ -154,6 +156,10 @@ jobs:
           APPINSIGHTS_CS=$(echo "$OUTPUT" | jq -r '.appInsightsConnectionString.value')
           DNS_ZONE_NAME=$(echo "$OUTPUT" | jq -r '.dnsZoneName.value // empty')
           DNS_NAME_SERVERS=$(echo "$OUTPUT" | jq -r '.dnsZoneNameServers.value // [] | join(", ")')
+          PLATFORM_AKS_NAME=$(echo "$OUTPUT" | jq -r '.platformAksName.value // empty')
+          PLATFORM_AKS_FQDN=$(echo "$OUTPUT" | jq -r '.platformAksControlPlaneFqdn.value // empty')
+          PLATFORM_KV_URI=$(echo "$OUTPUT" | jq -r '.platformKeyVaultUri.value // empty')
+          PLATFORM_KUBELET_ID=$(echo "$OUTPUT" | jq -r '.platformKubeletIdentityPrincipalId.value // empty')
 
           echo "acr_login_server=${ACR_LOGIN_SERVER}" >> $GITHUB_OUTPUT
           echo "acr_name=${ACR_NAME}" >> $GITHUB_OUTPUT
@@ -162,6 +168,10 @@ jobs:
           echo "appinsights_connection_string=${APPINSIGHTS_CS}" >> $GITHUB_OUTPUT
           echo "dns_zone_name=${DNS_ZONE_NAME}" >> $GITHUB_OUTPUT
           echo "dns_name_servers=${DNS_NAME_SERVERS}" >> $GITHUB_OUTPUT
+          echo "platform_aks_name=${PLATFORM_AKS_NAME}" >> $GITHUB_OUTPUT
+          echo "platform_aks_fqdn=${PLATFORM_AKS_FQDN}" >> $GITHUB_OUTPUT
+          echo "platform_kv_uri=${PLATFORM_KV_URI}" >> $GITHUB_OUTPUT
+          echo "platform_kubelet_id=${PLATFORM_KUBELET_ID}" >> $GITHUB_OUTPUT
 
       - name: Deployment summary
         run: |
@@ -179,6 +189,10 @@ jobs:
           | **App Insights** | _(connection string in output)_ |
           | **DNS Zone** | \`${{ steps.deploy.outputs.dns_zone_name }}\` |
           | **DNS Name Servers** | \`${{ steps.deploy.outputs.dns_name_servers }}\` |
+          | **Platform AKS** | \`${{ steps.deploy.outputs.platform_aks_name }}\` |
+          | **Platform AKS FQDN** | \`${{ steps.deploy.outputs.platform_aks_fqdn }}\` |
+          | **Platform Key Vault** | \`${{ steps.deploy.outputs.platform_kv_uri }}\` |
+          | **Kubelet Principal** | \`${{ steps.deploy.outputs.platform_kubelet_id }}\` |
 
           #### Next Steps
           1. Set \`vars.ACR_NAME\` = \`${{ steps.deploy.outputs.acr_name }}\` on the \`platform\` GitHub environment
@@ -186,4 +200,6 @@ jobs:
           3. **Delegate DNS**: Update your domain registrar's NS records for \`${{ steps.deploy.outputs.dns_zone_name }}\` to: \`${{ steps.deploy.outputs.dns_name_servers }}\`
           4. Update \`platformAcrLoginServer\` in customer \`.bicepparam\` files
           5. For each customer stamp kubelet identity, assign \`AcrPull\` on the platform ACR
+          6. Get Platform AKS credentials: \`az aks get-credentials --resource-group rg-dai-platform-${{ inputs.environment }}-${{ inputs.region_short }} --name ${{ steps.deploy.outputs.platform_aks_name }}\`
+          7. Install NGINX Ingress + cert-manager on Platform AKS
           EOF
