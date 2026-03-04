@@ -177,7 +177,7 @@ Prices are competitive with Together AI / Fireworks. Adjust once real GPU cost d
 | Component | Detail |
 |---|---|
 | **Entra External Tenant** | Separate tenant in external configuration. Stores customer user accounts. |
-| **Identity Providers** | Google (native), GitHub (custom OIDC federation), email+password, email+OTP |
+| **Identity Providers** | Microsoft (personal + work/school accounts), Google (native), GitHub (custom OIDC federation), email+password, email+OTP |
 | **Login URL** | `https://directai.ciamlogin.com/...` (custom domain target: `auth.agilecloud.ai`) |
 | **NextAuth.js v5** | Next.js session management layer. Uses Entra External ID as OIDC provider. |
 | **Drizzle Adapter** | `@auth/drizzle-adapter` — stores NextAuth sessions, accounts, users in Postgres. |
@@ -186,7 +186,7 @@ Prices are competitive with Together AI / Fireworks. Adjust once real GPU cost d
 **Auth flow:**
 ```
 User → agilecloud.ai/login → NextAuth → Entra External ID (OIDC)
-  → Google / GitHub / email sign-in
+  → Microsoft (personal/work) / Google / GitHub / email sign-in
   → Token issued → NextAuth session created (Postgres)
   → Redirect to /dashboard
 ```
@@ -204,8 +204,8 @@ User → agilecloud.ai/login → NextAuth → Entra External ID (OIDC)
 
 **Setup steps (manual, one-time):**
 1. Create Entra External ID tenant in Azure Portal (Microsoft Entra admin center → External Identities → External tenants).
-2. Register app (`directai-web`) in the external tenant — redirect URI: `https://agilecloud.ai/api/auth/callback/entra-external`.
-3. Configure user flow: sign-up + sign-in, enable Google and email+OTP.
+2. Register app (`directai-web`) in the external tenant — supported account types: **Accounts in any organizational directory and personal Microsoft accounts**. Redirect URI: `https://agilecloud.ai/api/auth/callback/entra-external`.
+3. Configure user flow: sign-up + sign-in, enable Microsoft (personal + work/school), Google, and email+OTP.
 4. Add GitHub as custom OIDC identity provider (GitHub OAuth app → OIDC well-known endpoint via GitHub's OIDC support).
 5. Store client ID and secret in Platform Key Vault. Reference via workload identity in AKS pods.
 
