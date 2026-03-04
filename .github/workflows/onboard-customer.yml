@@ -2,7 +2,7 @@
 # DirectAI — Onboard New Customer
 #
 # Fully automated customer onboarding via GitHub Actions. Creates:
-#   1. Customer ID (new GUID)
+#   1. Customer ID (new GUID, or reuses an existing one for recovery)
 #   2. Azure Subscription (under billing enrollment account)
 #   3. Entra ID App Registration + Service Principal
 #   4. OIDC Federated Credentials (one per GitHub environment)
@@ -10,6 +10,10 @@
 #   6. GitHub Environments (dev + prod) with Azure secrets
 #   7. Customer manifest file (committed to repo)
 #   8. Bicep parameter files for each region × environment (committed to repo)
+#
+# Idempotency: Every step checks for pre-existing resources and skips or
+# updates rather than failing on duplicates. If a run fails partway through,
+# re-run with the same customer_id input to resume from where it left off.
 #
 # Prerequisites:
 #   - Platform environment secrets configured (see docs).
@@ -67,6 +71,11 @@ on:
         required: false
         type: string
         default: ''
+      customer_id:
+        description: 'Existing customer ID for recovery re-runs (leave empty for new customer)'
+        required: false
+        type: string
+        default: ''
       subdomain:
         description: 'Customer subdomain for agilecloud.ai (e.g., "acme" → acme.agilecloud.ai). Lowercase, alphanumeric + hyphens only.'
         required: true
@@ -89,12 +98,20 @@ jobs:
     outputs:
       customer_id: ${{ steps.generate-id.outputs.customer_id }}
     steps:
-      - name: Generate customer ID
+      - name: Generate or reuse customer ID
         id: generate-id
         shell: pwsh
+        env:
+          INPUT_CUSTOMER_ID: ${{ inputs.customer_id }}
         run: |
-          $customerId = [guid]::NewGuid().ToString()
-          Write-Host "✓ Generated customer ID: $customerId"
+          $existing = $env:INPUT_CUSTOMER_ID.Trim()
+          if ($existing -and $existing -ne '') {
+            Write-Host "♻ Reusing existing customer ID for recovery: $existing"
+            $customerId = $existing
+          } else {
+            $customerId = [guid]::NewGuid().ToString()
+            Write-Host "✓ Generated new customer ID: $customerId"
+          }
           "customer_id=$customerId" >> $env:GITHUB_OUTPUT
 
       - name: Validate regions
@@ -195,6 +212,14 @@ jobs:
 
           $aliasName = "sub-dai-$customerId"
           $subDisplayName = "DirectAI - $displayName"
+
+          # Check if alias already exists (idempotent re-run)
+          $aliasSubId = az account alias show --name $aliasName --query 'properties.subscriptionId' -o tsv 2>$null
+          if ($aliasSubId -and $aliasSubId -ne '') {
+            Write-Host "♻ Subscription alias '$aliasName' already exists: $aliasSubId"
+            "subscription_id=$aliasSubId" >> $env:GITHUB_OUTPUT
+            return
+          }
 
           Write-Host "Creating subscription '$subDisplayName'..."
           az account alias create `
