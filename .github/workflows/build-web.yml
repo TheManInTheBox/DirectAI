@@ -1,0 +1,139 @@
+# ============================================================================
+# Build Web — Lint, build, push web frontend image to Platform ACR
+# Triggers on changes to src/web/ or manual dispatch.
+# ============================================================================
+name: Build Web
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/web/**"
+      - ".github/workflows/build-web.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/web/**"
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Deploy to Platform AKS after build"
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  WEB_DIR: src/web
+
+jobs:
+  # ── Lint & Type Check ──────────────────────────────────────────────────
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: src/web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ env.WEB_DIR }}
+        run: npm ci
+
+      - name: Lint
+        working-directory: ${{ env.WEB_DIR }}
+        run: npm run lint
+
+      - name: Type check
+        working-directory: ${{ env.WEB_DIR }}
+        run: npx tsc --noEmit
+
+  # ── Build & Push ───────────────────────────────────────────────────────
+  build:
+    name: Build & Push Image
+    needs: lint
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    environment: platform
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.PLATFORM_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.PLATFORM_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.PLATFORM_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set image metadata
+        id: meta
+        run: |
+          SHA=$(echo "${{ github.sha }}" | head -c 7)
+          echo "image_tag=sha-${SHA}" >> "$GITHUB_OUTPUT"
+          echo "Image tag: sha-${SHA}"
+
+      - name: Build & push to ACR
+        run: |
+          az acr build \
+            --registry ${{ vars.ACR_NAME }} \
+            --image "web:${{ steps.meta.outputs.image_tag }}" \
+            --image "web:latest" \
+            --file ${{ env.WEB_DIR }}/Dockerfile \
+            ${{ env.WEB_DIR }}/
+
+  # ── Deploy to Platform AKS (optional) ──────────────────────────────────
+  deploy:
+    name: Deploy to Platform AKS
+    needs: build
+    runs-on: ubuntu-latest
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.deploy)
+    environment: platform
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.PLATFORM_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.PLATFORM_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.PLATFORM_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group rg-dai-platform-dev-eus2 \
+            --name aks-dai-platform-dev-eus2 \
+            --overwrite-existing
+
+      - name: Helm upgrade
+        run: |
+          helm upgrade --install directai-platform deploy/helm/directai/ \
+            -f deploy/helm/directai/values-platform.yaml \
+            --namespace directai --create-namespace \
+            --set web.image.tag="${{ needs.build.outputs.image_tag }}" \
+            --wait --timeout 5m
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/directai-platform-web -n directai --timeout=120s
+          echo "✅ Web frontend deployed successfully"
+
+      - name: Summary
+        run: |
+          echo "## 🌐 Web Deployment Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Property | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Image** | \`${{ vars.ACR_LOGIN_SERVER }}/web:${{ needs.build.outputs.image_tag }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Cluster** | Platform AKS |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **URL** | https://agilecloud.ai |" >> "$GITHUB_STEP_SUMMARY"

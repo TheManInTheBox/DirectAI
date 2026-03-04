@@ -48,6 +48,12 @@ htmlcov/
 deploy/helm/directai/charts/
 *.tgz
 
+# Node.js / Next.js
+node_modules/
+.next/
+out/
+.vercel
+
 # Environment
 .env
 .env.local

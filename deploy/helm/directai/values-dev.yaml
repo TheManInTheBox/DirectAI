@@ -81,6 +81,11 @@ workloadIdentity:
   enabled: true
   clientId: "0d60bdcc-b4e9-4cee-b1a5-53995135fa45"
 
+# ── Web Frontend — disabled on inference stamps ──────────────────────────
+# Web runs on Platform AKS only. Inference stamps don't serve the website.
+web:
+  enabled: false
+
 # ── Inference Backends ──────────────────────────────────────────────────────
 # Model baked into image via BAKE_MODEL=1 — no weightsUri / init container.
 backends:

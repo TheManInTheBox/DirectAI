@@ -79,6 +79,47 @@ ingress:
       hosts:
         - CUSTOMER.agilecloud.ai
 
+# ── Web Frontend (Marketing / Dashboard) ──────────────────────────────────
+# Deployed on Platform AKS only. Disabled by default — enable in platform values.
+web:
+  enabled: false
+
+  replicaCount: 2
+
+  image:
+    repository: directai.azurecr.io/web
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 3000
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+  env: {}
+
+  ingress:
+    enabled: false
+    className: nginx
+    tlsSecretName: directai-web-tls
+    annotations:
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    hosts:
+      - host: agilecloud.ai
+        paths:
+          - path: /
+            pathType: Prefix
+
+  nodeSelector: {}
+
 # ── Inference Backends ─────────────────────────────────────────────────────
 # Each entry here creates a Deployment + Service + optional KEDA ScaledObject.
 # Keys match metadata.name from ModelDeployment YAMLs.

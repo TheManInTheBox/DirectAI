@@ -1,0 +1,101 @@
+# ============================================================================
+# DirectAI Helm Chart — Platform Values (agilecloud.ai website)
+# AKS: Platform AKS (CPU-only)  |  ACR: acrplatformdaiv7fgid.azurecr.io
+# This values file is used ONLY on the Platform AKS cluster.
+# It enables the web frontend and disables inference backends.
+# ============================================================================
+
+global:
+  namespace: directai
+
+# ── API Server — disabled on Platform AKS ──────────────────────────────────
+# The API server runs on inference stamps, not the platform cluster.
+apiServer:
+  replicaCount: 0
+
+  image:
+    repository: acrplatformdaiv7fgid.azurecr.io/api-server
+    tag: "latest"
+    pullPolicy: Always
+
+  autoscaling:
+    enabled: false
+
+# ── Web Frontend — ENABLED on Platform AKS ─────────────────────────────────
+web:
+  enabled: true
+
+  replicaCount: 2
+
+  image:
+    repository: acrplatformdaiv7fgid.azurecr.io/web
+    tag: "latest"
+    pullPolicy: Always
+
+  service:
+    type: ClusterIP
+    port: 3000
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+  env:
+    NEXT_PUBLIC_API_URL: "https://api.agilecloud.ai"
+
+  ingress:
+    enabled: true
+    className: nginx
+    tlsSecretName: directai-web-tls
+    annotations:
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    hosts:
+      - host: agilecloud.ai
+        paths:
+          - path: /
+            pathType: Prefix
+
+  nodeSelector: {}
+
+# ── Ingress — disabled (web has its own ingress) ──────────────────────────
+ingress:
+  enabled: false
+
+# ── TLS — Let's Encrypt via cert-manager ──────────────────────────────────
+tls:
+  enabled: true
+  certManager:
+    enabled: true
+    issuer: letsencrypt-prod
+
+# ── Service Account ───────────────────────────────────────────────────────
+serviceAccount:
+  create: true
+  name: directai
+  annotations: {}
+
+# ── Inference Backends — DISABLED on Platform AKS ─────────────────────────
+backends: {}
+
+# ── Everything inference-related is off ───────────────────────────────────
+workloadIdentity:
+  enabled: false
+networkPolicy:
+  enabled: true
+keda:
+  enabled: false
+prometheusRules:
+  enabled: false
+priorityClass:
+  enabled: false
+nvmeInit:
+  enabled: false
+dcgmExporter:
+  enabled: false
+datadogOtlp:
+  enabled: false
