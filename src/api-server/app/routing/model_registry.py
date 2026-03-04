@@ -79,6 +79,12 @@ class ModelRegistry:
             len(registry._models),
             len(registry._alias_index),
         )
+        if not registry._models:
+            logger.warning(
+                "⚠ Zero models loaded from %s — /v1/models will be empty. "
+                "Did you forget to mount model configs via Helm modelConfigs or --set-file?",
+                config_dir,
+            )
         return registry
 
     def _load_file(self, path: Path, namespace: str, backend_port: int) -> None:
