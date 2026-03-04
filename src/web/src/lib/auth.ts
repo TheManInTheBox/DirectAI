@@ -77,7 +77,9 @@ function buildAuthConfig(): NextAuthConfig {
     ],
 
     session: {
-      strategy: process.env.DATABASE_URL ? "database" : "jwt",
+      // Always use JWT — Edge middleware can't use postgres TCP sockets.
+      // Drizzle adapter still handles user/account creation in the DB.
+      strategy: "jwt",
       maxAge: 30 * 24 * 60 * 60, // 30 days
       updateAge: 24 * 60 * 60, // Refresh session every 24 hours
     },
@@ -88,10 +90,17 @@ function buildAuthConfig(): NextAuthConfig {
     },
 
     callbacks: {
-      async session({ session, user }) {
-        // Expose user ID in the session for API key management, billing, etc.
-        if (session.user && user) {
-          session.user.id = user.id;
+      async jwt({ token, user }) {
+        // On first sign-in, user object is available — persist the DB id in the token
+        if (user) {
+          token.sub = user.id;
+        }
+        return token;
+      },
+      async session({ session, token }) {
+        // Expose user ID from JWT in the session
+        if (session.user && token.sub) {
+          session.user.id = token.sub;
         }
         return session;
       },
