@@ -57,6 +57,8 @@ web:
         secretKey: DATABASE_URL
       - objectName: auth-secret
         secretKey: AUTH_SECRET
+      - objectName: auth-url
+        secretKey: AUTH_URL
       - objectName: auth-entra-external-issuer
         secretKey: AUTH_ENTRA_EXTERNAL_ISSUER
       - objectName: auth-entra-external-client-id
