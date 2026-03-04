@@ -227,10 +227,12 @@ jobs:
           df -h
 
       - name: Set up Docker Buildx
+        if: steps.trtllm-mode.outputs.use_stub == 'true'
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
-      - name: Build and push
-        id: build
+      - name: Build and push (stub — GHA runner + cache)
+        id: build-stub
+        if: steps.trtllm-mode.outputs.use_stub == 'true'
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: src/trtllm-engine
@@ -238,16 +240,41 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            USE_STUB=${{ steps.trtllm-mode.outputs.use_stub }}
+            USE_STUB=true
             BASE_IMAGE=${{ steps.trtllm-mode.outputs.base_image }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Build and push (production — ACR Tasks)
+        id: build-prod
+        if: steps.trtllm-mode.outputs.use_stub == 'false'
+        shell: bash
+        working-directory: src/trtllm-engine
+        run: |
+          # ACR Build Tasks — Docker build runs on Azure-managed infra
+          # No runner disk constraints; build output lands directly in ACR
+          SHA_SHORT="${GITHUB_SHA::7}"
+          echo "Building TRT-LLM production image via ACR Tasks..."
+          az acr build \
+            --registry "${{ vars.ACR_NAME }}" \
+            --file Dockerfile \
+            --build-arg USE_STUB=false \
+            --build-arg "BASE_IMAGE=${{ steps.trtllm-mode.outputs.base_image }}" \
+            -t "trtllm-engine:${SHA_SHORT}" \
+            -t "trtllm-engine:main" \
+            -t "trtllm-engine:${{ steps.trtllm-mode.outputs.latest_tag }}" \
+            .
 
       - name: Image summary
         run: |
           echo "### 🚀 TRT-LLM Engine pushed" >> $GITHUB_STEP_SUMMARY
           echo "**Tags:** ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Digest:** ${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.trtllm-mode.outputs.use_stub }}" = "true" ]; then
+            echo "**Digest:** ${{ steps.build-stub.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Build method:** GitHub Actions (GHA cache)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Build method:** ACR Tasks (Azure-managed infra)" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "**Stub mode:** ${{ steps.trtllm-mode.outputs.use_stub }}" >> $GITHUB_STEP_SUMMARY
 
       - name: Trivy vulnerability scan
