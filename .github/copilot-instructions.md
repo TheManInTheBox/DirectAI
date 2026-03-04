@@ -144,6 +144,136 @@ Pre-warmed replicas and true zero-cost idle are **mutually exclusive per model.*
 - **Horizontal scalability.** Stateless request handling. No in-process state that can't be reconstructed or externalized.
 - **Fail loud.** No silent swallowing of errors. Structured logging, correlation IDs on every request, circuit breakers on external calls.
 
+### Pricing Architecture
+
+**3 tiers. Token-based, per-model pricing.** Self-Hosted is an Enterprise add-on, not a standalone tier.
+
+| | Developer (Free) | Pro ($49/mo) | Enterprise (Custom) |
+|---|---|---|---|
+| **Base** | $0/mo | $49/mo platform fee | Custom contract |
+| **Billing unit** | Tokens (LLM), tokens (embed), minutes (STT) | Same | Same |
+| **Included credits** | $5/mo in usage | $50/mo included | N/A |
+| **Rate limit** | 60 RPM, 100K TPM | 600 RPM, 1M TPM | Unlimited |
+| **Models** | Public catalog | Public catalog + fine-tuned | + custom deployment |
+| **Support** | Community | Email, 24hr SLA | Slack, 1hr SLA |
+| **SLA** | Best-effort | 99.9% | 99.99% |
+| **Infrastructure** | Shared GPU pool | Shared pool, priority queue | Dedicated subscription |
+
+**Per-model token pricing (input / output):**
+
+| Model | Input (per 1M tokens) | Output (per 1M tokens) |
+|---|---|---|
+| Llama 3.1 8B | $0.10 | $0.20 |
+| Llama 3.1 70B | $0.60 | $0.80 |
+| Embeddings (bge-large) | $0.02 | — |
+| Whisper large-v3 | — | $0.10/minute |
+
+Prices are competitive with Together AI / Fireworks. Adjust once real GPU cost data is available.
+
+### Authentication Architecture (Entra External ID)
+
+**Microsoft Entra External ID** is the identity provider for all customer-facing authentication. It runs in a dedicated *external tenant* separate from the DirectAI workforce tenant.
+
+| Component | Detail |
+|---|---|
+| **Entra External Tenant** | Separate tenant in external configuration. Stores customer user accounts. |
+| **Identity Providers** | Google (native), GitHub (custom OIDC federation), email+password, email+OTP |
+| **Login URL** | `https://directai.ciamlogin.com/...` (custom domain target: `auth.agilecloud.ai`) |
+| **NextAuth.js v5** | Next.js session management layer. Uses Entra External ID as OIDC provider. |
+| **Drizzle Adapter** | `@auth/drizzle-adapter` — stores NextAuth sessions, accounts, users in Postgres. |
+| **Pricing** | Free for first 50,000 MAU (monthly active users). |
+
+**Auth flow:**
+```
+User → agilecloud.ai/login → NextAuth → Entra External ID (OIDC)
+  → Google / GitHub / email sign-in
+  → Token issued → NextAuth session created (Postgres)
+  → Redirect to /dashboard
+```
+
+**API key auth (inference):** Separate from dashboard auth. Users generate API keys in the dashboard. Keys are hashed (SHA-256) and stored in Postgres. The API server validates keys against the DB (cached in-memory with TTL).
+
+**Environment variables:**
+
+| Variable | Description |
+|---|---|
+| `AUTH_SECRET` | NextAuth session encryption secret |
+| `AUTH_ENTRA_EXTERNAL_ISSUER` | `https://{subdomain}.ciamlogin.com/{tenant-id}/v2.0` |
+| `AUTH_ENTRA_EXTERNAL_CLIENT_ID` | App registration client ID in external tenant |
+| `AUTH_ENTRA_EXTERNAL_CLIENT_SECRET` | App registration client secret |
+
+**Setup steps (manual, one-time):**
+1. Create Entra External ID tenant in Azure Portal (Microsoft Entra admin center → External Identities → External tenants).
+2. Register app (`directai-web`) in the external tenant — redirect URI: `https://agilecloud.ai/api/auth/callback/entra-external`.
+3. Configure user flow: sign-up + sign-in, enable Google and email+OTP.
+4. Add GitHub as custom OIDC identity provider (GitHub OAuth app → OIDC well-known endpoint via GitHub's OIDC support).
+5. Store client ID and secret in Platform Key Vault. Reference via workload identity in AKS pods.
+
+### Billing Architecture (Stripe)
+
+**Stripe Meters API** for usage-based billing. Stripe handles invoicing, payment processing, and subscription lifecycle.
+
+| Component | Where | Purpose |
+|---|---|---|
+| **Stripe Customer sync** | Web app (server action) | Create Stripe customer on first sign-in via NextAuth callback |
+| **Subscription management** | Web app (Stripe Checkout / Customer Portal) | Tier selection, upgrade/downgrade, payment method |
+| **API key management** | Web app + API server | Generate, list, revoke keys. Keys stored SHA-256 hashed in Postgres. |
+| **Usage metering** | API server middleware | Count tokens per request, emit structured usage events |
+| **Usage reporter** | Background worker (cron or sidecar) | Batch-report usage events to Stripe Meters API every 60s |
+| **Dashboard** | Web app (`/dashboard`) | Current usage, spend, invoices, API keys |
+
+**Billing flow:**
+```
+User signup (Entra + NextAuth)
+  → Stripe Customer created (linked to user.id)
+  → User picks tier → Stripe Checkout Session → Subscription created
+  → User generates API key → key_hash stored in Postgres
+  → API requests hit api-server → middleware counts tokens
+  → Usage events written to Postgres usage_records table
+  → Background worker batches usage → Stripe Meters API
+  → Stripe calculates bill → charges card monthly
+```
+
+**Environment variables:**
+
+| Variable | Description |
+|---|---|
+| `STRIPE_SECRET_KEY` | Stripe API secret key |
+| `STRIPE_PUBLISHABLE_KEY` | Stripe publishable key (client-side) |
+| `STRIPE_WEBHOOK_SECRET` | Webhook endpoint signing secret |
+| `STRIPE_METER_ID_TOKENS` | Meter ID for token usage |
+
+### Database (PostgreSQL + Drizzle ORM)
+
+**Azure Database for PostgreSQL Flexible Server** in the Platform resource group. Accessed by the web app via connection string (workload identity or password auth).
+
+| Config | Dev | Prod |
+|---|---|---|
+| **SKU** | Burstable B1ms (1 vCore, 2 GB) | GeneralPurpose D2s_v3 (2 vCore, 8 GB) |
+| **Storage** | 32 GB | 256 GB |
+| **HA** | Disabled | Zone-redundant |
+| **Backup** | 7 days, no geo | 35 days, geo-redundant |
+| **Access** | Public + Azure firewall | Private endpoint (AKS VNet) |
+| **Auth** | Password + Entra admin | Entra-only (workload identity) |
+| **Version** | PostgreSQL 17 | PostgreSQL 17 |
+
+**ORM:** Drizzle ORM (TypeScript-native, lightweight, SQL-first). Migrations via `drizzle-kit`.
+
+**Schema (6 tables):**
+
+| Table | Purpose |
+|---|---|
+| `users` | NextAuth-managed. id, name, email, emailVerified, image. |
+| `accounts` | NextAuth-managed. OAuth provider accounts linked to users. |
+| `sessions` | NextAuth-managed. Active user sessions. |
+| `verification_tokens` | NextAuth-managed. Email verification / magic links. |
+| `api_keys` | DirectAI. id, userId, keyHash, keyPrefix, name, createdAt, lastUsedAt, revokedAt. |
+| `usage_records` | DirectAI. id, userId, apiKeyId, model, modality, inputTokens, outputTokens, requestId, createdAt. |
+
+**Connection string env var:** `DATABASE_URL=postgresql://directaiadmin:{password}@{server}.postgres.database.azure.com:5432/directai?sslmode=require`
+
+**Bicep:** Deployed via `infra/platform/main.bicep` using AVM module `br/public:avm/res/db-for-postgre-sql/flexible-server`. Conditional on `enablePlatformDb = true`.
+
 ## Development Guidelines
 
 ### Repository Structure

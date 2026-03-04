@@ -10,6 +10,12 @@ param enableDnsZone = true
 param dnsZoneName = 'agilecloud.ai'
 param dataRetention = 30
 param enablePlatformAks = true
+param enablePlatformDb = true
+param postgresAdminLogin = 'directaiadmin'
+param postgresAdminPassword = readEnvironmentVariable('POSTGRES_ADMIN_PASSWORD', 'ChangeMeInCI!')
+param postgresSkuName = 'Standard_B1ms'
+param postgresTier = 'Burstable'
+param postgresStorageGB = 32
 param kubernetesVersion = '1.33'
 param tags = {
   costCenter: 'platform'

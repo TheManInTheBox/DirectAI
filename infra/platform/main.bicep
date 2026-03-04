@@ -63,6 +63,28 @@ param enableDnsZone bool = true
 @description('Deploy the Platform AKS cluster for web hosting, metering workers, and webhooks.')
 param enablePlatformAks bool = false
 
+// --- Platform PostgreSQL (user/billing/session database) ---
+
+@description('Deploy the Platform PostgreSQL Flexible Server for user, billing, and session data.')
+param enablePlatformDb bool = false
+
+@description('PostgreSQL administrator login name.')
+param postgresAdminLogin string = 'directaiadmin'
+
+@secure()
+@description('PostgreSQL administrator password. Required when enablePlatformDb = true.')
+param postgresAdminPassword string = ''
+
+@description('PostgreSQL SKU name (e.g., Standard_B1ms for dev, Standard_D2s_v3 for prod).')
+param postgresSkuName string = 'Standard_B1ms'
+
+@description('PostgreSQL pricing tier.')
+@allowed(['Burstable', 'GeneralPurpose', 'MemoryOptimized'])
+param postgresTier string = 'Burstable'
+
+@description('PostgreSQL storage size in GB.')
+param postgresStorageGB int = 32
+
 @description('Kubernetes version for Platform AKS.')
 param kubernetesVersion string = '1.33'
 
@@ -102,6 +124,9 @@ var aksName = 'aks-${baseName}'
 var platformCpIdentityName = 'id-cp-${baseName}'
 var platformKubeletIdentityName = 'id-kubelet-${baseName}'
 var platformKeyVaultName = 'kvplatdai${take(uniqueSuffix, 6)}'
+
+// Platform PostgreSQL naming
+var postgresServerName = 'psql-${baseName}'
 
 // Role Definition IDs (used by Platform AKS RBAC assignments)
 var managedIdentityOperatorRoleId = subscriptionResourceId(
@@ -546,6 +571,81 @@ resource platformFederatedCredential 'Microsoft.ManagedIdentity/userAssignedIden
 }
 
 // ---------------------------------------------------------------------------
+// 8. Platform PostgreSQL — user accounts, API keys, billing, sessions
+//
+//    Conditional on enablePlatformDb. Uses AVM module.
+//    Dev: Burstable B1ms, public access, Azure-only firewall
+//    Prod: GeneralPurpose D2s_v3, zone-redundant HA, private endpoint
+// ---------------------------------------------------------------------------
+
+module platformDb 'br/public:avm/res/db-for-postgre-sql/flexible-server:0.14.0' = if (enablePlatformDb) {
+  name: 'platformDb'
+  params: {
+    name: postgresServerName
+    location: location
+    skuName: postgresSkuName
+    tier: postgresTier
+    storageSizeGB: postgresStorageGB
+    version: '17'
+    availabilityZone: 1
+
+    // Authentication — password for dev, Entra-only for prod (Phase 2)
+    administratorLogin: postgresAdminLogin
+    administratorLoginPassword: postgresAdminPassword
+
+    // Entra admin — kubelet identity can authenticate via workload identity
+    administrators: enablePlatformAks ? [
+      {
+        objectId: platformKubeletIdentity.properties.principalId
+        principalName: platformKubeletIdentityName
+        principalType: 'ServicePrincipal'
+      }
+    ] : []
+
+    // Network — public access for dev (Azure services only), private endpoint for prod
+    firewallRules: [
+      {
+        name: 'AllowAllWindowsAzureIps'
+        startIpAddress: '0.0.0.0'
+        endIpAddress: '0.0.0.0'
+      }
+    ]
+
+    // Default database
+    databases: [
+      {
+        name: 'directai'
+        charset: 'UTF8'
+        collation: 'en_US.utf8'
+      }
+    ]
+
+    // High availability — disabled for dev (Burstable doesn't support HA)
+    highAvailability: {
+      mode: 'Disabled'
+    }
+
+    // Backup — 7 days, no geo for dev
+    backup: {
+      geoRedundantBackup: 'Disabled'
+      backupRetentionDays: environment == 'prod' ? 35 : 7
+    }
+
+    // Diagnostics → Log Analytics
+    diagnosticSettings: [
+      {
+        workspaceResourceId: logAnalytics.outputs.resourceId
+        metricCategories: [
+          { category: 'AllMetrics' }
+        ]
+      }
+    ]
+
+    tags: defaultTags
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Outputs
 // ---------------------------------------------------------------------------
 
@@ -604,3 +704,14 @@ output platformKubeletIdentityPrincipalId string = enablePlatformAks ? platformK
 
 @description('Platform kubelet identity client ID.')
 output platformKubeletIdentityClientId string = enablePlatformAks ? platformKubeletIdentity!.properties.clientId : ''
+
+// --- Platform PostgreSQL outputs ---
+
+@description('Platform PostgreSQL server FQDN.')
+output platformDbFqdn string = enablePlatformDb ? platformDb.outputs.fqdn : ''
+
+@description('Platform PostgreSQL server name.')
+output platformDbName string = enablePlatformDb ? platformDb.outputs.name : ''
+
+@description('Platform PostgreSQL server resource ID.')
+output platformDbResourceId string = enablePlatformDb ? platformDb.outputs.resourceId : ''

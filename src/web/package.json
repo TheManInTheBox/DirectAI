@@ -9,12 +9,17 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@auth/drizzle-adapter": "^1.11.1",
     "@azure/data-tables": "^13.3.2",
     "clsx": "^2.1.1",
+    "drizzle-orm": "^0.45.1",
     "lucide-react": "^0.576.0",
     "next": "16.1.6",
+    "next-auth": "^5.0.0-beta.30",
+    "postgres": "^3.4.8",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "stripe": "^20.4.0",
     "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
@@ -22,6 +27,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "drizzle-kit": "^0.31.9",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",

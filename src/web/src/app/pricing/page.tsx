@@ -23,19 +23,19 @@ const tiers: Tier[] = [
   {
     name: "Developer",
     price: "Free",
-    priceDetail: "then pay-per-use",
+    priceDetail: "$5/mo in credits",
     description:
-      "Get started instantly. Shared GPU pool with generous free tier and pay-as-you-go after.",
+      "Get started instantly. Shared GPU pool with generous free credits and pay-as-you-go after.",
     cta: "Join Waitlist",
     ctaHref: "/waitlist",
     highlighted: false,
     features: [
-      { text: "1,000 free requests/month", included: true },
+      { text: "$5/month in free credits", included: true },
       { text: "All modalities (LLM, embeddings, STT)", included: true },
       { text: "OpenAI-compatible API", included: true },
       { text: "Shared GPU pool", included: true },
       { text: "Community support", included: true },
-      { text: "Rate limited (60 RPM)", included: true },
+      { text: "Rate limited (60 RPM / 100K TPM)", included: true },
       { text: "Dedicated GPU allocation", included: false },
       { text: "Custom model deployment", included: false },
       { text: "SLA guarantee", included: false },
@@ -43,23 +43,23 @@ const tiers: Tier[] = [
   },
   {
     name: "Pro",
-    price: "$99",
+    price: "$49",
     priceDetail: "/month + usage",
     description:
-      "Reserved GPU capacity with burst scaling. For production workloads that need reliability.",
+      "Priority GPU access with $50/month in included credits. For production workloads that need reliability.",
     cta: "Join Waitlist",
     ctaHref: "/waitlist",
     highlighted: true,
     features: [
-      { text: "10,000 requests/month included", included: true },
+      { text: "$50/month in included credits", included: true },
       { text: "All modalities (LLM, embeddings, STT)", included: true },
       { text: "OpenAI-compatible API", included: true },
-      { text: "Reserved GPU hours", included: true },
-      { text: "Priority support (email)", included: true },
-      { text: "Higher rate limits (600 RPM)", included: true },
-      { text: "Burst to shared pool", included: true },
-      { text: "Custom model deployment", included: false },
+      { text: "Priority GPU queue", included: true },
+      { text: "Email support (24hr SLA)", included: true },
+      { text: "Higher rate limits (600 RPM / 1M TPM)", included: true },
+      { text: "Fine-tuned model deployment", included: true },
       { text: "99.9% SLA", included: true },
+      { text: "Custom model deployment", included: false },
     ],
   },
   {
@@ -67,49 +67,28 @@ const tiers: Tier[] = [
     price: "Custom",
     priceDetail: "contact us",
     description:
-      "Dedicated infrastructure in your own Azure subscription. Full isolation, custom SLAs.",
+      "Dedicated infrastructure in your own Azure subscription. Full isolation, custom SLAs, and self-hosted options.",
     cta: "Contact Sales",
     ctaHref: "/waitlist",
     highlighted: false,
     features: [
-      { text: "Unlimited requests", included: true },
+      { text: "Unlimited usage", included: true },
       { text: "All modalities (LLM, embeddings, STT)", included: true },
       { text: "OpenAI-compatible API", included: true },
       { text: "Dedicated GPU node pools", included: true },
-      { text: "Dedicated support (Slack + phone)", included: true },
+      { text: "Dedicated support (Slack + phone, 1hr SLA)", included: true },
       { text: "No rate limits", included: true },
       { text: "Custom model deployment", included: true },
       { text: "Compound AI pipelines", included: true },
-      { text: "99.99% SLA", included: true },
-    ],
-  },
-  {
-    name: "Self-Hosted",
-    price: "$499",
-    priceDetail: "/month license",
-    description:
-      "Run DirectAI on your own infrastructure. Full Helm chart, container images, and support.",
-    cta: "Contact Sales",
-    ctaHref: "/waitlist",
-    highlighted: false,
-    features: [
-      { text: "Your infrastructure, your rules", included: true },
-      { text: "All modalities (LLM, embeddings, STT)", included: true },
-      { text: "OpenAI-compatible API", included: true },
-      { text: "Helm chart + Docker images", included: true },
-      { text: "Setup support + documentation", included: true },
-      { text: "Air-gapped / sovereign deployment", included: true },
-      { text: "Custom model deployment", included: true },
-      { text: "Bring your own GPUs", included: true },
-      { text: "Support tier add-on available", included: true },
+      { text: "99.99% SLA + self-hosted option", included: true },
     ],
   },
 ];
 
 const faqs = [
   {
-    q: "How does pay-per-use pricing work?",
-    a: "After your free tier allowance, you pay per 1K tokens for LLMs, per request for embeddings and transcription. Usage is metered in real-time and billed monthly via Stripe. No surprise bills — set spend limits in your dashboard.",
+    q: "How does token-based pricing work?",
+    a: "Each model has its own per-token rate. LLMs charge separately for input and output tokens (output costs more because autoregressive generation is compute-intensive). Embeddings charge input tokens only. Transcription charges per minute. Usage is metered in real-time and billed monthly via Stripe.",
   },
   {
     q: "Can I switch between tiers?",
@@ -117,19 +96,19 @@ const faqs = [
   },
   {
     q: "What models are available?",
-    a: "We support Llama 3.1 (8B, 70B, 405B), Mistral, Qwen, DeepSeek for chat. BGE and E5 for embeddings. Whisper large-v3 for transcription. Enterprise and Self-Hosted tiers can deploy any custom model.",
+    a: "We support Llama 3.1 (8B, 70B, 405B), Mistral, Qwen, DeepSeek for chat. BGE and E5 for embeddings. Whisper large-v3 for transcription. Enterprise customers can deploy any custom model.",
   },
   {
-    q: "What's the difference between managed and self-hosted?",
-    a: "Managed tiers run on DirectAI infrastructure — we handle scaling, updates, and monitoring. Self-Hosted gives you our Helm chart and container images to run on your own Kubernetes cluster. Same engine, your servers.",
+    q: "What about self-hosted deployment?",
+    a: "Self-hosted is available as an Enterprise add-on. You get our Helm chart, container images, and TensorRT-LLM engines to run on your own Kubernetes cluster — same performance, your infrastructure.",
   },
   {
     q: "Do you support fine-tuned models?",
-    a: "Enterprise and Self-Hosted tiers support custom model deployment. Upload your weights, and we compile optimized TensorRT-LLM engines for your target GPU. Standard architectures (Llama, Mistral, Qwen) deploy in minutes.",
+    a: "Pro tier supports fine-tuned models with standard architectures. Enterprise tier supports fully custom model deployment. Upload your weights, and we compile optimized TensorRT-LLM engines for your target GPU.",
   },
   {
-    q: "Is there a free trial for paid tiers?",
-    a: "The Developer tier is free with 1,000 requests/month — use it as your trial. If you need to evaluate Pro features, contact us for a 14-day Pro trial.",
+    q: "Is there a free trial?",
+    a: "The Developer tier includes $5/month in free credits — enough to evaluate all modalities. If you need to evaluate Pro features, contact us for a 14-day Pro trial.",
   },
 ];
 
@@ -151,7 +130,7 @@ export default function PricingPage() {
       {/* Pricing Grid */}
       <section className="bg-gray-950 pb-24">
         <div className="mx-auto max-w-7xl px-6">
-          <div className="grid gap-6 lg:grid-cols-4">
+          <div className="grid gap-6 lg:grid-cols-3">
             {tiers.map((tier) => (
               <div
                 key={tier.name}
@@ -227,46 +206,55 @@ export default function PricingPage() {
       <section className="border-t border-gray-800 bg-gray-950 py-24">
         <div className="mx-auto max-w-4xl px-6">
           <h2 className="text-center text-2xl font-bold text-white sm:text-3xl">
-            Pay-Per-Use Rates
+            Per-Model Token Pricing
           </h2>
           <p className="mt-3 text-center text-gray-400">
-            After your tier&apos;s included allowance, usage is billed at these
-            rates.
+            After your tier&apos;s included credits, usage is billed per
+            model at these rates. Same pricing across all tiers.
           </p>
           <div className="mt-12 overflow-hidden rounded-xl border border-gray-800">
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-gray-800 bg-gray-900/50">
                   <th className="px-6 py-4 font-semibold text-white">
-                    Modality
+                    Model
                   </th>
-                  <th className="px-6 py-4 font-semibold text-white">Unit</th>
                   <th className="px-6 py-4 font-semibold text-white">
-                    Developer
+                    Input
                   </th>
-                  <th className="px-6 py-4 font-semibold text-white">Pro</th>
+                  <th className="px-6 py-4 font-semibold text-white">
+                    Output
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
                 <tr>
                   <td className="px-6 py-4 text-gray-300">
-                    LLM (Chat Completions)
+                    Llama 3.1 8B
                   </td>
-                  <td className="px-6 py-4 text-gray-400">per 1M tokens</td>
-                  <td className="px-6 py-4 text-gray-300">$0.80</td>
-                  <td className="px-6 py-4 text-gray-300">$0.60</td>
+                  <td className="px-6 py-4 text-gray-300">$0.10 / 1M tokens</td>
+                  <td className="px-6 py-4 text-gray-300">$0.20 / 1M tokens</td>
                 </tr>
                 <tr>
-                  <td className="px-6 py-4 text-gray-300">Embeddings</td>
-                  <td className="px-6 py-4 text-gray-400">per 1M tokens</td>
-                  <td className="px-6 py-4 text-gray-300">$0.05</td>
-                  <td className="px-6 py-4 text-gray-300">$0.03</td>
+                  <td className="px-6 py-4 text-gray-300">
+                    Llama 3.1 70B
+                  </td>
+                  <td className="px-6 py-4 text-gray-300">$0.60 / 1M tokens</td>
+                  <td className="px-6 py-4 text-gray-300">$0.80 / 1M tokens</td>
                 </tr>
                 <tr>
-                  <td className="px-6 py-4 text-gray-300">Transcription</td>
-                  <td className="px-6 py-4 text-gray-400">per hour</td>
-                  <td className="px-6 py-4 text-gray-300">$0.30</td>
-                  <td className="px-6 py-4 text-gray-300">$0.20</td>
+                  <td className="px-6 py-4 text-gray-300">
+                    Embeddings (bge-large)
+                  </td>
+                  <td className="px-6 py-4 text-gray-300">$0.02 / 1M tokens</td>
+                  <td className="px-6 py-4 text-gray-500">—</td>
+                </tr>
+                <tr>
+                  <td className="px-6 py-4 text-gray-300">
+                    Whisper large-v3
+                  </td>
+                  <td className="px-6 py-4 text-gray-500">—</td>
+                  <td className="px-6 py-4 text-gray-300">$0.10 / minute</td>
                 </tr>
               </tbody>
             </table>
