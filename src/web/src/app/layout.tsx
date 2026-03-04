@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Navbar } from "@/components/navbar";
-import { Footer } from "@/components/footer";
+import { ConditionalFooter } from "@/components/conditional-footer";
 import { SessionProvider } from "@/components/session-provider";
 
 const geistSans = Geist({
@@ -62,7 +62,7 @@ export default function RootLayout({
         <SessionProvider>
           <Navbar />
           <main>{children}</main>
-          <Footer />
+          <ConditionalFooter />
         </SessionProvider>
       </body>
     </html>
