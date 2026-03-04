@@ -63,11 +63,14 @@ web:
         secretKey: AUTH_ENTRA_EXTERNAL_CLIENT_ID
       - objectName: auth-entra-external-client-secret
         secretKey: AUTH_ENTRA_EXTERNAL_CLIENT_SECRET
-      # Add after Stripe setup:
-      # - objectName: stripe-secret-key
-      #   secretKey: STRIPE_SECRET_KEY
-      # - objectName: stripe-webhook-secret
-      #   secretKey: STRIPE_WEBHOOK_SECRET
+      - objectName: stripe-secret-key
+        secretKey: STRIPE_SECRET_KEY
+      - objectName: stripe-webhook-secret
+        secretKey: STRIPE_WEBHOOK_SECRET
+      - objectName: stripe-pro-price-id
+        secretKey: STRIPE_PRO_PRICE_ID
+      - objectName: stripe-meter-id-tokens
+        secretKey: STRIPE_METER_ID_TOKENS
 
   ingress:
     enabled: true
