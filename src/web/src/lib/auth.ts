@@ -48,10 +48,28 @@ function buildAuthConfig(): NextAuthConfig {
           },
         },
         profile(profile) {
+          // Entra External ID may return email in various claim locations
+          // depending on identity provider (MSA, Google, email+OTP, etc.)
+          const email =
+            profile.email ??
+            profile.preferred_username ??
+            profile.emails?.[0] ??
+            profile.signInNames?.emailAddress ??
+            profile.otherMails?.[0] ??
+            `${profile.sub}@directai.user`;
+
+          const name =
+            profile.name ??
+            profile.given_name ??
+            profile.preferred_username ??
+            email.split("@")[0];
+
+          console.log(`[auth] OIDC profile claims: sub=${profile.sub}, email=${email}, name=${name}, raw_keys=${Object.keys(profile).join(",")}`);
+
           return {
             id: profile.sub,
-            name: profile.name ?? profile.preferred_username,
-            email: profile.email ?? profile.preferred_username,
+            name,
+            email,
             image: profile.picture ?? null,
           };
         },
