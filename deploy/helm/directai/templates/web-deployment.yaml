@@ -17,6 +17,9 @@ spec:
     metadata:
       labels:
         {{- include "directai.webSelectorLabels" . | nindent 8 }}
+        {{- if .Values.workloadIdentity.enabled }}
+        azure.workload.identity/use: "true"
+        {{- end }}
     spec:
       serviceAccountName: {{ include "directai.serviceAccountName" . }}
       terminationGracePeriodSeconds: 30
@@ -53,6 +56,15 @@ spec:
             - name: {{ $key }}
               value: {{ $value | quote }}
             {{- end }}
+          {{- if .Values.web.secretStore.enabled }}
+          envFrom:
+            - secretRef:
+                name: {{ .Release.Name }}-web-env
+          volumeMounts:
+            - name: secrets-store
+              mountPath: /mnt/secrets-store
+              readOnly: true
+          {{- end }}
           livenessProbe:
             httpGet:
               path: /
@@ -71,6 +83,15 @@ spec:
             failureThreshold: 3
           resources:
             {{- toYaml .Values.web.resources | nindent 12 }}
+      {{- if .Values.web.secretStore.enabled }}
+      volumes:
+        - name: secrets-store
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: {{ .Release.Name }}-web-secrets
+      {{- end }}
       {{- with .Values.web.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

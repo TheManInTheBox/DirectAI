@@ -105,6 +105,17 @@ web:
 
   env: {}
 
+  # ── Secret Store (Key Vault CSI) ───────────────────────────────────────
+  # Syncs Azure Key Vault secrets into a K8s Secret and injects as env vars.
+  # Requires: workloadIdentity.enabled = true, Key Vault CSI driver on AKS.
+  secretStore:
+    enabled: false
+    keyVaultName: ""
+    tenantId: ""
+    secrets: []
+    # - objectName: database-url     # Key Vault secret name
+    #   secretKey: DATABASE_URL       # Env var name in the pod
+
   ingress:
     enabled: false
     className: nginx

@@ -47,6 +47,29 @@ web:
   env:
     NEXT_PUBLIC_API_URL: "https://api.agilecloud.ai"
 
+  # ── Key Vault → K8s Secret sync via CSI driver ─────────────────────────
+  secretStore:
+    enabled: true
+    keyVaultName: "kvplatdaiv7fgid"
+    tenantId: "7dd8cf8b-3a69-4cb3-96c9-0a9e63fe6127"
+    secrets:
+      - objectName: database-url
+        secretKey: DATABASE_URL
+      - objectName: auth-secret
+        secretKey: AUTH_SECRET
+      # Add after Entra External ID tenant setup:
+      # - objectName: auth-entra-external-issuer
+      #   secretKey: AUTH_ENTRA_EXTERNAL_ISSUER
+      # - objectName: auth-entra-external-client-id
+      #   secretKey: AUTH_ENTRA_EXTERNAL_CLIENT_ID
+      # - objectName: auth-entra-external-client-secret
+      #   secretKey: AUTH_ENTRA_EXTERNAL_CLIENT_SECRET
+      # Add after Stripe setup:
+      # - objectName: stripe-secret-key
+      #   secretKey: STRIPE_SECRET_KEY
+      # - objectName: stripe-webhook-secret
+      #   secretKey: STRIPE_WEBHOOK_SECRET
+
   ingress:
     enabled: true
     className: nginx
@@ -88,7 +111,8 @@ backends: {}
 
 # ── Everything inference-related is off ───────────────────────────────────
 workloadIdentity:
-  enabled: false
+  enabled: true
+  clientId: "8af5d654-2816-42a0-a996-e9a252cf83d5"
 networkPolicy:
   enabled: true
 keda:
