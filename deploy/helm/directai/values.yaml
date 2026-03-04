@@ -61,14 +61,14 @@ ingress:
     nginx.ingress.kubernetes.io/limit-rps: "100"
     nginx.ingress.kubernetes.io/limit-burst-multiplier: "3"
     nginx.ingress.kubernetes.io/limit-connections: "50"
-    # HSTS (1 year, include subdomains)
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
-    # Block internal endpoints from public access
-    nginx.ingress.kubernetes.io/server-snippet: |
-      location = /metrics { deny all; return 403; }
-      location = /healthz { deny all; return 403; }
-      location = /readyz  { deny all; return 403; }
+    # ── Production-only annotations (add in values-prod.yaml) ──
+    # These require controller.allowSnippetAnnotations=true on NGINX Ingress:
+    # nginx.ingress.kubernetes.io/configuration-snippet: |
+    #   more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
+    # nginx.ingress.kubernetes.io/server-snippet: |
+    #   location = /metrics { deny all; return 403; }
+    #   location = /healthz { deny all; return 403; }
+    #   location = /readyz  { deny all; return 403; }
   hosts:
     - host: api.directai.local
       paths:
