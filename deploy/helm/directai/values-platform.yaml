@@ -59,6 +59,10 @@ web:
         paths:
           - path: /
             pathType: Prefix
+      - host: www.agilecloud.ai
+        paths:
+          - path: /
+            pathType: Prefix
 
   nodeSelector: {}
 
