@@ -41,14 +41,6 @@ on:
           - eastus2
           - westus3
         default: eastus2
-      region_short:
-        description: 'Region short name'
-        required: true
-        type: choice
-        options:
-          - eus2
-          - wus3
-        default: eus2
       action:
         description: 'Deployment action'
         required: true
@@ -65,14 +57,41 @@ permissions:
 
 env:
   OPERATIONS_SUBSCRIPTION_ID: 'b03c9eb4-cddc-4987-9673-9ac44b9cc1d9'
-  RESOURCE_GROUP: rg-dai-platform-${{ inputs.environment }}-${{ inputs.region_short }}
   TEMPLATE_FILE: infra/platform/main.bicep
-  PARAMS_FILE: infra/platform/environments/platform.${{ inputs.environment }}.${{ inputs.region_short }}.bicepparam
 
 jobs:
+  # ── Setup ─────────────────────────────────────────────────────────
+  setup:
+    name: Resolve Region
+    runs-on: ubuntu-latest
+    outputs:
+      region_short: ${{ steps.map.outputs.region_short }}
+      resource_group: ${{ steps.map.outputs.resource_group }}
+      params_file: ${{ steps.map.outputs.params_file }}
+    steps:
+      - name: Map region to short name
+        id: map
+        shell: bash
+        run: |
+          declare -A REGION_MAP=(
+            ["eastus2"]="eus2"
+            ["westus3"]="wus3"
+            ["southcentralus"]="scus"
+            ["westus2"]="wus2"
+            ["centralus"]="cus"
+          )
+          SHORT="${REGION_MAP[${{ inputs.region }}]}"
+          if [[ -z "$SHORT" ]]; then
+            echo "::error::Unknown region '${{ inputs.region }}'. Add it to REGION_MAP in this workflow."
+            exit 1
+          fi
+          echo "region_short=${SHORT}" >> "$GITHUB_OUTPUT"
+          echo "resource_group=rg-dai-platform-${{ inputs.environment }}-${SHORT}" >> "$GITHUB_OUTPUT"
+          echo "params_file=infra/platform/environments/platform.${{ inputs.environment }}.${SHORT}.bicepparam" >> "$GITHUB_OUTPUT"
   # ── Validate ──────────────────────────────────────────────────────
   validate:
     name: Validate Template
+    needs: setup
     runs-on: ubuntu-latest
     environment: platform
     steps:
@@ -88,7 +107,7 @@ jobs:
       - name: Ensure resource group exists
         run: |
           az group create \
-            --name "${{ env.RESOURCE_GROUP }}" \
+            --name "${{ needs.setup.outputs.resource_group }}" \
             --location "${{ inputs.region }}" \
             --tags project=directai component=platform environment=${{ inputs.environment }} managed-by=bicep
 
@@ -96,16 +115,16 @@ jobs:
         uses: azure/arm-deploy@a1361c2c2cd398621955b16ca32e01c65ea340f5 # v2
         with:
           scope: resourcegroup
-          resourceGroupName: ${{ env.RESOURCE_GROUP }}
+          resourceGroupName: ${{ needs.setup.outputs.resource_group }}
           template: ${{ env.TEMPLATE_FILE }}
-          parameters: ${{ env.PARAMS_FILE }}
+          parameters: ${{ needs.setup.outputs.params_file }}
           deploymentMode: Validate
           failOnStdErr: true
 
   # ── What-If ───────────────────────────────────────────────────────
   what-if:
     name: What-If Preview
-    needs: validate
+    needs: [setup, validate]
     runs-on: ubuntu-latest
     environment: platform
     steps:
@@ -122,16 +141,16 @@ jobs:
         uses: azure/arm-deploy@a1361c2c2cd398621955b16ca32e01c65ea340f5 # v2
         with:
           scope: resourcegroup
-          resourceGroupName: ${{ env.RESOURCE_GROUP }}
+          resourceGroupName: ${{ needs.setup.outputs.resource_group }}
           template: ${{ env.TEMPLATE_FILE }}
-          parameters: ${{ env.PARAMS_FILE }}
+          parameters: ${{ needs.setup.outputs.params_file }}
           additionalArguments: --what-if
           failOnStdErr: false
 
   # ── Deploy ────────────────────────────────────────────────────────
   deploy:
     name: Deploy
-    needs: what-if
+    needs: [setup, what-if]
     if: inputs.action == 'deploy'
     runs-on: ubuntu-latest
     environment: platform
@@ -150,10 +169,10 @@ jobs:
         uses: azure/arm-deploy@a1361c2c2cd398621955b16ca32e01c65ea340f5 # v2
         with:
           scope: resourcegroup
-          resourceGroupName: ${{ env.RESOURCE_GROUP }}
+          resourceGroupName: ${{ needs.setup.outputs.resource_group }}
           template: ${{ env.TEMPLATE_FILE }}
-          parameters: ${{ env.PARAMS_FILE }}
-          deploymentName: platform-${{ inputs.environment }}-${{ inputs.region_short }}-${{ github.run_number }}
+          parameters: ${{ needs.setup.outputs.params_file }}
+          deploymentName: platform-${{ inputs.environment }}-${{ needs.setup.outputs.region_short }}-${{ github.run_number }}
           failOnStdErr: true
 
       - name: Deployment summary
@@ -164,7 +183,7 @@ jobs:
           | Resource | Value |
           |----------|-------|
           | **Subscription** | \`${{ env.OPERATIONS_SUBSCRIPTION_ID }}\` |
-          | **Resource Group** | \`${{ env.RESOURCE_GROUP }}\` |
+          | **Resource Group** | \`${{ needs.setup.outputs.resource_group }}\` |
           | **ACR Login Server** | \`${{ steps.deploy.outputs.acrLoginServer }}\` |
           | **ACR Name** | \`${{ steps.deploy.outputs.acrName }}\` |
           | **Storage Account** | \`${{ steps.deploy.outputs.storageAccountName }}\` |
@@ -183,6 +202,6 @@ jobs:
           3. **Delegate DNS**: Update your domain registrar's NS records for \`${{ steps.deploy.outputs.dnsZoneName }}\` to: \`${{ steps.deploy.outputs.dnsZoneNameServers }}\`
           4. Update \`platformAcrLoginServer\` in customer \`.bicepparam\` files
           5. For each customer stamp kubelet identity, assign \`AcrPull\` on the platform ACR
-          6. Get Platform AKS credentials: \`az aks get-credentials --resource-group ${{ env.RESOURCE_GROUP }} --name ${{ steps.deploy.outputs.platformAksName }}\`
+          6. Get Platform AKS credentials: \`az aks get-credentials --resource-group ${{ needs.setup.outputs.resource_group }} --name ${{ steps.deploy.outputs.platformAksName }}\`
           7. Install NGINX Ingress + cert-manager on Platform AKS
           EOF

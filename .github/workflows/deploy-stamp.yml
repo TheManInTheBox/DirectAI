@@ -33,11 +33,6 @@ on:
         required: true
         type: string
         default: 'eastus2'
-      region_short:
-        description: 'Short region identifier matching .bicepparam file (e.g., eus2, wus3)'
-        required: true
-        type: string
-        default: 'eus2'
       subdomain:
         description: 'Customer subdomain for agilecloud.ai (e.g., "acme" → acme.agilecloud.ai)'
         required: true
@@ -50,19 +45,46 @@ permissions:
 
 env:
   BICEP_FILE: infra/main.bicep
-  PARAMS_FILE: infra/environments/${{ inputs.customer_id }}.${{ inputs.environment }}.${{ inputs.region_short }}.bicepparam
-  RESOURCE_GROUP: rg-dai-${{ inputs.customer_id }}-${{ inputs.environment }}-${{ inputs.region_short }}
 
 # ---------------------------------------------------------------------------
 # Jobs
 # ---------------------------------------------------------------------------
 
 jobs:
+  # ── Setup ─────────────────────────────────────────────────────────
+  setup:
+    name: Resolve Region
+    runs-on: ubuntu-latest
+    outputs:
+      region_short: ${{ steps.map.outputs.region_short }}
+      resource_group: ${{ steps.map.outputs.resource_group }}
+      params_file: ${{ steps.map.outputs.params_file }}
+    steps:
+      - name: Map region to short name
+        id: map
+        shell: bash
+        run: |
+          declare -A REGION_MAP=(
+            ["eastus2"]="eus2"
+            ["westus3"]="wus3"
+            ["southcentralus"]="scus"
+            ["westus2"]="wus2"
+            ["centralus"]="cus"
+          )
+          SHORT="${REGION_MAP[${{ inputs.region }}]}"
+          if [[ -z "$SHORT" ]]; then
+            echo "::error::Unknown region '${{ inputs.region }}'. Add it to REGION_MAP in this workflow."
+            exit 1
+          fi
+          echo "region_short=${SHORT}" >> "$GITHUB_OUTPUT"
+          echo "resource_group=rg-dai-${{ inputs.customer_id }}-${{ inputs.environment }}-${SHORT}" >> "$GITHUB_OUTPUT"
+          echo "params_file=infra/environments/${{ inputs.customer_id }}.${{ inputs.environment }}.${SHORT}.bicepparam" >> "$GITHUB_OUTPUT"
   # -------------------------------------------------------------------------
   # 1. Validate — syntax check and preflight
   # -------------------------------------------------------------------------
   validate:
     name: Validate Bicep
+    needs: setup
     runs-on: ubuntu-latest
     environment: ${{ inputs.customer_id }}-${{ inputs.environment }}
     steps:
@@ -81,17 +103,17 @@ jobs:
         with:
           inlineScript: |
             az group create \
-              --name "${{ env.RESOURCE_GROUP }}" \
+              --name "${{ needs.setup.outputs.resource_group }}" \
               --location "${{ inputs.region }}" \
-              --tags "project=directai" "customer-id=${{ inputs.customer_id }}" "environment=${{ inputs.environment }}" "region=${{ inputs.region_short }}" "managed-by=bicep"
+              --tags "project=directai" "customer-id=${{ inputs.customer_id }}" "environment=${{ inputs.environment }}" "region=${{ needs.setup.outputs.region_short }}" "managed-by=bicep"
 
       - name: Validate template
         uses: azure/arm-deploy@a1361c2c2cd398621955b16ca32e01c65ea340f5 # v2
         with:
           scope: resourcegroup
-          resourceGroupName: ${{ env.RESOURCE_GROUP }}
+          resourceGroupName: ${{ needs.setup.outputs.resource_group }}
           template: ${{ env.BICEP_FILE }}
-          parameters: ${{ env.PARAMS_FILE }}
+          parameters: ${{ needs.setup.outputs.params_file }}
           deploymentMode: Validate
           failOnStdErr: true
 
@@ -101,7 +123,7 @@ jobs:
   what-if:
     name: What-If Analysis
     runs-on: ubuntu-latest
-    needs: validate
+    needs: [setup, validate]
     environment: ${{ inputs.customer_id }}-${{ inputs.environment }}
     steps:
       - name: Checkout
@@ -118,9 +140,9 @@ jobs:
         uses: azure/arm-deploy@a1361c2c2cd398621955b16ca32e01c65ea340f5 # v2
         with:
           scope: resourcegroup
-          resourceGroupName: ${{ env.RESOURCE_GROUP }}
+          resourceGroupName: ${{ needs.setup.outputs.resource_group }}
           template: ${{ env.BICEP_FILE }}
-          parameters: ${{ env.PARAMS_FILE }}
+          parameters: ${{ needs.setup.outputs.params_file }}
           additionalArguments: --what-if
           failOnStdErr: false
 
@@ -130,7 +152,7 @@ jobs:
   deploy:
     name: Deploy Stamp
     runs-on: ubuntu-latest
-    needs: what-if
+    needs: [setup, what-if]
     environment:
       name: ${{ inputs.customer_id }}-${{ inputs.environment }}
     steps:
@@ -149,10 +171,10 @@ jobs:
         uses: azure/arm-deploy@a1361c2c2cd398621955b16ca32e01c65ea340f5 # v2
         with:
           scope: resourcegroup
-          resourceGroupName: ${{ env.RESOURCE_GROUP }}
+          resourceGroupName: ${{ needs.setup.outputs.resource_group }}
           template: ${{ env.BICEP_FILE }}
-          parameters: ${{ env.PARAMS_FILE }}
-          deploymentName: stamp-${{ inputs.customer_id }}-${{ inputs.region_short }}-${{ github.run_number }}
+          parameters: ${{ needs.setup.outputs.params_file }}
+          deploymentName: stamp-${{ inputs.customer_id }}-${{ needs.setup.outputs.region_short }}-${{ github.run_number }}
           failOnStdErr: true
 
       - name: Output summary
@@ -165,8 +187,8 @@ jobs:
           SUMMARY
           echo "| **Customer** | \`${{ inputs.customer_id }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Environment** | \`${{ inputs.environment }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Region** | \`${{ inputs.region }}\` (\`${{ inputs.region_short }}\`) |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Resource Group** | \`${{ env.RESOURCE_GROUP }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Region** | \`${{ inputs.region }}\` (\`${{ needs.setup.outputs.region_short }}\`) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Resource Group** | \`${{ needs.setup.outputs.resource_group }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **AKS Cluster** | \`${{ steps.deploy.outputs.aksName }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **AKS FQDN** | \`${{ steps.deploy.outputs.aksControlPlaneFqdn }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **ACR** | \`${{ steps.deploy.outputs.acrLoginServer }}\` |" >> $GITHUB_STEP_SUMMARY
