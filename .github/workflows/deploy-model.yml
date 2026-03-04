@@ -53,11 +53,6 @@ on:
         required: false
         type: string
         default: ''
-      api_key:
-        description: 'API key for registry callbacks. Leave empty if auth is disabled.'
-        required: false
-        type: string
-        default: ''
 
 permissions:
   id-token: write
@@ -182,8 +177,8 @@ jobs:
         run: |
           echo "Updating deployment ${{ inputs.deployment_id }} → provisioning"
           AUTH_HEADER=""
-          if [ -n "${{ inputs.api_key }}" ]; then
-            AUTH_HEADER="Authorization: Bearer ${{ inputs.api_key }}"
+          if [ -n "${{ secrets.DIRECTAI_API_KEY }}" ]; then
+            AUTH_HEADER="Authorization: Bearer ${{ secrets.DIRECTAI_API_KEY }}"
           fi
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
             -X PATCH "${{ inputs.api_server_url }}/api/v1/deployments/${{ inputs.deployment_id }}" \
@@ -239,8 +234,8 @@ jobs:
               QUANT=$(yq '.spec.engine.quantization // "float16"' "$CONFIG")
               TRTLLM_VER=$(yq '.spec.engine.trtllmVersion // ""' "$CONFIG")
               AUTH_HEADER=""
-              if [ -n "${{ inputs.api_key }}" ]; then
-                AUTH_HEADER="Authorization: Bearer ${{ inputs.api_key }}"
+              if [ -n "${{ secrets.DIRECTAI_API_KEY }}" ]; then
+                AUTH_HEADER="Authorization: Bearer ${{ secrets.DIRECTAI_API_KEY }}"
               fi
               if [ -n "$ARCH" ] && [ -n "$PARAMS" ] && [ -n "$TRTLLM_VER" ]; then
                 CACHE_RESP=$(curl -sf \
@@ -356,8 +351,8 @@ jobs:
           ENDPOINT_URL="http://${NAME}.${{ env.NAMESPACE }}.svc.cluster.local:8001"
           echo "Updating deployment ${{ inputs.deployment_id }} → running (endpoint: ${ENDPOINT_URL})"
           AUTH_HEADER=""
-          if [ -n "${{ inputs.api_key }}" ]; then
-            AUTH_HEADER="Authorization: Bearer ${{ inputs.api_key }}"
+          if [ -n "${{ secrets.DIRECTAI_API_KEY }}" ]; then
+            AUTH_HEADER="Authorization: Bearer ${{ secrets.DIRECTAI_API_KEY }}"
           fi
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
             -X PATCH "${{ inputs.api_server_url }}/api/v1/deployments/${{ inputs.deployment_id }}" \
@@ -377,8 +372,8 @@ jobs:
         run: |
           echo "Updating deployment ${{ inputs.deployment_id }} → failed"
           AUTH_HEADER=""
-          if [ -n "${{ inputs.api_key }}" ]; then
-            AUTH_HEADER="Authorization: Bearer ${{ inputs.api_key }}"
+          if [ -n "${{ secrets.DIRECTAI_API_KEY }}" ]; then
+            AUTH_HEADER="Authorization: Bearer ${{ secrets.DIRECTAI_API_KEY }}"
           fi
           curl -s -o /dev/null -w "HTTP %{http_code}" \
             -X PATCH "${{ inputs.api_server_url }}/api/v1/deployments/${{ inputs.deployment_id }}" \

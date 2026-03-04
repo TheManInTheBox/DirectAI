@@ -111,11 +111,6 @@ on:
         required: false
         type: string
         default: ''
-      api_key:
-        description: 'API key for registry callbacks (set as secret). Leave empty if auth is disabled.'
-        required: false
-        type: string
-        default: ''
 
 permissions:
   id-token: write
@@ -225,8 +220,8 @@ jobs:
         run: |
           echo "Updating model ${{ inputs.model_id }} → building"
           AUTH_HEADER=""
-          if [ -n "${{ inputs.api_key }}" ]; then
-            AUTH_HEADER="Authorization: Bearer ${{ inputs.api_key }}"
+          if [ -n "${{ secrets.DIRECTAI_API_KEY }}" ]; then
+            AUTH_HEADER="Authorization: Bearer ${{ secrets.DIRECTAI_API_KEY }}"
           fi
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
             -X PATCH "${{ inputs.api_server_url }}/api/v1/models/${{ inputs.model_id }}" \
@@ -391,8 +386,8 @@ jobs:
         run: |
           echo "Updating model ${{ inputs.model_id }} → ready"
           AUTH_HEADER=""
-          if [ -n "${{ inputs.api_key }}" ]; then
-            AUTH_HEADER="Authorization: Bearer ${{ inputs.api_key }}"
+          if [ -n "${{ secrets.DIRECTAI_API_KEY }}" ]; then
+            AUTH_HEADER="Authorization: Bearer ${{ secrets.DIRECTAI_API_KEY }}"
           fi
 
           # Build engine_artifacts map: GPU SKU → engine output URI
@@ -424,8 +419,8 @@ jobs:
           echo "Registering compiled engine in cache index"
           TRTLLM_VER=$(echo "${{ inputs.trtllm_image }}" | grep -oP '[\d.]+$' || echo "unknown")
           AUTH_HEADER=""
-          if [ -n "${{ inputs.api_key }}" ]; then
-            AUTH_HEADER="Authorization: Bearer ${{ inputs.api_key }}"
+          if [ -n "${{ secrets.DIRECTAI_API_KEY }}" ]; then
+            AUTH_HEADER="Authorization: Bearer ${{ secrets.DIRECTAI_API_KEY }}"
           fi
 
           PAYLOAD=$(cat <<EOF
@@ -458,8 +453,8 @@ jobs:
         run: |
           echo "Updating model ${{ inputs.model_id }} → failed"
           AUTH_HEADER=""
-          if [ -n "${{ inputs.api_key }}" ]; then
-            AUTH_HEADER="Authorization: Bearer ${{ inputs.api_key }}"
+          if [ -n "${{ secrets.DIRECTAI_API_KEY }}" ]; then
+            AUTH_HEADER="Authorization: Bearer ${{ secrets.DIRECTAI_API_KEY }}"
           fi
           curl -s -o /dev/null -w "HTTP %{http_code}" \
             -X PATCH "${{ inputs.api_server_url }}/api/v1/models/${{ inputs.model_id }}" \

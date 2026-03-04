@@ -49,11 +49,6 @@ on:
         required: false
         type: string
         default: ''
-      api_key:
-        description: 'API key for cache registration (optional)'
-        required: false
-        type: string
-        default: ''
 
 permissions:
   contents: read
@@ -122,7 +117,6 @@ jobs:
       environment: "${{ inputs.environment }}"
       region_short: "${{ inputs.region_short }}"
       api_server_url: "${{ inputs.api_server_url }}"
-      api_key: "${{ inputs.api_key }}"
     secrets: inherit
 
   compile-h100:
@@ -147,7 +141,6 @@ jobs:
       environment: "${{ inputs.environment }}"
       region_short: "${{ inputs.region_short }}"
       api_server_url: "${{ inputs.api_server_url }}"
-      api_key: "${{ inputs.api_key }}"
     secrets: inherit
 
   # ── Summary ──────────────────────────────────────────────────────
