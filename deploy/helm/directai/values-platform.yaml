@@ -57,13 +57,12 @@ web:
         secretKey: DATABASE_URL
       - objectName: auth-secret
         secretKey: AUTH_SECRET
-      # Add after Entra External ID tenant setup:
-      # - objectName: auth-entra-external-issuer
-      #   secretKey: AUTH_ENTRA_EXTERNAL_ISSUER
-      # - objectName: auth-entra-external-client-id
-      #   secretKey: AUTH_ENTRA_EXTERNAL_CLIENT_ID
-      # - objectName: auth-entra-external-client-secret
-      #   secretKey: AUTH_ENTRA_EXTERNAL_CLIENT_SECRET
+      - objectName: auth-entra-external-issuer
+        secretKey: AUTH_ENTRA_EXTERNAL_ISSUER
+      - objectName: auth-entra-external-client-id
+        secretKey: AUTH_ENTRA_EXTERNAL_CLIENT_ID
+      - objectName: auth-entra-external-client-secret
+        secretKey: AUTH_ENTRA_EXTERNAL_CLIENT_SECRET
       # Add after Stripe setup:
       # - objectName: stripe-secret-key
       #   secretKey: STRIPE_SECRET_KEY
