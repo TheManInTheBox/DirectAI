@@ -1,9 +1,6 @@
 "use server";
 
-// Phase 1: In-memory waitlist store. Replaced by PostgreSQL in Phase 2.
-// This is intentionally simple — just collect emails and prove the form works.
-
-const waitlist = new Set<string>();
+import { addToWaitlist } from "@/lib/waitlist-store";
 
 export interface WaitlistResult {
   success: boolean;
@@ -28,15 +25,22 @@ export async function joinWaitlist(
     return { success: false, message: "Please enter a valid email address." };
   }
 
-  if (waitlist.has(trimmed)) {
-    return { success: true, message: "You're already on the waitlist! We'll be in touch." };
+  try {
+    const { alreadyExists } = await addToWaitlist(trimmed);
+
+    if (alreadyExists) {
+      return { success: true, message: "You're already on the waitlist! We'll be in touch." };
+    }
+
+    return {
+      success: true,
+      message: "You're on the list! We'll reach out when it's your turn.",
+    };
+  } catch (error) {
+    console.error("[waitlist] Failed to persist signup:", error);
+    return {
+      success: false,
+      message: "Something went wrong. Please try again.",
+    };
   }
-
-  waitlist.add(trimmed);
-  console.log(`[waitlist] New signup: ${trimmed} (total: ${waitlist.size})`);
-
-  return {
-    success: true,
-    message: "You're on the list! We'll reach out when it's your turn.",
-  };
 }
