@@ -154,28 +154,63 @@ DirectAI/
 │   ├── copilot-instructions.md       # This file
 │   └── workflows/
 │       ├── onboard-customer.yml      # Automated customer onboarding pipeline
-│       ├── deploy-platform.yml       # Shared platform infra (ACR, engine cache, monitoring)
+│       ├── deploy-platform.yml       # Shared platform infra (ACR, engine cache, monitoring, Platform AKS)
 │       ├── deploy-stamp.yml          # Regional stamp deployment pipeline
 │       ├── build-api-server.yml      # CI: lint, test, build API server image
+│       ├── build-web.yml             # CI: lint, build web image, optional Helm deploy
 │       ├── build-engines.yml         # CI: build embeddings + TRT-LLM engine images
 │       ├── compile-engine.yml        # Compile TRT-LLM engine for model × GPU SKU
 │       ├── deploy-model.yml          # Deploy model to customer AKS cluster
 │       └── populate-cache.yml        # Pre-compile engines for popular architectures
 ├── infra/                            # All Bicep IaC lives here
 │   ├── main.bicep                    # Stamp orchestrator — single entry point
+│   ├── modules/
+│   │   ├── acr-role-assignment.bicep # Reusable AcrPull role assignment
+│   │   ├── dns-record.bicep         # DNS record helper
+│   │   └── workbook.bicep           # Azure Workbook module
 │   ├── platform/                     # Shared platform infra (operations subscription)
-│   │   ├── main.bicep                # ACR, engine cache, centralized monitoring
+│   │   ├── main.bicep                # ACR, engine cache, monitoring, DNS, Platform AKS
 │   │   └── environments/
 │   │       ├── platform.dev.eus2.bicepparam
 │   │       └── platform.prod.eus2.bicepparam
 │   ├── customers/                    # Customer manifests (one JSON per customer)
 │   │   └── _example.commercial.json
 │   └── environments/                 # Per-environment, per-region parameter files
+│       ├── internal.dev.scus.bicepparam  # Dev stamp — South Central US, T4 GPU
 │       ├── internal.dev.eus2.bicepparam
 │       ├── internal.prod.eus2.bicepparam
 │       └── {customerId}.{env}.{region}.bicepparam
 ├── src/
 │   ├── api-server/                   # OpenAI-compatible API gateway (routing proxy)
+│   │   ├── app/
+│   │   │   ├── main.py               # FastAPI app, lifespan, health probes
+│   │   │   ├── config.py             # pydantic-settings, DIRECTAI_ env prefix
+│   │   │   ├── auth/
+│   │   │   │   └── api_key.py        # Bearer token auth dependency
+│   │   │   ├── middleware/
+│   │   │   │   ├── correlation_id.py # X-Request-ID propagation
+│   │   │   │   └── request_logging.py# Structured JSON request logging
+│   │   │   ├── routes/
+│   │   │   │   ├── chat_completions.py   # POST /v1/chat/completions
+│   │   │   │   ├── embeddings.py         # POST /v1/embeddings
+│   │   │   │   ├── audio_transcriptions.py # POST /v1/audio/transcriptions
+│   │   │   │   └── models.py            # GET /v1/models
+│   │   │   ├── routing/
+│   │   │   │   ├── model_registry.py # YAML → ModelSpec, alias resolution
+│   │   │   │   └── backend_client.py # httpx async HTTP/2 proxy client
+│   │   │   └── schemas/
+│   │   │       ├── chat.py           # ChatCompletion request/response/chunk
+│   │   │       ├── embeddings.py     # Embedding request/response
+│   │   │       ├── audio.py          # Transcription request/response
+│   │   │       └── models.py         # Model list response
+│   │   ├── tests/
+│   │   │   ├── conftest.py           # Fixtures: test model YAMLs, TestClient
+│   │   │   ├── test_chat.py
+│   │   │   ├── test_embeddings.py
+│   │   │   ├── test_health.py
+│   │   │   └── test_models.py
+│   │   ├── Dockerfile
+│   │   └── pyproject.toml
 │   ├── embeddings-engine/            # ONNX Runtime GPU embedding inference server
 │   │   ├── engine/
 │   │   │   ├── config.py             # EMBED_ env prefix, model/batch config
@@ -186,52 +221,42 @@ DirectAI/
 │   │   │   └── export.py            # HuggingFace → ONNX export utility
 │   │   ├── Dockerfile               # Multi-stage: optional model bake + runtime
 │   │   └── pyproject.toml
-│   └── trtllm-engine/                # TensorRT-LLM chat/completion inference server
-│       ├── engine/
-│       │   ├── config.py             # TRTLLM_ env prefix, TP/PP, KV cache config
-│       │   ├── runner.py             # TRT-LLM HLAPI wrapper, stub mode for dev
-│       │   ├── chat_format.py        # Chat template + OpenAI response formatting
-│       │   ├── metrics.py            # Prometheus: TTFT, latency, token counts
-│       │   └── main.py              # FastAPI: /v1/chat/completions (SSE + sync)
-│       ├── Dockerfile               # NVIDIA TRT-LLM base + MPI entrypoint
-│       └── pyproject.toml
-│       ├── app/
-│       │   ├── main.py               # FastAPI app, lifespan, health probes
-│       │   ├── config.py             # pydantic-settings, DIRECTAI_ env prefix
-│       │   ├── auth/
-│       │   │   └── api_key.py        # Bearer token auth dependency
-│       │   ├── middleware/
-│       │   │   ├── correlation_id.py # X-Request-ID propagation
-│       │   │   └── request_logging.py# Structured JSON request logging
-│       │   ├── routes/
-│       │   │   ├── chat_completions.py   # POST /v1/chat/completions
-│       │   │   ├── embeddings.py         # POST /v1/embeddings
-│       │   │   ├── audio_transcriptions.py # POST /v1/audio/transcriptions
-│       │   │   └── models.py            # GET /v1/models
-│       │   ├── routing/
-│       │   │   ├── model_registry.py # YAML → ModelSpec, alias resolution
-│       │   │   └── backend_client.py # httpx async HTTP/2 proxy client
-│       │   └── schemas/
-│       │       ├── chat.py           # ChatCompletion request/response/chunk
-│       │       ├── embeddings.py     # Embedding request/response
-│       │       ├── audio.py          # Transcription request/response
-│       │       └── models.py         # Model list response
-│       ├── tests/
-│       │   ├── conftest.py           # Fixtures: test model YAMLs, TestClient
-│       │   ├── test_chat.py
-│       │   ├── test_embeddings.py
-│       │   ├── test_health.py
-│       │   └── test_models.py
-│       ├── Dockerfile
-│       └── pyproject.toml
-└── deploy/
-    ├── models/                       # ModelDeployment YAML configs (one per model)
-    │   ├── llama-3.1-70b-instruct.yaml
-    │   ├── bge-large-en-v1.5.yaml
-    │   ├── whisper-large-v3.yaml
-    │   └── README.md
-    └── helm/                         # Helm chart for K8s deployment
-        └── directai/
+│   ├── trtllm-engine/                # TensorRT-LLM chat/completion inference server
+│   │   ├── engine/
+│   │   │   ├── config.py             # TRTLLM_ env prefix, TP/PP, KV cache config
+│   │   │   ├── runner.py             # TRT-LLM HLAPI wrapper, stub mode for dev
+│   │   │   ├── chat_format.py        # Chat template + OpenAI response formatting
+│   │   │   ├── metrics.py            # Prometheus: TTFT, latency, token counts
+│   │   │   └── main.py              # FastAPI: /v1/chat/completions (SSE + sync)
+│   │   ├── Dockerfile               # NVIDIA TRT-LLM base + MPI entrypoint
+│   │   └── pyproject.toml
+│   └── web/                          # Next.js marketing site (agilecloud.ai)
+│       ├── src/
+│       │   ├── app/
+│       │   │   ├── page.tsx          # Landing page — hero, features, code sample
+│       │   │   ├── layout.tsx        # Root layout — dark theme, Inter/Geist fonts
+│       │   │   ├── globals.css       # Tailwind v4 imports
+│       │   │   ├── pricing/page.tsx  # Pricing tiers
+│       │   │   └── waitlist/page.tsx # Waitlist signup (server action)
+│       │   ├── components/           # Shared React components
+│       │   └── lib/                  # Utilities
+│       ├── Dockerfile                # Multi-stage: deps → build → node:22-alpine runner
+│       ├── package.json              # Next.js 16.1, React 19, Tailwind v4
+│       └── next.config.ts            # output: 'standalone'
+├── deploy/
+│   ├── cluster-issuers.yaml          # cert-manager ClusterIssuers (staging + prod)
+│   ├── models/                       # ModelDeployment YAML configs (one per model)
+│   │   ├── llama-3.1-70b-instruct.yaml
+│   │   ├── bge-large-en-v1.5.yaml
+│   │   ├── whisper-large-v3.yaml
+│   │   └── README.md
+│   └── helm/                         # Helm chart for K8s deployment
+│       └── directai/
+│           ├── Chart.yaml
+│           ├── values.yaml           # Base values
+│           ├── values-dev.yaml       # Dev stamp overrides
+│           ├── values-platform.yaml  # Platform AKS — web only, inference off
+│           └── templates/            # 24 templates inc. web-*, backend-*, api-server-*
 ├── scripts/
 │   └── bootstrap-oidc.ps1           # One-time OIDC identity bootstrap
 ```
@@ -353,6 +378,45 @@ TensorRT-LLM inference server for LLMs and STT. Wraps TRT-LLM's High-Level API b
 
 **Metrics:** `directai_llm_time_to_first_token_seconds`, `directai_llm_request_duration_seconds`, `directai_llm_tokens_generated_total`, `directai_llm_prompt_tokens_total`, `directai_llm_inflight_requests`.
 
+### Web Frontend (`src/web/`)
+
+Next.js marketing and dashboard site served at `https://agilecloud.ai`.
+
+**Stack:** Next.js 16.1, React 19, Tailwind CSS v4, TypeScript, standalone output mode.
+
+**Pages:**
+
+| Route | Description |
+|---|---|
+| `/` | Landing page — hero section, features grid, live code sample, CTA |
+| `/pricing` | Pricing tiers (Starter / Pro / Enterprise) |
+| `/waitlist` | Email signup form with server action (persists to... TBD — currently form-only) |
+
+**Dockerfile:** Multi-stage build — `deps` (install node_modules) → `builder` (next build) → `runner` (node:22-alpine, standalone output, port 3000).
+
+**Deployment:** Runs on Platform AKS via Helm (`values-platform.yaml`). 2 replicas behind NGINX Ingress with Let's Encrypt TLS. Image: `acrplatformdaiv7fgid.azurecr.io/web:latest`.
+
+**CI:** `build-web.yml` — triggers on `src/web/**` changes, builds Docker image via `az acr build`, pushes to platform ACR, optional Helm deploy to Platform AKS.
+
+### Helm Chart (`deploy/helm/directai/`)
+
+Single Helm chart for all DirectAI Kubernetes deployments. 24 templates covering:
+
+| Template Group | Templates | Purpose |
+|---|---|---|
+| **web-*** | `web-deployment.yaml`, `web-service.yaml`, `web-ingress.yaml`, `_web-helpers.tpl` | Next.js web app with TLS ingress |
+| **api-server-*** | `api-server-deployment.yaml`, `api-server-service.yaml`, `api-server-ingress.yaml`, `_api-server-helpers.tpl` | API gateway proxy |
+| **backend-*** | `backend-deployment.yaml`, `backend-service.yaml`, `backend-hpa.yaml`, `_backend-helpers.tpl` | Inference engine pods (per model) |
+| **common** | `namespace.yaml`, `configmap.yaml`, `secrets.yaml`, `serviceaccount.yaml`, `networkpolicy.yaml`, etc. | Shared K8s resources |
+
+**Values files:**
+
+| File | Purpose |
+|---|---|
+| `values.yaml` | Base defaults |
+| `values-dev.yaml` | Dev stamp overrides (T4 GPU, scale-to-zero) |
+| `values-platform.yaml` | Platform AKS — web enabled (2 replicas), apiServer replicas 0, inference disabled, host `agilecloud.ai`, cert-manager issuer `letsencrypt-prod` |
+
 ### Model Deployment Config Schema
 
 Models are declared as YAML files using the `directai/v1 ModelDeployment` kind. See `deploy/models/README.md` for the full field reference.
@@ -404,10 +468,20 @@ Shared resources deployed to the operations subscription. Deployed via the **Dep
 
 | Resource | Purpose | Cross-Sub Access |
 |---|---|---|
-| **ACR** (Premium) | All inference images — api-server, embeddings-engine, trtllm-engine | Customer kubelet identities get `AcrPull` |
-| **Storage Account** | Pre-compiled TRT-LLM engine cache (`engine-cache` container), model registry, build artifacts | Customer stamps read via SAS or Blob Reader |
+| **ACR** (Premium) `acrplatformdaiv7fgid` | All inference + web images — api-server, embeddings-engine, trtllm-engine, web | Customer kubelet identities get `AcrPull` |
+| **Storage Account** `stplatformdaiv7fgid` | Pre-compiled TRT-LLM engine cache (`engine-cache` container), model registry, build artifacts | Customer stamps read via SAS or Blob Reader |
 | **Log Analytics** | Centralized monitoring sink — aggregates across all stamps | Customer stamps can forward diagnostics here |
 | **Application Insights** | Distributed tracing + live metrics for the platform as a whole | API server pods emit traces via connection string |
+| **DNS Zone** `agilecloud.ai` | Public DNS zone — A records for web + API subdomains | All clusters reference this zone |
+| **Platform AKS** `aks-dai-platform-dev-eus2` | CPU-only cluster for web app, metering, webhooks. K8s 1.33. | N/A — platform-only |
+| **Platform Key Vault** | Stripe keys, NextAuth secret, DB connection strings (future) | Platform AKS workload identity |
+| **Platform VNet** (`10.200.0.0/16`) | Networking for Platform AKS — system subnet + CPU node pool subnet | N/A |
+| **Platform Managed Identities** | Control plane + kubelet identities for Platform AKS (same split as stamps) | Kubelet gets AcrPull, Storage Blob Data Contributor, Key Vault Secrets User |
+
+**Platform AKS** is conditional on `enablePlatformAks = true` in the parameter file. It is a CPU-only cluster (no GPU pools) running:
+- NGINX Ingress Controller (external IP: `4.153.165.222`)
+- cert-manager v1.19 with Let's Encrypt prod ClusterIssuer
+- DirectAI web app (Next.js) — `directai-platform` Helm release in `directai` namespace
 
 The `platform` GitHub environment holds OIDC credentials for this subscription:
 - `PLATFORM_AZURE_CLIENT_ID` — used by build + deploy-platform workflows
@@ -499,11 +573,12 @@ Customer onboarding is **fully automated** via the `Onboard Customer` workflow (
 ### CI/CD
 
 - **GitHub Actions** with **OIDC federated credentials** (no stored secrets — uses `azure/login@v2` with `id-token: write`).
-- **Eight workflows:**
+- **Nine workflows:**
   - **`onboard-customer.yml`** — Creates subscription, identity, RBAC, GitHub environments, manifest, and param files. Run once per customer.
-  - **`deploy-platform.yml`** — Deploys shared platform infra (ACR, engine cache, monitoring) to the operations subscription `b03c9eb4-cddc-4987-9673-9ac44b9cc1d9`. Run once per region, re-run to update.
-  - **`deploy-stamp.yml`** — Deploys a customer regional stamp (Validate → What-If → Approval Gate → Deploy). Run per region.
+  - **`deploy-platform.yml`** — Deploys shared platform infra (ACR, engine cache, monitoring, Platform AKS, DNS) to the operations subscription `b03c9eb4-cddc-4987-9673-9ac44b9cc1d9`. Uses `azure/arm-deploy@v2`.
+  - **`deploy-stamp.yml`** — Deploys a customer regional stamp (Validate → What-If → Approval Gate → Deploy). Uses `azure/arm-deploy@v2`.
   - **`build-api-server.yml`** — Lint, test, build API server Docker image, push to platform ACR, optional Helm deploy.
+  - **`build-web.yml`** — Lint, build web Docker image, push to platform ACR, optional Helm deploy to Platform AKS. Triggers on `src/web/**` changes.
   - **`build-engines.yml`** — Build and push inference engine images (embeddings + TRT-LLM) to platform ACR. Supports stub mode for CI.
   - **`compile-engine.yml`** — Compile TRT-LLM engine for a specific model × GPU SKU. Registers result in engine cache.
   - **`deploy-model.yml`** — Deploy a model to a customer AKS cluster. Checks engine cache before compiling.
@@ -574,9 +649,19 @@ All environments use a single existing SPN (`DevOptimum`) rather than three dedi
 | `internal-dev` | `AZURE_CLIENT_ID` | `AZURE_TENANT_ID` | `AZURE_SUBSCRIPTION_ID` → dev sub |
 | `internal-prod` | `AZURE_CLIENT_ID` | `AZURE_TENANT_ID` | *(not set — no prod subscription yet)* |
 
+**Completed deployment steps:**
+
+1. ✅ `deploy-platform.yml` run — ACR, Storage, Log Analytics, App Insights, DNS Zone, Platform AKS all deployed.
+2. ✅ `vars.ACR_NAME` = `acrplatformdaiv7fgid`, `vars.ACR_LOGIN_SERVER` = `acrplatformdaiv7fgid.azurecr.io` set on the `platform` environment.
+3. ✅ NS delegation configured at GoDaddy → Azure DNS nameservers (`ns1-02.azure-dns.com`, etc.).
+4. ✅ Platform AKS: NGINX Ingress Controller, cert-manager v1.19, Let's Encrypt prod ClusterIssuer.
+5. ✅ Web app live at `https://agilecloud.ai` — 2 replicas, TLS cert valid until June 2026.
+6. ✅ Dev stamp deployed: `aks-dai-internal-dev-scus` (T4 GPU) with API server + embeddings backend.
+7. ✅ DNS A record: `agilecloud.ai → 4.153.165.222` (Platform AKS NGINX LB).
+
 **Remaining manual steps:**
 
 1. Add **required reviewers** to `internal-prod` GitHub environment (Settings → Environments).
 2. Create a GitHub PAT with `repo` + `admin:org` scopes and set it as `ONBOARDING_PAT` secret on the `platform` environment.
-3. Run `deploy-platform.yml` to create shared ACR + engine cache.
-4. After the platform deploy, set `vars.ACR_NAME` and `vars.ACR_LOGIN_SERVER` on the `platform` environment from the deployment outputs.
+3. Add `www` CNAME record for `www.agilecloud.ai → agilecloud.ai`.
+4. Run `build-web.yml` end-to-end to validate the CI pipeline.
