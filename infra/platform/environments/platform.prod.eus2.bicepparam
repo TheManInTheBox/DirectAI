@@ -6,6 +6,8 @@ param regionShort = 'eus2'
 param environment = 'prod'
 param acrSku = 'Premium' // Geo-replication, private endpoints, content trust
 param enablePrivateEndpoints = true
+param enableDnsZone = true
+param dnsZoneName = 'agilecloud.ai'
 param dataRetention = 90
 param tags = {
   costCenter: 'platform'

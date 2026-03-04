@@ -6,6 +6,8 @@ param regionShort = 'eus2'
 param environment = 'dev'
 param acrSku = 'Basic' // Dev doesn't need Premium features
 param enablePrivateEndpoints = false
+param enableDnsZone = true
+param dnsZoneName = 'agilecloud.ai'
 param dataRetention = 30
 param tags = {
   costCenter: 'platform'

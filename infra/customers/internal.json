@@ -2,6 +2,8 @@
   "$schema": "Customer manifest — defines subscription, deployment config, and contact info for a DirectAI customer.",
   "customerId": "internal",
   "displayName": "DirectAI (Internal)",
+  "subdomain": "internal",
+  "domain": "internal.agilecloud.ai",
   "subscriptions": {
     "dev": "0ae2be9a-f470-4dfe-b2e0-b7e9726acdfb",
     "prod": ""

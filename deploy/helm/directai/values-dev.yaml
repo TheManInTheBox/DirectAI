@@ -38,7 +38,7 @@ apiServer:
   autoscaling:
     enabled: false
 
-# ── Ingress — nip.io wildcard DNS (no real domain in dev) ──────────────────
+# ── Ingress — internal.agilecloud.ai ───────────────────────────────────────
 ingress:
   enabled: true
   className: nginx
@@ -47,25 +47,28 @@ ingress:
     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
     nginx.ingress.kubernetes.io/proxy-buffering: "off"        # SSE streaming
-    nginx.ingress.kubernetes.io/ssl-redirect: "false"         # No TLS in dev
-    nginx.ingress.kubernetes.io/force-ssl-redirect: "false"   # Override base
-    # Null out rate limiting for dev (override base values)
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # Relaxed rate limiting for dev
     nginx.ingress.kubernetes.io/limit-rps: "0"
     nginx.ingress.kubernetes.io/limit-burst-multiplier: "0"
     nginx.ingress.kubernetes.io/limit-connections: "0"
   hosts:
-    - host: api.48.192.177.54.nip.io
+    - host: internal.agilecloud.ai
       paths:
         - path: /
           pathType: Prefix
-  # Explicitly empty TLS to override base values.yaml ingress.tls
-  tls: []
+  tls:
+    - secretName: directai-tls
+      hosts:
+        - internal.agilecloud.ai
 
-# ── TLS — disabled for dev (nip.io can't get real certs) ──────────────────
+# ── TLS — Let's Encrypt via cert-manager ──────────────────────────────────
 tls:
-  enabled: false
+  enabled: true
   certManager:
-    enabled: false
+    enabled: true
+    issuer: letsencrypt-prod
 
 # ── Service Account (Workload Identity) ────────────────────────────────────
 serviceAccount:

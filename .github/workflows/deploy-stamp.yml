@@ -38,6 +38,11 @@ on:
         required: true
         type: string
         default: 'eus2'
+      subdomain:
+        description: 'Customer subdomain for agilecloud.ai (e.g., "acme" → acme.agilecloud.ai)'
+        required: true
+        type: string
+        default: 'internal'
 
 permissions:
   id-token: write # OIDC token for Azure login
@@ -165,3 +170,13 @@ jobs:
           echo "| **ACR** | \`${{ steps.deploy.outputs.acrLoginServer }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Storage** | \`${{ steps.deploy.outputs.storageAccountName }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Key Vault** | \`${{ steps.deploy.outputs.keyVaultUri }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🌐 DNS" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Subdomain** | \`${{ inputs.subdomain }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **FQDN** | \`${{ inputs.subdomain }}.agilecloud.ai\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Endpoint** | \`https://${{ inputs.subdomain }}.agilecloud.ai\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> **Note:** DNS A record must be created after the NGINX Ingress Controller is installed and has an external IP. Run the \`configure-dns\` step or manually create the A record in the platform DNS zone." >> $GITHUB_STEP_SUMMARY

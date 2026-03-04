@@ -70,14 +70,14 @@ ingress:
     #   location = /healthz { deny all; return 403; }
     #   location = /readyz  { deny all; return 403; }
   hosts:
-    - host: api.directai.local
+    - host: CUSTOMER.agilecloud.ai
       paths:
         - path: /
           pathType: Prefix
   tls:
     - secretName: directai-tls
       hosts:
-        - api.directai.local
+        - CUSTOMER.agilecloud.ai
 
 # ── Inference Backends ─────────────────────────────────────────────────────
 # Each entry here creates a Deployment + Service + optional KEDA ScaledObject.

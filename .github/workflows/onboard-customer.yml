@@ -67,6 +67,10 @@ on:
         required: false
         type: string
         default: ''
+      subdomain:
+        description: 'Customer subdomain for agilecloud.ai (e.g., "acme" → acme.agilecloud.ai). Lowercase, alphanumeric + hyphens only.'
+        required: true
+        type: string
 
 permissions:
   id-token: write
@@ -120,6 +124,23 @@ jobs:
             }
           }
           Write-Host "✓ Regions valid: $($regions -join ', ')"
+
+      - name: Validate subdomain
+        shell: pwsh
+        env:
+          INPUT_SUBDOMAIN: ${{ inputs.subdomain }}
+        run: |
+          $subdomain = $env:INPUT_SUBDOMAIN.Trim().ToLower()
+          if ($subdomain -notmatch '^[a-z][a-z0-9-]{1,61}[a-z0-9]$') {
+            Write-Error "Invalid subdomain: '$subdomain'. Must be lowercase, start with a letter, 3-63 chars, alphanumeric + hyphens."
+            exit 1
+          }
+          $reserved = @('www', 'api', 'admin', 'mail', 'smtp', 'ftp', 'ns1', 'ns2', 'platform', 'status', 'docs')
+          if ($subdomain -in $reserved) {
+            Write-Error "Subdomain '$subdomain' is reserved."
+            exit 1
+          }
+          Write-Host "✓ Subdomain valid: $subdomain.agilecloud.ai"
 
   # =========================================================================
   # Create Azure subscription + identity + RBAC + GitHub environments
@@ -372,6 +393,7 @@ jobs:
           INPUT_CONTACT_TECHNICAL: ${{ inputs.contact_technical }}
           INPUT_CONTACT_BILLING: ${{ inputs.contact_billing }}
           INPUT_REGIONS: ${{ inputs.regions }}
+          INPUT_SUBDOMAIN: ${{ inputs.subdomain }}
         run: |
           $customerId = $env:CUSTOMER_ID
           $displayName = $env:INPUT_DISPLAY_NAME
@@ -384,6 +406,7 @@ jobs:
           $contactTech = $env:INPUT_CONTACT_TECHNICAL
           $contactBilling = $env:INPUT_CONTACT_BILLING
           $regionsRaw = $env:INPUT_REGIONS
+          $subdomain = $env:INPUT_SUBDOMAIN.Trim().ToLower()
 
           # --- Region short name mapping ---
           $regionMap = @{
@@ -413,6 +436,8 @@ jobs:
             '$schema'             = 'Customer manifest — defines subscription, deployment config, and contact info for a DirectAI customer.'
             customerId            = $customerId
             displayName           = $displayName
+            subdomain             = $subdomain
+            domain                = "$subdomain.agilecloud.ai"
             subscriptionId        = $subscriptionId
             tenantId              = $tenantId
             appRegistrationId     = $appId
@@ -562,6 +587,8 @@ param tags = {
           | **App Registration** | ``$appId`` (sp-dai-$customerId) |
           | **GitHub Environments** | ``${customerId}-dev``, ``${customerId}-prod`` |
           | **Regions** | $regions |
+          | **Domain** | ``${{ inputs.subdomain }}.agilecloud.ai`` |
+          | **Endpoint** | ``https://${{ inputs.subdomain }}.agilecloud.ai`` |
 
           ### Files Generated
           - ``infra/customers/$customerId.json``

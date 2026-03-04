@@ -152,10 +152,14 @@ jobs:
           STORAGE_NAME=$(echo "$OUTPUT" | jq -r '.storageAccountName.value')
           LOG_ANALYTICS_ID=$(echo "$OUTPUT" | jq -r '.logAnalyticsWorkspaceId.value')
           APPINSIGHTS_CS=$(echo "$OUTPUT" | jq -r '.appInsightsConnectionString.value')
+          DNS_ZONE_NAME=$(echo "$OUTPUT" | jq -r '.dnsZoneName.value // empty')
+          DNS_NAME_SERVERS=$(echo "$OUTPUT" | jq -r '.dnsZoneNameServers.value // [] | join(", ")')
 
           echo "acr_login_server=${ACR_LOGIN_SERVER}" >> $GITHUB_OUTPUT
           echo "acr_name=${ACR_NAME}" >> $GITHUB_OUTPUT
           echo "storage_name=${STORAGE_NAME}" >> $GITHUB_OUTPUT
+          echo "dns_zone_name=${DNS_ZONE_NAME}" >> $GITHUB_OUTPUT
+          echo "dns_name_servers=${DNS_NAME_SERVERS}" >> $GITHUB_OUTPUT
 
       - name: Deployment summary
         run: |
@@ -169,10 +173,13 @@ jobs:
           | **ACR Login Server** | \`${{ steps.deploy.outputs.acr_login_server }}\` |
           | **ACR Name** | \`${{ steps.deploy.outputs.acr_name }}\` |
           | **Storage Account** | \`${{ steps.deploy.outputs.storage_name }}\` |
+          | **DNS Zone** | \`${{ steps.deploy.outputs.dns_zone_name }}\` |
+          | **DNS Name Servers** | \`${{ steps.deploy.outputs.dns_name_servers }}\` |
 
           #### Next Steps
           1. Set \`vars.ACR_NAME\` = \`${{ steps.deploy.outputs.acr_name }}\` on the \`platform\` GitHub environment
           2. Set \`vars.ACR_LOGIN_SERVER\` = \`${{ steps.deploy.outputs.acr_login_server }}\` on the \`platform\` GitHub environment
-          3. Update \`platformAcrLoginServer\` in customer \`.bicepparam\` files
-          4. For each customer stamp kubelet identity, assign \`AcrPull\` on the platform ACR
+          3. **Delegate DNS**: Update your domain registrar's NS records for \`${{ steps.deploy.outputs.dns_zone_name }}\` to: \`${{ steps.deploy.outputs.dns_name_servers }}\`
+          4. Update \`platformAcrLoginServer\` in customer \`.bicepparam\` files
+          5. For each customer stamp kubelet identity, assign \`AcrPull\` on the platform ACR
           EOF

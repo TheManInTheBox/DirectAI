@@ -52,6 +52,12 @@ param endpointsSubnetPrefix string = '10.100.0.0/24'
 @description('Log Analytics data retention in days.')
 param dataRetention int = environment == 'prod' ? 90 : 30
 
+@description('Platform DNS zone name (e.g., agilecloud.ai). Used for customer subdomains.')
+param dnsZoneName string = 'agilecloud.ai'
+
+@description('Enable the public DNS zone for customer subdomains.')
+param enableDnsZone bool = true
+
 // ---------------------------------------------------------------------------
 // Naming convention: dai-platform-{env}-{regionShort}
 // ---------------------------------------------------------------------------
@@ -245,6 +251,23 @@ module storage 'br/public:avm/res/storage/storage-account:0.15.0' = {
 }
 
 // ---------------------------------------------------------------------------
+// 6. Public DNS Zone — agilecloud.ai
+//    Customer subdomains (e.g., acme.agilecloud.ai) are A records pointing
+//    to each customer stamp's NGINX Ingress external IP.
+//    Deployed once per platform. Stamp deployments create records via
+//    cross-subscription RBAC (DNS Zone Contributor on the platform RG).
+// ---------------------------------------------------------------------------
+
+resource dnsZone 'Microsoft.Network/dnsZones@2023-07-01-preview' = if (enableDnsZone) {
+  name: dnsZoneName
+  location: 'global'
+  tags: defaultTags
+  properties: {
+    zoneType: 'Public'
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Outputs
 // ---------------------------------------------------------------------------
 
@@ -271,3 +294,12 @@ output appInsightsConnectionString string = appInsights.outputs.connectionString
 
 @description('Application Insights resource ID.')
 output appInsightsResourceId string = appInsights.outputs.resourceId
+
+@description('DNS zone name (e.g., agilecloud.ai).')
+output dnsZoneName string = enableDnsZone ? dnsZone!.name : ''
+
+@description('DNS zone resource ID.')
+output dnsZoneResourceId string = enableDnsZone ? dnsZone!.id : ''
+
+@description('DNS zone name servers — delegate these at your domain registrar.')
+output dnsZoneNameServers array = enableDnsZone ? dnsZone!.properties.nameServers : []

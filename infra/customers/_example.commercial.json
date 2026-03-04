@@ -2,6 +2,8 @@
   "$schema": "Customer manifest — defines subscription, deployment config, and contact info for a DirectAI customer.",
   "customerId": "550e8400-e29b-41d4-a716-446655440000",
   "displayName": "Acme Corp",
+  "subdomain": "acme",
+  "domain": "acme.agilecloud.ai",
   "subscriptionId": "00000000-0000-0000-0000-000000000000",
   "operationsSubscriptionId": "b03c9eb4-cddc-4987-9673-9ac44b9cc1d9",
   "tenantId": "00000000-0000-0000-0000-000000000000",
