@@ -141,7 +141,9 @@ jobs:
       - name: Get cluster info
         id: cluster
         run: |
+          az aks install-cli 2>/dev/null || true
           az aks get-credentials --resource-group "${{ env.RG }}" --name "${{ env.AKS }}"
+          kubelogin convert-kubeconfig -l azurecli
 
           # Get ACR login server from the AKS deployment outputs
           ACR=$(az deployment group show \

@@ -195,9 +195,11 @@ jobs:
 
       - name: Get AKS credentials
         run: |
+          az aks install-cli 2>/dev/null || true
           az aks get-credentials \
             --resource-group rg-dai-${{ inputs.customer_id }}-${{ inputs.environment }}-${{ inputs.region_short }} \
             --name aks-dai-${{ inputs.customer_id }}-${{ inputs.environment }}-${{ inputs.region_short }}
+          kubelogin convert-kubeconfig -l azurecli
 
       - name: Install Helm
         uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4

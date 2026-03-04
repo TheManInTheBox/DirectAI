@@ -186,9 +186,11 @@ jobs:
 
       - name: Get AKS credentials
         run: |
+          az aks install-cli 2>/dev/null || true
           az aks get-credentials \
             --resource-group "rg-dai-${{ inputs.customer_id }}-${{ inputs.environment }}-${{ inputs.region_short }}" \
             --name "aks-dai-${{ inputs.customer_id }}-${{ inputs.environment }}-${{ inputs.region_short }}"
+          kubelogin convert-kubeconfig -l azurecli
 
       - name: Resolve GPU node pool label
         id: gpu

@@ -137,10 +137,12 @@ jobs:
 
       - name: Get AKS credentials
         run: |
+          az aks install-cli 2>/dev/null || true
           az aks get-credentials \
             --resource-group "rg-dai-platform-${{ env.PLATFORM_ENV }}-${{ env.PLATFORM_REGION }}" \
             --name "aks-dai-platform-${{ env.PLATFORM_ENV }}-${{ env.PLATFORM_REGION }}" \
             --overwrite-existing
+          kubelogin convert-kubeconfig -l azurecli
 
       - name: Helm upgrade
         run: |
