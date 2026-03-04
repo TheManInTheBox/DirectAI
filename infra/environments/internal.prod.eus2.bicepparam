@@ -4,7 +4,7 @@ using '../main.bicep'
 param customerId = 'internal'
 param regionShort = 'eus2'
 param environment = 'prod'
-param kubernetesVersion = '1.30'
+param kubernetesVersion = '1.33'
 param enableGpuPools = true // Full GPU node pools
 param enablePrivateEndpoints = true // Production security baseline — all PaaS behind PEs
 param systemPoolMinCount = 3

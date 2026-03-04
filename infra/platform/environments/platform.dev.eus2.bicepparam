@@ -10,7 +10,7 @@ param enableDnsZone = true
 param dnsZoneName = 'agilecloud.ai'
 param dataRetention = 30
 param enablePlatformAks = true
-param kubernetesVersion = '1.31'
+param kubernetesVersion = '1.33'
 param tags = {
   costCenter: 'platform'
 }

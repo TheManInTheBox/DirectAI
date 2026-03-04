@@ -4,7 +4,7 @@ using '../main.bicep'
 param customerId = 'internal'
 param regionShort = 'eus2'
 param environment = 'dev'
-param kubernetesVersion = '1.30'
+param kubernetesVersion = '1.33'
 param enableGpuPools = false // No GPU quota needed for dev
 param enablePrivateEndpoints = false // Simplifies dev iteration; enable for security testing
 param systemPoolMinCount = 1

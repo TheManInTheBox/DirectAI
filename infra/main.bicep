@@ -25,7 +25,7 @@ param regionShort string
 param environment string
 
 @description('Kubernetes version for AKS.')
-param kubernetesVersion string = '1.31'
+param kubernetesVersion string = '1.33'
 
 @description('Tags applied to every resource in the stamp.')
 param tags object = {}

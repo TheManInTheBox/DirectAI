@@ -64,7 +64,7 @@ param enableDnsZone bool = true
 param enablePlatformAks bool = false
 
 @description('Kubernetes version for Platform AKS.')
-param kubernetesVersion string = '1.31'
+param kubernetesVersion string = '1.33'
 
 @description('Platform AKS VNet address space.')
 param aksVnetAddressPrefix string = '10.200.0.0/16'
