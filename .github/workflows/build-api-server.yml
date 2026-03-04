@@ -122,6 +122,7 @@ jobs:
     outputs:
       image_tag: ${{ steps.meta.outputs.version }}
       image_digest: ${{ steps.build.outputs.digest }}
+      acr_login_server: ${{ vars.ACR_LOGIN_SERVER }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -203,6 +204,8 @@ jobs:
 
       - name: Helm upgrade
         run: |
+          ACR_SERVER="${{ needs.build.outputs.acr_login_server }}"
+
           # Dynamically discover all model config YAMLs
           SET_FILE_ARGS=""
           for f in deploy/models/*.yaml; do
@@ -214,7 +217,7 @@ jobs:
 
           helm upgrade --install directai deploy/helm/directai \
             --namespace directai --create-namespace \
-            --set apiServer.image.repository=${{ vars.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }} \
+            --set apiServer.image.repository=${ACR_SERVER}/${{ env.IMAGE_NAME }} \
             --set apiServer.image.tag=${{ needs.build.outputs.image_tag }} \
             $SET_FILE_ARGS \
             --wait --timeout 5m

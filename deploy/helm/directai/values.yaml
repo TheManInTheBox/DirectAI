@@ -251,7 +251,4 @@ tls:
   secretName: directai-tls
   certManager:
     enabled: true
-    issuer: letsencrypt-prod  # example.yaml: |
-  #   apiVersion: directai/v1
-  #   kind: ModelDeployment
-  #   ...
+    issuer: letsencrypt-prod

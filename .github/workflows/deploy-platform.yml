@@ -158,6 +158,8 @@ jobs:
           echo "acr_login_server=${ACR_LOGIN_SERVER}" >> $GITHUB_OUTPUT
           echo "acr_name=${ACR_NAME}" >> $GITHUB_OUTPUT
           echo "storage_name=${STORAGE_NAME}" >> $GITHUB_OUTPUT
+          echo "log_analytics_id=${LOG_ANALYTICS_ID}" >> $GITHUB_OUTPUT
+          echo "appinsights_connection_string=${APPINSIGHTS_CS}" >> $GITHUB_OUTPUT
           echo "dns_zone_name=${DNS_ZONE_NAME}" >> $GITHUB_OUTPUT
           echo "dns_name_servers=${DNS_NAME_SERVERS}" >> $GITHUB_OUTPUT
 
@@ -173,6 +175,8 @@ jobs:
           | **ACR Login Server** | \`${{ steps.deploy.outputs.acr_login_server }}\` |
           | **ACR Name** | \`${{ steps.deploy.outputs.acr_name }}\` |
           | **Storage Account** | \`${{ steps.deploy.outputs.storage_name }}\` |
+          | **Log Analytics** | \`${{ steps.deploy.outputs.log_analytics_id }}\` |
+          | **App Insights** | _(connection string in output)_ |
           | **DNS Zone** | \`${{ steps.deploy.outputs.dns_zone_name }}\` |
           | **DNS Name Servers** | \`${{ steps.deploy.outputs.dns_name_servers }}\` |
 

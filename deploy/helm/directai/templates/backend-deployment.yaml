@@ -187,6 +187,8 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: home
+              mountPath: /home/appuser
             {{- if or $backend.weightsUri (and $backend.nvmeCache $backend.nvmeCache.enabled) }}
             - name: model-cache
               mountPath: /model-cache
@@ -219,6 +221,9 @@ spec:
         - name: tmp
           emptyDir:
             sizeLimit: 1Gi
+        - name: home
+          emptyDir:
+            sizeLimit: 100Mi
         {{- if or $backend.weightsUri (and $backend.nvmeCache $backend.nvmeCache.enabled) }}
         - name: model-cache
           {{- if and $backend.nvmeCache $backend.nvmeCache.enabled }}

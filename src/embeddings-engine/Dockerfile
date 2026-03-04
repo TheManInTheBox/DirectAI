@@ -47,14 +47,19 @@ FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 AS runtime
 ARG MODEL_NAME=bge-large-en-v1.5
 ARG BAKE_MODEL=0
 
-# System deps: Python 3.11 + ONNX Runtime GPU needs
+# System deps: Python 3.11 (via deadsnakes PPA — Ubuntu 22.04 ships 3.10) + ONNX Runtime GPU needs
 RUN apt-get update && apt-get install -y --no-install-recommends \
+        software-properties-common \
+    && add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y --no-install-recommends \
         python3.11 \
         python3.11-venv \
-        python3-pip \
+        python3.11-distutils \
         libgomp1 \
     && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
     && update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 \
+    && python3.11 -m ensurepip --upgrade \
+    && python3.11 -m pip install --no-cache-dir --upgrade pip \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -157,10 +157,12 @@ jobs:
 
       - name: Output summary
         run: |
-          echo "## 🚀 Stamp Deployed" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Resource | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          cat >> $GITHUB_STEP_SUMMARY <<'SUMMARY'
+          ## 🚀 Stamp Deployed
+
+          | Resource | Value |
+          |----------|-------|
+          SUMMARY
           echo "| **Customer** | \`${{ inputs.customer_id }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Environment** | \`${{ inputs.environment }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Region** | \`${{ inputs.region }}\` (\`${{ inputs.region_short }}\`) |" >> $GITHUB_STEP_SUMMARY
@@ -170,6 +172,7 @@ jobs:
           echo "| **ACR** | \`${{ steps.deploy.outputs.acrLoginServer }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Storage** | \`${{ steps.deploy.outputs.storageAccountName }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Key Vault** | \`${{ steps.deploy.outputs.keyVaultUri }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Kubelet Identity** | \`${{ steps.deploy.outputs.kubeletIdentityClientId }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 🌐 DNS" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -179,4 +182,14 @@ jobs:
           echo "| **FQDN** | \`${{ inputs.subdomain }}.agilecloud.ai\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Endpoint** | \`https://${{ inputs.subdomain }}.agilecloud.ai\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> **Note:** DNS A record must be created after the NGINX Ingress Controller is installed and has an external IP. Run the \`configure-dns\` step or manually create the A record in the platform DNS zone." >> $GITHUB_STEP_SUMMARY
+          cat >> $GITHUB_STEP_SUMMARY <<'STEPS'
+          ### 📋 Post-Deploy Checklist
+          1. **Get AKS credentials:** `az aks get-credentials --resource-group <RG> --name <AKS>`
+          2. **Install NGINX Ingress Controller:** `helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx -n ingress-nginx --create-namespace`
+          3. **Install cert-manager:** `helm upgrade --install cert-manager jetstack/cert-manager -n cert-manager --create-namespace --set crds.enabled=true`
+          4. **Apply ClusterIssuers:** `kubectl apply -f deploy/cluster-issuers.yaml`
+          5. **Install NVIDIA device plugin:** `helm upgrade --install nvdp nvdp/nvidia-device-plugin -n nvidia-device-plugin --create-namespace`
+          6. **Deploy Helm release:** `helm upgrade --install directai deploy/helm/directai -n directai --create-namespace -f deploy/helm/directai/values-<env>.yaml`
+          7. **Create DNS A record** pointing the subdomain to the NGINX Ingress external IP in the platform DNS zone
+          8. **Assign AcrPull** on platform ACR to the kubelet identity (if using shared ACR)
+          STEPS

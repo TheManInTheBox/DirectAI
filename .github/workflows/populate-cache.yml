@@ -82,9 +82,9 @@ jobs:
           cat <<'EOF' > matrix.json
           {
             "include": [
-              {"arch": "llama",    "params": "7b",         "tp": "1", "dtype": "float16", "weights_path": "llama-3.1-7b/weights/",    "engine_path": "llama-3.1-7b/engine/"},
-              {"arch": "llama",    "params": "13b",        "tp": "1", "dtype": "float16", "weights_path": "llama-3.1-13b/weights/",   "engine_path": "llama-3.1-13b/engine/"},
+              {"arch": "llama",    "params": "8b",         "tp": "1", "dtype": "float16", "weights_path": "llama-3.1-8b/weights/",    "engine_path": "llama-3.1-8b/engine/"},
               {"arch": "llama",    "params": "70b",        "tp": "2", "dtype": "float16", "weights_path": "llama-3.1-70b/weights/",   "engine_path": "llama-3.1-70b/engine/"},
+              {"arch": "llama",    "params": "405b",       "tp": "8", "dtype": "float16", "weights_path": "llama-3.1-405b/weights/",  "engine_path": "llama-3.1-405b/engine/"},
               {"arch": "qwen",     "params": "7b",         "tp": "1", "dtype": "float16", "weights_path": "qwen-2.5-7b/weights/",     "engine_path": "qwen-2.5-7b/engine/"},
               {"arch": "qwen",     "params": "14b",        "tp": "1", "dtype": "float16", "weights_path": "qwen-2.5-14b/weights/",    "engine_path": "qwen-2.5-14b/engine/"},
               {"arch": "qwen",     "params": "72b",        "tp": "4", "dtype": "float16", "weights_path": "qwen-2.5-72b/weights/",    "engine_path": "qwen-2.5-72b/engine/"},

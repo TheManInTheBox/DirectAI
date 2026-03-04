@@ -220,6 +220,11 @@ jobs:
           WEIGHTS_URI=$(resolve_uri "$(yq '.spec.engine.weightsUri // ""' "$CONFIG")")
           ENGINE_URI=$(resolve_uri "$(yq '.spec.engine.engineUri // ""' "$CONFIG")")
 
+          # Hardware — parse BEFORE engine cache lookup (cache key needs GPU_COUNT/GPU_SKU)
+          GPU_COUNT=$(yq '.spec.hardware.gpuCount // 1' "$CONFIG")
+          GPU_SKU=$(yq '.spec.hardware.gpuSku // ""' "$CONFIG")
+          NVME=$(yq '.spec.hardware.nvmeCacheEnabled // false' "$CONFIG")
+
           # ── Engine cache lookup ──────────────────────────────────────
           # If the API server is reachable, check the pre-compiled engine
           # cache before deploying.  A cache hit replaces ENGINE_URI with
@@ -253,11 +258,6 @@ jobs:
               fi
             fi
           fi
-
-          # Hardware
-          GPU_COUNT=$(yq '.spec.hardware.gpuCount // 1' "$CONFIG")
-          GPU_SKU=$(yq '.spec.hardware.gpuSku // ""' "$CONFIG")
-          NVME=$(yq '.spec.hardware.nvmeCacheEnabled // false' "$CONFIG")
 
           # Map GPU SKU → node pool label
           case "$GPU_SKU" in

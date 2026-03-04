@@ -202,9 +202,11 @@ jobs:
           if [ -z "$MODE" ] || [ "$MODE" = "stub" ]; then
             echo "use_stub=true" >> $GITHUB_OUTPUT
             echo "base_image=nvidia/cuda:12.4.1-devel-ubuntu22.04" >> $GITHUB_OUTPUT
+            echo "latest_tag=latest-stub" >> $GITHUB_OUTPUT
           else
             echo "use_stub=false" >> $GITHUB_OUTPUT
             echo "base_image=nvcr.io/nvidia/tensorrt-llm/release:0.16.0" >> $GITHUB_OUTPUT
+            echo "latest_tag=latest" >> $GITHUB_OUTPUT
           fi
 
       - name: Docker metadata
@@ -215,7 +217,7 @@ jobs:
           tags: |
             type=sha,prefix=
             type=ref,event=branch
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ steps.trtllm-mode.outputs.latest_tag }},enable={{is_default_branch}}
 
       - name: Free disk space
         # TRT-LLM base images are large — free runner disk
