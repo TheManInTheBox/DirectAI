@@ -118,16 +118,32 @@ class EmbeddingModel:
 
         return [self._execution_provider]
 
+    def _get_required_input_names(self) -> set[str]:
+        """Return the set of input names the ONNX model expects."""
+        return {inp.name for inp in self._session.get_inputs()}
+
+    def _build_feed(
+        self,
+        input_ids: np.ndarray,
+        attention_mask: np.ndarray,
+    ) -> dict[str, np.ndarray]:
+        """Build ONNX input feed, including token_type_ids if the model requires it."""
+        feed: dict[str, np.ndarray] = {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+        }
+        if "token_type_ids" in self._required_inputs:
+            feed["token_type_ids"] = np.zeros_like(input_ids)
+        return feed
+
     def _probe_embedding_dim(self) -> int:
         """Run a single dummy inference to determine output dimension."""
+        self._required_inputs = self._get_required_input_names()
         encoded = self._tokenizer.encode("probe")
         input_ids = np.array([encoded.ids], dtype=np.int64)
         attention_mask = np.array([encoded.attention_mask], dtype=np.int64)
 
-        outputs = self._session.run(
-            None,
-            {"input_ids": input_ids, "attention_mask": attention_mask},
-        )
+        outputs = self._session.run(None, self._build_feed(input_ids, attention_mask))
         # last_hidden_state shape: [batch, seq_len, hidden_dim]
         return outputs[0].shape[-1]
 
@@ -165,7 +181,7 @@ class EmbeddingModel:
         # ── Inference ───────────────────────────────────────────────
         outputs = self._session.run(
             None,
-            {"input_ids": input_ids, "attention_mask": attention_mask},
+            self._build_feed(input_ids, attention_mask),
         )
         # outputs[0] = last_hidden_state: [batch, seq_len, hidden_dim]
         hidden_states = outputs[0]

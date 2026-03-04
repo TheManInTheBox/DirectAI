@@ -42,7 +42,7 @@ RUN if [ "$BAKE_MODEL" = "1" ]; then \
 
 # ── Stage 2: Runtime ────────────────────────────────────────────────────
 
-FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04 AS runtime
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 AS runtime
 
 ARG MODEL_NAME=bge-large-en-v1.5
 ARG BAKE_MODEL=0
