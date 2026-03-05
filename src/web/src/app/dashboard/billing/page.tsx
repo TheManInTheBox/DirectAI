@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { getDb } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { Check, Zap, Shield, ExternalLink } from "lucide-react";
+import { Check, Zap, Shield } from "lucide-react";
 import { BillingActions } from "./billing-actions";
 
 export const metadata: Metadata = {
@@ -17,52 +17,81 @@ const tierDetails: Record<
   {
     name: string;
     price: string;
+    priceDetail: string;
     description: string;
     features: string[];
     badge: string;
   }
 > = {
-  "open-source": {
-    name: "Open Source",
+  free: {
+    name: "Free",
     price: "Free",
-    description: "Self-managed deployment via Helm + Bicep. Apache 2.0 licensed.",
-    badge: "Free Forever",
+    priceDetail: "$5 credit on shared API",
+    description:
+      "Self-host with our open-source stack, or try the shared API with $5 of free credit.",
+    badge: "Current Plan",
     features: [
-      "Full inference stack (vLLM, ONNX Runtime, TRT-LLM)",
-      "Helm chart + Bicep IaC",
+      "Full Helm chart & Bicep templates",
+      "vLLM, ONNX Runtime, Whisper engines",
+      "OpenAI-compatible API server",
+      "$5 one-time API credit (shared cluster)",
+      "20 RPM / 40K TPM rate limits",
       "Community support (GitHub Issues)",
-      "Best-effort SLA",
-      "No vendor lock-in — Apache 2.0",
+      "Apache 2.0 license",
+    ],
+  },
+  pro: {
+    name: "Pro",
+    price: "$50/mo",
+    priceDetail: "+ per-token usage",
+    description:
+      "Instant API access on our shared GPU cluster. Low base fee plus per-token usage billing.",
+    badge: "Current Plan",
+    features: [
+      "Shared GPU cluster (T4, A100)",
+      "OpenAI-compatible API endpoint",
+      "LLMs, embeddings, transcription",
+      "300 RPM / 500K TPM rate limits",
+      "Per-token usage billing via Stripe",
+      "Dashboard & API key management",
+      "Email support (48hr SLA)",
+      "99.5% uptime SLA",
     ],
   },
   managed: {
     name: "Managed",
-    price: "$3,000/mo",
+    price: "$3,500/mo",
+    priceDetail: "+ per-token usage (2× Pro rates)",
     description:
-      "DirectAI deploys and manages inference inside your Azure subscription. You pay Azure for compute.",
+      "Dedicated infrastructure in a DirectAI-owned Azure subscription. Fully isolated, fully managed.",
     badge: "Current Plan",
     features: [
-      "Deployed into your Azure subscription",
-      "Data never leaves your boundary",
-      "All open-source models + fine-tuned",
+      "Everything in Pro",
+      "Dedicated Azure subscription",
+      "Isolated infrastructure & networking",
+      "Entra ID & Private Link integration",
+      "Azure Monitor dashboards & alerts",
+      "1,000 RPM / 5M TPM rate limits",
       "Email support (24hr SLA)",
       "99.9% uptime SLA",
-      "Azure Monitor + Entra ID integrated",
     ],
   },
   enterprise: {
     name: "Enterprise",
     price: "Custom",
-    description: "Dedicated solutions engineering. HIPAA/SOC 2 documentation provided.",
+    priceDetail: "starting at $10K/mo",
+    description:
+      "Your Azure subscription, your rules. Flat management fee — no per-token metering. HIPAA/SOC 2 ready.",
     badge: "Current Plan",
     features: [
       "Everything in Managed",
+      "Deploy into your own Azure subscription",
+      "Flat fee — no usage metering",
       "Dedicated solutions engineer",
-      "Custom model optimization",
+      "Custom model optimization & tuning",
+      "HIPAA / SOC 2 compliance documentation",
       "Slack + phone support (1hr SLA)",
       "99.99% uptime SLA",
-      "HIPAA BAA + SOC 2 documentation",
-      "Multi-region deployment",
     ],
   },
 };
@@ -81,8 +110,8 @@ export default async function BillingPage() {
     .where(eq(users.id, session.user.id))
     .limit(1);
 
-  const currentTier = user?.tier ?? "open-source";
-  const details = tierDetails[currentTier] ?? tierDetails["open-source"];
+  const currentTier = user?.tier ?? "free";
+  const details = tierDetails[currentTier] ?? tierDetails["free"];
   const hasStripeCustomer = !!user?.stripeCustomerId;
 
   return (
@@ -108,6 +137,11 @@ export default async function BillingPage() {
             </div>
             <p className="mt-1 text-2xl font-bold text-white">
               {details.price}
+              {details.priceDetail && (
+                <span className="ml-1 text-sm font-normal text-gray-400">
+                  {details.priceDetail}
+                </span>
+              )}
             </p>
             <p className="mt-1 text-sm text-gray-400">{details.description}</p>
           </div>
@@ -139,33 +173,55 @@ export default async function BillingPage() {
         hasStripeCustomer={hasStripeCustomer}
       />
 
-      {/* Managed upsell for open-source users */}
-      {currentTier === "open-source" && (
+      {/* Pro upsell for free users */}
+      {currentTier === "free" && (
         <div className="rounded-xl border border-blue-500/30 bg-blue-950/10 p-6">
-          <h3 className="font-semibold text-white">Why upgrade to Managed?</h3>
+          <h3 className="font-semibold text-white">Why upgrade to Pro?</h3>
           <p className="mt-2 text-sm text-gray-400">
-            Stop spending engineering time on GPU infrastructure. We deploy and
-            manage the full inference stack inside your Azure subscription.
+            Get instant API access on our shared GPU cluster. $50/mo base plus
+            pay-per-token — start building production AI apps in minutes.
           </p>
           <ul className="mt-3 space-y-2 text-sm text-gray-300">
-            <li>• DirectAI deploys into your Azure subscription — zero data egress</li>
-            <li>• Production-grade autoscaling, monitoring, and alerting</li>
-            <li>• Azure Monitor + Entra ID integrated out of the box</li>
-            <li>• Email support with 24hr response SLA</li>
-            <li>• 99.9% uptime SLA guarantee</li>
-            <li>• You pay Azure for GPU compute — we charge $3K/mo management fee only</li>
+            <li>• OpenAI-compatible API — drop-in replacement, zero code changes</li>
+            <li>• Shared GPU cluster with T4 and A100 capacity</li>
+            <li>• LLM chat, embeddings, and transcription endpoints</li>
+            <li>• 300 RPM / 500K TPM — 15× the Free tier limits</li>
+            <li>• Usage dashboard, API key management, and billing portal</li>
+            <li>• Email support with 48hr response SLA</li>
           </ul>
         </div>
       )}
 
-      {/* Azure compute note */}
+      {/* Managed upsell for pro users */}
+      {currentTier === "pro" && (
+        <div className="rounded-xl border border-blue-500/30 bg-blue-950/10 p-6">
+          <h3 className="font-semibold text-white">Need dedicated infrastructure?</h3>
+          <p className="mt-2 text-sm text-gray-400">
+            Upgrade to Managed — we deploy a fully isolated inference stack in a
+            dedicated Azure subscription. Same API, higher limits, stronger SLA.
+          </p>
+          <ul className="mt-3 space-y-2 text-sm text-gray-300">
+            <li>• Dedicated Azure subscription — complete data isolation</li>
+            <li>• Entra ID & Private Link integration</li>
+            <li>• 1,000 RPM / 5M TPM — 3× Pro limits</li>
+            <li>• Azure Monitor dashboards & alerting</li>
+            <li>• Email support with 24hr response SLA</li>
+            <li>• 99.9% uptime SLA</li>
+          </ul>
+        </div>
+      )}
+
+      {/* Billing explainer */}
       <div className="rounded-lg border border-gray-800 bg-gray-900/30 px-5 py-4 text-sm text-gray-400">
         <p>
           <strong className="text-gray-300">How billing works:</strong>{" "}
-          DirectAI charges a flat management fee for deployment, monitoring, and
-          support. GPU compute costs are billed directly by Azure through your
-          existing Enterprise Agreement or MCA. DirectAI never touches your
-          compute bill.
+          {currentTier === "enterprise" ? (
+            <>You pay a flat management fee. GPU compute is billed directly by Azure through your Enterprise Agreement. DirectAI never touches your compute bill.</>
+          ) : currentTier === "free" ? (
+            <>The Free tier includes $5 of API credit on our shared cluster. Once exhausted, upgrade to Pro for continued access. Self-hosted deployments are always free.</>
+          ) : (
+            <>Your plan has a monthly base fee plus per-token usage charges. Usage is metered automatically and billed via Stripe at the end of each billing cycle.</>
+          )}
         </p>
       </div>
     </div>

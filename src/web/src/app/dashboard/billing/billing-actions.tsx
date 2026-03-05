@@ -1,7 +1,11 @@
 "use client";
 
 import { useTransition, useState } from "react";
-import { upgradeToManagedAction, manageSubscriptionAction } from "./actions";
+import {
+  upgradeToProAction,
+  upgradeToManagedAction,
+  manageSubscriptionAction,
+} from "./actions";
 import { ExternalLink } from "lucide-react";
 
 export function BillingActions({
@@ -14,13 +18,24 @@ export function BillingActions({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  const handleUpgrade = () => {
+  const handleUpgradePro = () => {
+    setError(null);
+    startTransition(async () => {
+      try {
+        await upgradeToProAction();
+      } catch (e) {
+        if (e instanceof Error && e.message === "NEXT_REDIRECT") throw e;
+        setError(e instanceof Error ? e.message : "Failed to start checkout");
+      }
+    });
+  };
+
+  const handleUpgradeManaged = () => {
     setError(null);
     startTransition(async () => {
       try {
         await upgradeToManagedAction();
       } catch (e) {
-        // redirect() throws a NEXT_REDIRECT error — don't catch it
         if (e instanceof Error && e.message === "NEXT_REDIRECT") throw e;
         setError(e instanceof Error ? e.message : "Failed to start checkout");
       }
@@ -50,16 +65,35 @@ export function BillingActions({
       )}
 
       <div className="flex flex-wrap gap-3">
-        {currentTier === "open-source" && (
+        {/* Free → Pro upgrade */}
+        {currentTier === "free" && (
           <button
-            onClick={handleUpgrade}
+            onClick={handleUpgradePro}
             disabled={isPending}
             className="rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:opacity-50"
           >
-            {isPending ? "Redirecting..." : "Upgrade to Managed — $3,000/mo"}
+            {isPending ? "Redirecting..." : "Upgrade to Pro — $50/mo + usage"}
           </button>
         )}
 
+        {/* Free or Pro → Managed upgrade */}
+        {(currentTier === "free" || currentTier === "pro") && (
+          <button
+            onClick={handleUpgradeManaged}
+            disabled={isPending}
+            className={`rounded-lg px-6 py-2.5 text-sm font-semibold transition disabled:opacity-50 ${
+              currentTier === "pro"
+                ? "bg-blue-600 text-white hover:bg-blue-500"
+                : "border border-gray-700 text-gray-300 hover:border-gray-600 hover:text-white"
+            }`}
+          >
+            {isPending
+              ? "Redirecting..."
+              : "Upgrade to Managed — $3,500/mo + usage"}
+          </button>
+        )}
+
+        {/* Managed → Enterprise upsell */}
         {currentTier === "managed" && (
           <a
             href="/waitlist"
@@ -70,7 +104,8 @@ export function BillingActions({
           </a>
         )}
 
-        {hasStripeCustomer && currentTier !== "open-source" && (
+        {/* Manage subscription for paying customers */}
+        {hasStripeCustomer && currentTier !== "free" && (
           <button
             onClick={handleManage}
             disabled={isPending}

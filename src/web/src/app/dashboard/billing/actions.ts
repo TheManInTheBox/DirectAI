@@ -21,6 +21,28 @@ async function getBaseUrl(): Promise<string> {
   return `${proto}://${host}`;
 }
 
+export async function upgradeToProAction() {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  const proPriceId = process.env.STRIPE_PRO_PRICE_ID;
+  if (!proPriceId) throw new Error("Stripe Pro price not configured");
+
+  const baseUrl = await getBaseUrl();
+
+  const checkoutSession = await createCheckoutSession(
+    session.user.id,
+    proPriceId,
+    `${baseUrl}/dashboard/billing?upgraded=true`,
+    `${baseUrl}/dashboard/billing`,
+  );
+
+  if (checkoutSession.url) {
+    redirect(checkoutSession.url);
+  }
+  throw new Error("Failed to create checkout session");
+}
+
 export async function upgradeToManagedAction() {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
