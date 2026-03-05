@@ -33,6 +33,7 @@ class KeyInfo:
     key_id: str
     user_id: str
     name: str
+    tier: str = "developer"
 
 
 @dataclass
@@ -109,9 +110,11 @@ class PostgresKeyStore:
         try:
             row = await self._pool.fetchrow(
                 """
-                SELECT id, user_id, name, revoked_at
-                FROM api_keys
-                WHERE key_hash = $1
+                SELECT ak.id, ak.user_id, ak.name, ak.revoked_at,
+                       COALESCE(u.tier, 'developer') AS tier
+                FROM api_keys ak
+                LEFT JOIN users u ON u.id = ak.user_id
+                WHERE ak.key_hash = $1
                 """,
                 key_hash,
             )
@@ -125,7 +128,12 @@ class PostgresKeyStore:
             self._cache[key_hash] = _CacheEntry(value=None, expires_at=now + self.cache_ttl)
             return None
 
-        info = KeyInfo(key_id=str(row["id"]), user_id=str(row["user_id"]), name=row["name"])
+        info = KeyInfo(
+            key_id=str(row["id"]),
+            user_id=str(row["user_id"]),
+            name=row["name"],
+            tier=row["tier"],
+        )
         self._cache[key_hash] = _CacheEntry(value=info, expires_at=now + self.cache_ttl)
 
         # Update last_used_at (fire-and-forget, don't block the request)

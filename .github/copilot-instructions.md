@@ -43,7 +43,7 @@ When the user says "it's bulletproof," stop pushing and move on. Until then, kee
 | **OpenAI-compatible API** | Drop-in replacement for `/v1/chat/completions`, `/v1/embeddings`, `/v1/audio/transcriptions` — users point existing SDKs at DirectAI with zero code changes |
 | **DirectAI-native API** | Purpose-built endpoints for capabilities OpenAI's schema can't express: compound pipelines, model lifecycle, deployment config, training jobs |
 | **Model management** | Deploy open-source, fine-tuned, and custom models via config or custom code |
-| **Inference engines** | TensorRT-LLM for LLMs/STT; ONNX Runtime + dynamic batching for embeddings (MVP); dedicated embeddings engine (aspirational) |
+| **Inference engines** | vLLM for LLMs (active on T4 dev/staging); TensorRT-LLM for LLMs/STT (target for A100/H100 prod); ONNX Runtime + dynamic batching for embeddings; Ollama for local dev |
 | **Multi-cloud routing** | Route traffic across providers/regions for latency, availability, and capacity |
 | **Observability** | Metrics, logs, request traces; export to Datadog/Prometheus/Azure Monitor |
 | **Enterprise-grade** | SOC 2, HIPAA-ready, single-tenant/self-hosted/hybrid deployment options, 99.99% uptime target |
@@ -87,17 +87,19 @@ NVMe caching and multi-GPU tensor parallelism require specific Azure VM SKUs wit
 
 #### Inference Engine Strategy
 
-Engines are matched to workload type. Not everything goes through TRT-LLM.
+Engines are matched to workload type. Each modality has a purpose-built engine.
 
-| Engine | Modality | Notes |
-|---|---|---|
-| **TensorRT-LLM** | LLMs (dense), STT/transcription | Primary engine. Ahead-of-time compilation per model per GPU SKU. Superior throughput/latency. |
-| **DirectAI Embeddings Engine** | Embeddings, reranking, classification | *(Aspirational)* Dedicated engine optimized for high-throughput batch embedding. MVP: use ONNX Runtime + dynamic batching. TRT-LLM is wrong for this workload — embeddings need massive batch parallelism, not autoregressive decode. |
-| **vLLM / custom** | Fallback | Phase 2 — only for architectures TRT-LLM can't compile. |
-| **Image generation** | Diffusion models (SDXL, Flux, etc.) | *(Not MVP)* Requires TensorRT (not TRT-LLM) or custom diffusion pipelines. |
+| Engine | Modality | Status | Notes |
+|---|---|---|---|
+| **vLLM** | LLMs (dense) | **Active — dev/staging** | Pre-built OpenAI-compatible container (`vllm/vllm-openai`). Auto-downloads HuggingFace weights. No ahead-of-time compilation. Currently serving Qwen 2.5 3B on T4 GPUs. |
+| **TensorRT-LLM** | LLMs (dense), STT/transcription | **Target — A100/H100 production** | Ahead-of-time compilation per model per GPU SKU. Superior throughput/latency. Use for high-traffic production models where compile time is amortized. |
+| **ONNX Runtime** | Embeddings, reranking, classification | **Active — MVP** | Custom FastAPI server (`src/embeddings-engine/`). Dynamic batching via async queue. Currently serving BGE-large-en-v1.5. |
+| **Ollama** | LLMs (local dev) | **Active — local only** | Local development backend. Model configs in `deploy/models/local/`. Connected via `engine.backendUrl` override. |
+| **Image generation** | Diffusion models (SDXL, Flux, etc.) | *(Not MVP)* | Requires TensorRT (not TRT-LLM) or custom diffusion pipelines. |
 
-- TRT-LLM build step compiles engines as part of the deployment pipeline. Budget minutes for this, not seconds.
-- Engine artifacts are cached in Blob Storage alongside weights. A model version = weights + compiled engine + config.
+- **vLLM is the default LLM engine for T4/dev workloads.** No build step, no engine cache — just point at a HuggingFace model ID and go.
+- **TRT-LLM is reserved for production A100/H100 where compilation ROI justifies build time** (30-60 min compile, cached for reuse).
+- Engine artifacts for TRT-LLM are cached in Blob Storage alongside weights. A model version = weights + compiled engine + config.
 
 **Pre-compiled engine cache:**
 - Maintain a cache of pre-compiled TRT-LLM engines for popular architectures (Llama, Qwen, Mistral, DeepSeek, Whisper) × target GPU SKUs.
@@ -296,10 +298,10 @@ DirectAI/
 │   ├── main.bicep                    # Stamp orchestrator — single entry point
 │   ├── modules/
 │   │   ├── acr-role-assignment.bicep # Reusable AcrPull role assignment
-│   │   ├── dns-record.bicep         # DNS record helper
+│   │   ├── dns-record.bicep         # DNS A record helper
 │   │   └── workbook.bicep           # Azure Workbook module
 │   ├── platform/                     # Shared platform infra (operations subscription)
-│   │   ├── main.bicep                # ACR, engine cache, monitoring, DNS, Platform AKS
+│   │   ├── main.bicep                # ACR, engine cache, monitoring, DNS, Platform AKS, PostgreSQL
 │   │   └── environments/
 │   │       ├── platform.dev.eus2.bicepparam
 │   │       └── platform.prod.eus2.bicepparam
@@ -315,16 +317,28 @@ DirectAI/
 │   │   ├── app/
 │   │   │   ├── main.py               # FastAPI app, lifespan, health probes
 │   │   │   ├── config.py             # pydantic-settings, DIRECTAI_ env prefix
+│   │   │   ├── telemetry.py          # OpenTelemetry setup (Azure Monitor + OTLP exporters)
+│   │   │   ├── metrics.py            # Prometheus metrics (inflight, latency, request counts)
 │   │   │   ├── auth/
-│   │   │   │   └── api_key.py        # Bearer token auth dependency
+│   │   │   │   └── api_key.py        # Bearer token auth — DB-backed with in-memory TTL cache
+│   │   │   ├── billing/
+│   │   │   │   └── __init__.py       # Stripe usage reporter background worker
 │   │   │   ├── middleware/
 │   │   │   │   ├── correlation_id.py # X-Request-ID propagation
-│   │   │   │   └── request_logging.py# Structured JSON request logging
+│   │   │   │   ├── request_logging.py# Structured JSON request logging
+│   │   │   │   └── rate_limit.py     # Token-bucket rate limiter per API key/IP
+│   │   │   ├── models/               # Model lifecycle (SQLite-backed)
+│   │   │   │   ├── domain.py         # Domain models (ModelVersion, Deployment, EngineCache)
+│   │   │   │   └── repository.py     # SQLite repository for model/deployment/engine CRUD
 │   │   │   ├── routes/
-│   │   │   │   ├── chat_completions.py   # POST /v1/chat/completions
-│   │   │   │   ├── embeddings.py         # POST /v1/embeddings
+│   │   │   │   ├── chat_completions.py   # POST /v1/chat/completions (model name rewriting)
+│   │   │   │   ├── embeddings.py         # POST /v1/embeddings (model name rewriting)
 │   │   │   │   ├── audio_transcriptions.py # POST /v1/audio/transcriptions
-│   │   │   │   └── models.py            # GET /v1/models
+│   │   │   │   ├── models.py            # GET /v1/models
+│   │   │   │   ├── native_models.py     # /api/v1/models — model lifecycle CRUD
+│   │   │   │   ├── native_deployments.py # /api/v1/deployments — deployment CRUD
+│   │   │   │   ├── native_engine_cache.py # /api/v1/engine-cache — compiled engine registry
+│   │   │   │   └── native_system.py     # /api/v1/system — health, capacity, metrics
 │   │   │   ├── routing/
 │   │   │   │   ├── model_registry.py # YAML → ModelSpec, alias resolution
 │   │   │   │   └── backend_client.py # httpx async HTTP/2 proxy client
@@ -338,7 +352,19 @@ DirectAI/
 │   │   │   ├── test_chat.py
 │   │   │   ├── test_embeddings.py
 │   │   │   ├── test_health.py
-│   │   │   └── test_models.py
+│   │   │   ├── test_models.py
+│   │   │   ├── test_audio.py
+│   │   │   ├── test_auth.py
+│   │   │   ├── test_correlation_id.py
+│   │   │   ├── test_engine_cache.py
+│   │   │   ├── test_integration_proxy.py
+│   │   │   ├── test_metrics.py
+│   │   │   ├── test_native_deployments.py
+│   │   │   ├── test_native_models.py
+│   │   │   ├── test_native_system.py
+│   │   │   ├── test_rate_limit.py
+│   │   │   ├── test_sensitive_data.py
+│   │   │   └── test_tracing.py
 │   │   ├── Dockerfile
 │   │   └── pyproject.toml
 │   ├── embeddings-engine/            # ONNX Runtime GPU embedding inference server
@@ -360,35 +386,68 @@ DirectAI/
 │   │   │   └── main.py              # FastAPI: /v1/chat/completions (SSE + sync)
 │   │   ├── Dockerfile               # NVIDIA TRT-LLM base + MPI entrypoint
 │   │   └── pyproject.toml
-│   └── web/                          # Next.js marketing site (agilecloud.ai)
+│   └── web/                          # Next.js marketing + dashboard site (agilecloud.ai)
 │       ├── src/
+│       │   ├── middleware.ts         # NextAuth middleware — protects /dashboard/*
 │       │   ├── app/
 │       │   │   ├── page.tsx          # Landing page — hero, features, code sample
-│       │   │   ├── layout.tsx        # Root layout — dark theme, Inter/Geist fonts
+│       │   │   ├── layout.tsx        # Root layout — dark theme, Inter/Geist fonts, LinkedIn Insight Tag
 │       │   │   ├── globals.css       # Tailwind v4 imports
 │       │   │   ├── pricing/page.tsx  # Pricing tiers
-│       │   │   └── waitlist/page.tsx # Waitlist signup (server action)
-│       │   ├── components/           # Shared React components
-│       │   └── lib/                  # Utilities
+│       │   │   ├── waitlist/page.tsx # Waitlist signup (server action)
+│       │   │   ├── login/            # NextAuth sign-in page
+│       │   │   ├── dashboard/        # Authenticated dashboard
+│       │   │   │   ├── page.tsx      # Dashboard overview
+│       │   │   │   ├── layout.tsx    # Dashboard layout with sidebar
+│       │   │   │   ├── api-keys/     # API key management (create/revoke)
+│       │   │   │   ├── billing/      # Stripe billing portal
+│       │   │   │   └── usage/        # Usage statistics
+│       │   │   ├── privacy/page.tsx  # Privacy policy
+│       │   │   ├── terms/page.tsx    # Terms of service
+│       │   │   └── api/auth/         # NextAuth API routes
+│       │   ├── components/
+│       │   │   ├── navbar.tsx        # Auth-aware navbar (useSession, signOut)
+│       │   │   ├── footer.tsx        # Site footer
+│       │   │   ├── conditional-footer.tsx # Footer that hides on dashboard
+│       │   │   ├── dashboard-sidebar.tsx  # Dashboard navigation sidebar
+│       │   │   └── session-provider.tsx   # NextAuth SessionProvider wrapper
+│       │   └── lib/
+│       │       ├── auth.ts           # NextAuth v5 config — Entra External ID OIDC
+│       │       ├── db/
+│       │       │   ├── index.ts      # Drizzle ORM client
+│       │       │   └── schema.ts     # Drizzle schema (users, accounts, sessions, api_keys, etc.)
+│       │       ├── stripe/
+│       │       │   ├── client.ts     # Stripe SDK client
+│       │       │   ├── customers.ts  # Stripe customer sync logic
+│       │       │   └── index.ts      # Stripe exports
+│       │       ├── utils.ts          # Shared utilities
+│       │       └── waitlist-store.ts # Waitlist email persistence
 │       ├── Dockerfile                # Multi-stage: deps → build → node:22-alpine runner
-│       ├── package.json              # Next.js 16.1, React 19, Tailwind v4
+│       ├── package.json              # Next.js 16.1, React 19, Tailwind v4, NextAuth v5
 │       └── next.config.ts            # output: 'standalone'
 ├── deploy/
 │   ├── cluster-issuers.yaml          # cert-manager ClusterIssuers (staging + prod)
 │   ├── models/                       # ModelDeployment YAML configs (one per model)
-│   │   ├── llama-3.1-70b-instruct.yaml
-│   │   ├── bge-large-en-v1.5.yaml
-│   │   ├── whisper-large-v3.yaml
+│   │   ├── qwen2.5-3b-instruct.yaml # vLLM — active on dev T4 GPU
+│   │   ├── bge-large-en-v1.5.yaml   # ONNX Runtime — active on dev T4 GPU
+│   │   ├── llama-3.1-70b-instruct.yaml  # TRT-LLM — A100/H100 target
+│   │   ├── whisper-large-v3.yaml     # TRT-LLM — STT target
+│   │   ├── local/                    # Ollama-based local dev model configs
+│   │   │   ├── llama3.2-3b.yaml
+│   │   │   ├── nomic-embed-text.yaml
+│   │   │   └── README.md
 │   │   └── README.md
 │   └── helm/                         # Helm chart for K8s deployment
 │       └── directai/
 │           ├── Chart.yaml
-│           ├── values.yaml           # Base values
-│           ├── values-dev.yaml       # Dev stamp overrides
+│           ├── values.yaml           # Base defaults
+│           ├── values-dev.yaml       # Dev stamp overrides (T4 GPU, vLLM)
 │           ├── values-platform.yaml  # Platform AKS — web only, inference off
 │           └── templates/            # 24 templates inc. web-*, backend-*, api-server-*
+├── docker-compose.yml                # Local multi-service development
 ├── scripts/
-│   └── bootstrap-oidc.ps1           # One-time OIDC identity bootstrap
+│   ├── bootstrap-oidc.ps1           # One-time OIDC identity bootstrap
+│   └── export-openapi.py           # Export OpenAPI spec from API server
 ```
 
 ### Application Layer — API Server
@@ -401,8 +460,8 @@ The API server is a **stateless routing proxy** that sits between clients and in
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/v1/chat/completions` | Chat completions — streaming (SSE) + non-streaming. Proxied to TRT-LLM backend. |
-| `POST` | `/v1/embeddings` | Text embeddings. Proxied to ONNX Runtime backend. |
+| `POST` | `/v1/chat/completions` | Chat completions — streaming (SSE) + non-streaming. Proxied to vLLM (dev/staging) or TRT-LLM (prod) backend. Model name rewritten to backend's expected name. |
+| `POST` | `/v1/embeddings` | Text embeddings. Proxied to ONNX Runtime backend. Model name rewritten. |
 | `POST` | `/v1/audio/transcriptions` | Audio transcription (multipart). Proxied to TRT-LLM Whisper backend. |
 | `GET`  | `/v1/models` | Lists all registered models (every alias is a separate entry). |
 | `GET`  | `/healthz` | Liveness probe — always 200. |
@@ -411,12 +470,32 @@ The API server is a **stateless routing proxy** that sits between clients and in
 #### Request Flow
 
 ```
-Client → API Server (auth → correlation ID → logging → route handler)
+Client → API Server (auth → rate limit → correlation ID → logging → route handler)
   → ModelRegistry.resolve(model_name)     # alias lookup → ModelSpec
+  → payload["model"] = model_spec.name    # rewrite to backend's expected model name
   → BackendClient.post_json/post_stream   # proxy to http://{svc}.directai.svc.cluster.local:8001
-  → Inference backend (TRT-LLM / ONNX Runtime)
+  → Inference backend (vLLM / ONNX Runtime / TRT-LLM)
   → Response streamed back to client
 ```
+
+#### DirectAI Native API Endpoints
+
+Purpose-built endpoints for model lifecycle, deployment management, engine cache, and system health. These have no OpenAI equivalent.
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/v1/models` | Register a new model version |
+| `GET` | `/api/v1/models` | List models (filterable by modality, owner) |
+| `GET/PATCH/DELETE` | `/api/v1/models/{id}` | Model lifecycle CRUD |
+| `POST` | `/api/v1/deployments` | Create a deployment for a model version |
+| `GET` | `/api/v1/deployments` | List deployments (filterable) |
+| `GET/PATCH/DELETE` | `/api/v1/deployments/{id}` | Deployment lifecycle CRUD |
+| `POST` | `/api/v1/engine-cache` | Register a compiled engine artifact |
+| `GET` | `/api/v1/engine-cache` | List cached engines |
+| `GET` | `/api/v1/engine-cache/lookup` | Lookup engine by architecture + GPU SKU + quantization |
+| `GET` | `/api/v1/system/health` | Service health snapshot (model registry + backend liveness) |
+| `GET` | `/api/v1/system/capacity` | GPU pool capacity and utilization |
+| `GET` | `/api/v1/system/metrics` | Prometheus-format metrics |
 
 #### Model Registry
 
@@ -440,6 +519,18 @@ All settings use the `DIRECTAI_` prefix.
 | `DIRECTAI_API_KEYS` | *(empty)* | Comma-separated API keys. Empty = auth disabled (dev only) |
 | `DIRECTAI_BACKEND_TIMEOUT` | `300` | Backend request timeout (seconds) |
 | `DIRECTAI_BACKEND_CONNECT_TIMEOUT` | `5` | Backend connect-phase timeout (seconds) |
+| `DIRECTAI_DATABASE_URL` | *(empty)* | PostgreSQL connection for key validation + usage metering |
+| `DIRECTAI_KEY_CACHE_TTL` | `60` | API key in-memory cache TTL (seconds) |
+| `DIRECTAI_STRIPE_SECRET_KEY` | *(empty)* | Stripe API secret key for usage billing |
+| `DIRECTAI_STRIPE_METER_ID_TOKENS` | *(empty)* | Stripe Meter ID for token usage |
+| `DIRECTAI_USAGE_REPORT_INTERVAL` | `60` | Seconds between Stripe usage report flushes |
+| `DIRECTAI_OTEL_ENABLED` | `true` | Enable OpenTelemetry tracing |
+| `DIRECTAI_APPINSIGHTS_CONNECTION_STRING` | *(empty)* | Azure Application Insights connection string |
+| `DIRECTAI_OTLP_ENDPOINT` | *(empty)* | OTLP gRPC endpoint for trace export |
+| `DIRECTAI_OTEL_SAMPLE_RATE` | `1.0` | Trace sampling rate (0.0–1.0) |
+| `DIRECTAI_RATE_LIMIT_RPS` | `60` | Per-key rate limit (requests/second) |
+| `DIRECTAI_RATE_LIMIT_BURST` | `120` | Token-bucket burst capacity |
+| `DIRECTAI_DATABASE_PATH` | *(empty)* | SQLite path for model lifecycle state |
 
 #### Auth
 
@@ -467,6 +558,18 @@ DIRECTAI_MODEL_CONFIG_DIR=../../deploy/models python -m uvicorn app.main:app --r
 cd src/api-server
 python -m pytest tests/ -v
 ```
+
+### Known Issues & Operational Notes
+
+#### vLLM CUDA Compatibility on AKS T4 Nodes (CRITICAL)
+
+vLLM `cu130` containers ship a bundled CUDA compat library at `/usr/local/cuda-13.0/compat/libcuda.so.1` (version `580.82.07`). AKS T4 nodes mount the host NVIDIA driver at `/lib/x86_64-linux-gnu/libcuda.so.1` (version `580.95.05`). When `LD_LIBRARY_PATH` is empty, the container's compat lib resolves first. The minor version mismatch (`580.82.07` userspace vs `580.95.05` kernel) produces **CUDA Error 803: system has unsupported display driver / cuda driver combination**.
+
+**Fix:** Set `LD_LIBRARY_PATH=/lib/x86_64-linux-gnu` in the vLLM container environment. This forces the host-mounted driver to be found first, matching the kernel driver version.
+
+This is configured in `values-dev.yaml` under the vLLM backend's `env` block. **Do not remove this env var** — it is required for any vLLM `cu*` image on AKS nodes.
+
+**Note:** `VLLM_ENABLE_CUDA_COMPATIBILITY=1` does NOT fix this issue. The compat flag bridges CUDA toolkit versions, not minor driver version mismatches.
 
 ### Inference Engines
 
@@ -512,7 +615,7 @@ TensorRT-LLM inference server for LLMs and STT. Wraps TRT-LLM's High-Level API b
 
 Next.js marketing and dashboard site served at `https://agilecloud.ai`.
 
-**Stack:** Next.js 16.1, React 19, Tailwind CSS v4, TypeScript, standalone output mode.
+**Stack:** Next.js 16.1, React 19, Tailwind CSS v4, TypeScript, NextAuth v5, Drizzle ORM, standalone output mode.
 
 **Pages:**
 
@@ -520,7 +623,21 @@ Next.js marketing and dashboard site served at `https://agilecloud.ai`.
 |---|---|
 | `/` | Landing page — hero section, features grid, live code sample, CTA |
 | `/pricing` | Pricing tiers (Starter / Pro / Enterprise) |
-| `/waitlist` | Email signup form with server action (persists to... TBD — currently form-only) |
+| `/waitlist` | Email signup form with server action |
+| `/login` | NextAuth sign-in page (redirects to Entra External ID) |
+| `/dashboard` | Authenticated dashboard — overview, plan info |
+| `/dashboard/api-keys` | API key management (create / revoke) |
+| `/dashboard/billing` | Stripe billing portal integration |
+| `/dashboard/usage` | Usage statistics and token consumption |
+| `/privacy` | Privacy policy |
+| `/terms` | Terms of service |
+| `/api/auth/[...nextauth]` | NextAuth API routes (callbacks, session, CSRF) |
+
+**Authentication:** NextAuth v5 with Entra External ID OIDC provider. JWT session strategy. `middleware.ts` protects `/dashboard/*` routes. `SessionProvider` wrapper for client-side session access.
+
+**Components:** Auth-aware `navbar.tsx` (useSession, signOut), `dashboard-sidebar.tsx`, `conditional-footer.tsx` (hides on dashboard routes), `session-provider.tsx`.
+
+**Analytics:** LinkedIn Insight Tag (partner ID `8912820`) embedded in root layout.
 
 **Dockerfile:** Multi-stage build — `deps` (install node_modules) → `builder` (next build) → `runner` (node:22-alpine, standalone output, port 3000).
 
@@ -561,8 +678,9 @@ spec:
   ownedBy: <org>
   modality: chat | embedding | transcription
   engine:
-    type: tensorrt-llm | onnxruntime
+    type: tensorrt-llm | onnxruntime | vllm | ollama
     image: "<registry>/<image>:<tag>"
+    backendUrl: "<optional URL override — local dev / Ollama only>"
     weightsUri: "az://<container>/<path>"
     maxBatchSize: <int>         # Embeddings only
   hardware:
@@ -602,9 +720,10 @@ Shared resources deployed to the operations subscription. Deployed via the **Dep
 | **Storage Account** `stplatformdaiv7fgid` | Pre-compiled TRT-LLM engine cache (`engine-cache` container), model registry, build artifacts | Customer stamps read via SAS or Blob Reader |
 | **Log Analytics** | Centralized monitoring sink — aggregates across all stamps | Customer stamps can forward diagnostics here |
 | **Application Insights** | Distributed tracing + live metrics for the platform as a whole | API server pods emit traces via connection string |
-| **DNS Zone** `agilecloud.ai` | Public DNS zone — A records for web + API subdomains | All clusters reference this zone |
+| **DNS Zone** `agilecloud.ai` | Public DNS zone — A records for web + API subdomains. Records managed in Bicep: `@` + `www` → Platform AKS IP, `api` → Dev AKS IP | All clusters reference this zone |
 | **Platform AKS** `aks-dai-platform-dev-eus2` | CPU-only cluster for web app, metering, webhooks. K8s 1.33. | N/A — platform-only |
-| **Platform Key Vault** | Stripe keys, NextAuth secret, DB connection strings (future) | Platform AKS workload identity |
+| **Platform Key Vault** | Stripe keys, NextAuth secret, DB connection strings | Platform AKS workload identity |
+| **Platform PostgreSQL** | NextAuth sessions, user accounts, API keys, usage records. Conditional on `enablePlatformDb = true`. | Platform AKS via connection string |
 | **Platform VNet** (`10.200.0.0/16`) | Networking for Platform AKS — system subnet + CPU node pool subnet | N/A |
 | **Platform Managed Identities** | Control plane + kubelet identities for Platform AKS (same split as stamps) | Kubelet gets AcrPull, Storage Blob Data Contributor, Key Vault Secrets User |
 
@@ -786,12 +905,12 @@ All environments use a single existing SPN (`DevOptimum`) rather than three dedi
 3. ✅ NS delegation configured at GoDaddy → Azure DNS nameservers (`ns1-02.azure-dns.com`, etc.).
 4. ✅ Platform AKS: NGINX Ingress Controller, cert-manager v1.19, Let's Encrypt prod ClusterIssuer.
 5. ✅ Web app live at `https://agilecloud.ai` — 2 replicas, TLS cert valid until June 2026.
-6. ✅ Dev stamp deployed: `aks-dai-internal-dev-scus` (T4 GPU) with API server + embeddings backend.
-7. ✅ DNS A record: `agilecloud.ai → 4.153.165.222` (Platform AKS NGINX LB).
+6. ✅ Dev stamp deployed: `aks-dai-internal-dev-scus` (T4 GPU) with API server, embeddings backend (BGE-large), and LLM backend (Qwen 2.5 3B via vLLM).
+7. ✅ DNS A records managed in Bicep: `agilecloud.ai` + `www.agilecloud.ai` → `4.153.165.222` (Platform AKS), `api.agilecloud.ai` → `48.192.177.54` (Dev AKS).
+8. ✅ LLM inference live at `https://api.agilecloud.ai/v1/chat/completions` — streaming + non-streaming.
 
 **Remaining manual steps:**
 
 1. Add **required reviewers** to `internal-prod` GitHub environment (Settings → Environments).
 2. Create a GitHub PAT with `repo` + `admin:org` scopes and set it as `ONBOARDING_PAT` secret on the `platform` environment.
-3. Add `www` CNAME record for `www.agilecloud.ai → agilecloud.ai`.
-4. Run `build-web.yml` end-to-end to validate the CI pipeline.
+3. Run `build-web.yml` end-to-end to validate the CI pipeline.

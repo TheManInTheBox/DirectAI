@@ -8,6 +8,9 @@ param acrSku = 'Premium' // Geo-replication, private endpoints, content trust
 param enablePrivateEndpoints = true
 param enableDnsZone = true
 param dnsZoneName = 'agilecloud.ai'
+// Prod IPs: set after NGINX Ingress Controller is deployed
+param platformWebIngressIp = ''  // TODO: set after prod AKS deploy
+param devApiIngressIp = ''       // Prod API will have its own IP
 param dataRetention = 90
 param enablePlatformAks = true
 param kubernetesVersion = '1.33'

@@ -94,27 +94,23 @@ class StripeUsageReporter:
                 logger.exception("StripeUsageReporter flush failed")
 
     async def _flush(self) -> None:
-        """Read unreported usage and send to Stripe."""
+        """Read unreported usage, send to Stripe, then delete reported rows."""
         if self._pool is None or self._http is None:
             return
 
-        # Aggregate usage since last flush, grouped by user
-        # We use a reporting_batch marker: records with request_id NOT NULL
-        # that haven't been reported yet.  We mark them by NULLing the
-        # request_id after reporting (or use a separate reported_at column).
-        #
-        # Simple approach: aggregate all records from the last interval,
-        # report them, and delete to avoid double-counting.
+        # Grab a batch of un-reported rows.  We select IDs so we can delete
+        # exactly the rows we reported — no time-window overlap, no double-count.
         rows = await self._pool.fetch(
             """
             WITH batch AS (
                 SELECT id, user_id, input_tokens, output_tokens
                 FROM usage_records
-                WHERE created_at > NOW() - INTERVAL '120 seconds'
-                ORDER BY created_at
+                ORDER BY id
                 LIMIT 10000
             )
-            SELECT user_id, SUM(input_tokens + output_tokens) AS total_tokens
+            SELECT user_id,
+                   SUM(input_tokens + output_tokens) AS total_tokens,
+                   ARRAY_AGG(id) AS row_ids
             FROM batch
             GROUP BY user_id
             HAVING SUM(input_tokens + output_tokens) > 0
@@ -126,9 +122,12 @@ class StripeUsageReporter:
 
         logger.info("Reporting usage for %d users to Stripe", len(rows))
 
+        reported_ids: list[int] = []
+
         for row in rows:
             user_id = str(row["user_id"])
             total_tokens = int(row["total_tokens"])
+            batch_ids = list(row["row_ids"])
 
             try:
                 # Look up the Stripe customer ID for this user
@@ -164,5 +163,17 @@ class StripeUsageReporter:
                         total_tokens,
                         stripe_customer_id,
                     )
+                    reported_ids.extend(batch_ids)
             except Exception:
                 logger.exception("Failed to report usage for user %s", user_id)
+
+        # Delete successfully reported rows to prevent double-counting.
+        if reported_ids:
+            try:
+                deleted = await self._pool.execute(
+                    "DELETE FROM usage_records WHERE id = ANY($1::bigint[])",
+                    reported_ids,
+                )
+                logger.info("Deleted %s reported usage rows", deleted)
+            except Exception:
+                logger.exception("Failed to delete reported usage rows")

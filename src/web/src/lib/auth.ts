@@ -35,6 +35,14 @@ function buildAuthConfig(): NextAuthConfig {
     providers: [
       // Microsoft Entra External ID — OIDC provider
       // Supports Google (native), GitHub (custom OIDC federation), email+OTP
+      //
+      // REQUIRED ENTRA PORTAL CONFIG (or email falls through to garbage):
+      //   1. App Registration → Token Configuration → Add optional claim
+      //      → ID Token → check "email" → Save
+      //   2. App Registration → API Permissions → Add Microsoft Graph →
+      //      Delegated → "email", "openid", "profile" → Grant admin consent
+      //   3. User Flow → User attributes → check "Email Address"
+      //   4. User Flow → Application claims → check "Email Address"
       {
         id: "entra-external",
         name: "DirectAI",
@@ -48,23 +56,53 @@ function buildAuthConfig(): NextAuthConfig {
           },
         },
         profile(profile) {
-          // Entra External ID may return email in various claim locations
-          // depending on identity provider (MSA, Google, email+OTP, etc.)
-          const email =
-            profile.email ??
-            profile.preferred_username ??
-            profile.emails?.[0] ??
-            profile.signInNames?.emailAddress ??
-            profile.otherMails?.[0] ??
-            `${profile.sub}@directai.user`;
+          // Extract email from OIDC claims. Entra External ID returns email in
+          // different claim locations depending on the identity provider and
+          // tenant configuration. We try every known location.
+          //
+          // Entra-specific claims reference:
+          //   email               — standard OIDC, returned if optional claim configured
+          //   preferred_username  — often the email for local/social accounts
+          //   upn                 — User Principal Name, email-like for org accounts
+          //   emails              — array, used in some B2C flows
+          //   signInNames         — B2C custom policy claim
+          //   otherMails          — secondary emails from directory object
+
+          // Helper: only accept a string that looks like an email
+          const isEmail = (v: unknown): v is string =>
+            typeof v === "string" && v.includes("@") && !v.endsWith("@directai.user");
+
+          const candidates = [
+            profile.email,
+            profile.preferred_username,
+            profile.upn,
+            (profile.emails as string[] | undefined)?.[0],
+            profile.signInNames?.emailAddress,
+            (profile.otherMails as string[] | undefined)?.[0],
+          ];
+
+          const email = candidates.find(isEmail) ?? `${profile.sub}@directai.user`;
 
           const name =
             profile.name ??
             profile.given_name ??
-            profile.preferred_username ??
+            // Only use preferred_username as name if it's NOT the email
+            (profile.preferred_username !== email ? profile.preferred_username : undefined) ??
             email.split("@")[0];
 
-          console.log(`[auth] OIDC profile claims: sub=${profile.sub}, email=${email}, name=${name}, raw_keys=${Object.keys(profile).join(",")}`);
+          console.log(
+            `[auth] OIDC profile: sub=${profile.sub}, email=${email}, name=${name}, ` +
+            `has_email_claim=${!!profile.email}, has_preferred_username=${!!profile.preferred_username}, ` +
+            `has_upn=${!!profile.upn}, raw_keys=[${Object.keys(profile).join(",")}]`
+          );
+
+          // Warn loudly if we fell through to the garbage fallback
+          if (email.endsWith("@directai.user")) {
+            console.error(
+              `[auth] WARNING: No email found in OIDC claims for sub=${profile.sub}. ` +
+              `Check Entra External ID token configuration. Claims received: ${JSON.stringify(profile)}`
+            );
+          }
 
           return {
             id: profile.sub,
@@ -100,16 +138,23 @@ function buildAuthConfig(): NextAuthConfig {
         }
         // On subsequent OIDC sign-ins, profile has fresh claims — update the token
         if (profile) {
+          const isEmail = (v: unknown): v is string =>
+            typeof v === "string" && v.includes("@") && !v.endsWith("@directai.user");
+
           const freshName =
             profile.name ??
             profile.given_name ??
             profile.preferred_username ??
             token.name;
-          const freshEmail =
-            profile.email ??
-            profile.preferred_username ??
-            (profile.emails as string[] | undefined)?.[0] ??
-            token.email;
+
+          const emailCandidates = [
+            profile.email,
+            profile.preferred_username,
+            profile.upn,
+            (profile.emails as string[] | undefined)?.[0],
+          ];
+          const freshEmail = emailCandidates.find(isEmail) ?? token.email;
+
           token.name = freshName;
           token.email = freshEmail;
           token.picture = (profile.picture as string) ?? token.picture;
@@ -140,16 +185,22 @@ function buildAuthConfig(): NextAuthConfig {
         // (Drizzle adapter only writes on createUser, never updates)
         if (user.id && profile && process.env.DATABASE_URL) {
           try {
+            const isEmail = (v: unknown): v is string =>
+              typeof v === "string" && v.includes("@") && !v.endsWith("@directai.user");
+
             const freshName =
               profile.name ??
               profile.given_name ??
               profile.preferred_username ??
               undefined;
-            const freshEmail =
-              profile.email ??
-              profile.preferred_username ??
-              (profile.emails as string[] | undefined)?.[0] ??
-              undefined;
+
+            const emailCandidates = [
+              profile.email,
+              profile.preferred_username,
+              profile.upn,
+              (profile.emails as string[] | undefined)?.[0],
+            ];
+            const freshEmail = emailCandidates.find(isEmail);
             const freshImage = (profile.picture as string) ?? undefined;
 
             // Only update if we have something real to write

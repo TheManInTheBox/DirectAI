@@ -1,0 +1,316 @@
+# ============================================================================
+# DirectAI Helm Chart — Production Environment Values
+# AKS: aks-dai-{customer}-prod-{region}  |  ACR: acrplatformdaiv7fgid.azurecr.io
+#
+# Production differs from dev:
+#   - A100/H100 GPU pools (NVMe-backed), not T4
+#   - TRT-LLM compiled engines, not vLLM HuggingFace auto-download
+#   - HPA autoscaling on all backends
+#   - Stricter resource limits and rate limiting
+#   - OTEL tracing + Prometheus rules enabled
+#   - Multi-replica API server with HPA
+#   - HSTS, metrics endpoint lockdown
+# ============================================================================
+
+global:
+  namespace: directai
+
+# ── API Server ─────────────────────────────────────────────────────────────
+apiServer:
+  replicaCount: 3
+
+  image:
+    repository: acrplatformdaiv7fgid.azurecr.io/api-server
+    tag: "latest"                     # Pin to SHA digest in real deploys
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 8000
+
+  resources:
+    requests:
+      cpu: "1"
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+
+  env:
+    DIRECTAI_LOG_LEVEL: "info"
+    DIRECTAI_BACKEND_TIMEOUT: "300"
+    DIRECTAI_BACKEND_CONNECT_TIMEOUT: "5"
+    DIRECTAI_OTEL_ENABLED: "true"
+    DIRECTAI_OTEL_SAMPLE_RATE: "0.1"  # 10% sampling in prod
+    DIRECTAI_RATE_LIMIT_RPM: "60"
+    DIRECTAI_RATE_LIMIT_TPM: "100000"
+
+  # Secret Store CSI — inject Key Vault secrets as env vars
+  # Key Vault name and tenant ID are per-customer — override per deployment.
+  secretStore:
+    enabled: true
+    keyVaultName: ""                  # Override: kvdai{hash}
+    tenantId: "7dd8cf8b-3a69-4cb3-96c9-0a9e63fe6127"
+    secrets:
+      - objectName: database-url
+        secretKey: DIRECTAI_DATABASE_URL
+      - objectName: stripe-secret-key
+        secretKey: DIRECTAI_STRIPE_SECRET_KEY
+      - objectName: stripe-meter-id-tokens
+        secretKey: DIRECTAI_STRIPE_METER_ID_TOKENS
+      - objectName: appinsights-connection-string
+        secretKey: DIRECTAI_APPINSIGHTS_CONNECTION_STRING
+
+  modelConfigDir: /app/models
+
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 60
+
+# ── Ingress — api.{customer}.agilecloud.ai ──────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"        # SSE streaming
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # Production rate limiting — coarse per-IP (fine-grained per-key in middleware)
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "3"
+    nginx.ingress.kubernetes.io/limit-connections: "50"
+  hosts:
+    - host: api.agilecloud.ai        # Override per customer
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: directai-tls
+      hosts:
+        - api.agilecloud.ai          # Override per customer
+
+# ── TLS — Let's Encrypt via cert-manager ──────────────────────────────────
+tls:
+  enabled: true
+  certManager:
+    enabled: true
+    issuer: letsencrypt-prod
+
+# ── Service Account (Workload Identity) ────────────────────────────────────
+serviceAccount:
+  create: true
+  name: directai
+  annotations: {}
+  # Override per deployment:
+  #   azure.workload.identity/client-id: "<kubelet-identity-client-id>"
+
+workloadIdentity:
+  enabled: true
+  clientId: ""                        # Override per customer stamp
+
+# ── Web Frontend — disabled on inference stamps ──────────────────────────
+web:
+  enabled: false
+
+# ── Inference Backends ──────────────────────────────────────────────────────
+# Production backends use TRT-LLM compiled engines and NVMe-cached weights.
+# Models are pre-compiled via compile-engine.yml and stored in Blob Storage.
+# Init containers pull weights + engines from Blob → NVMe before the engine starts.
+backends:
+
+  # ── Embeddings — BGE-large-en-v1.5 (ONNX Runtime, A10G) ──────────────
+  bge-large-en-v1-5:
+    image: "acrplatformdaiv7fgid.azurecr.io/embeddings-engine:bge-baked"
+    imagePullPolicy: IfNotPresent
+    modality: embedding
+    replicas: 2
+    port: 8001
+    gpu:
+      count: 1
+      nodePoolLabel: "a10g"
+    resources:
+      requests:
+        cpu: "2"
+        memory: 4Gi
+      limits:
+        cpu: "4"
+        memory: 8Gi
+    env:
+      EMBED_LOG_LEVEL: "info"
+      EMBED_MAX_BATCH_SIZE: "256"
+      EMBED_EXECUTION_PROVIDER: "CUDAExecutionProvider"
+    scaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 8
+      targetConcurrency: 64
+    tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Equal"
+        value: "a10g"
+        effect: "NoSchedule"
+
+  # ── LLM — Llama 3.1 70B Instruct (TRT-LLM, 2×A100 TP=2) ─────────────
+  # Requires pre-compiled TRT-LLM engine. Run compile-engine.yml first.
+  # Weights + engine pulled from Blob Storage via init container.
+  # llama-3-1-70b-instruct:
+  #   image: "acrplatformdaiv7fgid.azurecr.io/trtllm-engine:latest"
+  #   imagePullPolicy: IfNotPresent
+  #   modality: chat
+  #   replicas: 1
+  #   port: 8001
+  #   gpu:
+  #     count: 2                       # TP=2 on same node
+  #     nodePoolLabel: "a100"
+  #   resources:
+  #     requests:
+  #       cpu: "8"
+  #       memory: 64Gi
+  #     limits:
+  #       cpu: "16"
+  #       memory: 128Gi
+  #   env:
+  #     TRTLLM_ENGINE_DIR: "/models/engine"
+  #     TRTLLM_TOKENIZER_DIR: "/models/tokenizer"
+  #     TRTLLM_TP_SIZE: "2"
+  #     TRTLLM_KV_CACHE_FREE_GPU_MEM_FRACTION: "0.85"
+  #     TRTLLM_MAX_BATCH_SIZE: "64"
+  #   nvmeCache:
+  #     enabled: true
+  #     sizeMi: 200000                 # 200GB for 70B weights + engine
+  #   scaling:
+  #     enabled: true
+  #     minReplicas: 1                 # Always-warm — keeps NVMe cache alive
+  #     maxReplicas: 4
+  #     targetConcurrency: 8
+  #   tolerations:
+  #     - key: "nvidia.com/gpu"
+  #       operator: "Equal"
+  #       value: "a100"
+  #       effect: "NoSchedule"
+
+  # ── STT — Whisper Large v3 (TRT-LLM, A100) ────────────────────────────
+  # whisper-large-v3:
+  #   image: "acrplatformdaiv7fgid.azurecr.io/trtllm-engine:whisper-latest"
+  #   imagePullPolicy: IfNotPresent
+  #   modality: transcription
+  #   replicas: 1
+  #   port: 8001
+  #   gpu:
+  #     count: 1
+  #     nodePoolLabel: "a100"
+  #   resources:
+  #     requests:
+  #       cpu: "4"
+  #       memory: 16Gi
+  #     limits:
+  #       cpu: "8"
+  #       memory: 32Gi
+  #   nvmeCache:
+  #     enabled: true
+  #     sizeMi: 50000                  # 50GB
+  #   scaling:
+  #     enabled: true
+  #     minReplicas: 0                 # Scale-to-zero — batch workload
+  #     maxReplicas: 4
+  #     targetConcurrency: 4
+  #   tolerations:
+  #     - key: "nvidia.com/gpu"
+  #       operator: "Equal"
+  #       value: "a100"
+  #       effect: "NoSchedule"
+
+# ── Model Configs (API server model registry) ─────────────────────────────
+# Production model configs are injected at deploy time:
+#   --set-file "modelConfigs.llama\.yaml=deploy/models/llama-3.1-70b-instruct.yaml"
+# Only include always-on models here. Others via deploy-model.yml workflow.
+modelConfigs:
+  bge-large-en-v1.5.yaml: |
+    apiVersion: directai/v1
+    kind: ModelDeployment
+    metadata:
+      name: bge-large-en-v1-5
+    spec:
+      displayName: "BAAI BGE Large English v1.5"
+      ownedBy: baai
+      modality: embedding
+      engine:
+        type: onnxruntime
+        image: "acrplatformdaiv7fgid.azurecr.io/embeddings-engine:bge-baked"
+        maxBatchSize: 256
+      hardware:
+        gpuSku: Standard_NC24ads_A100_v4
+        gpuCount: 1
+        nvmeCacheEnabled: false
+      scaling:
+        tier: always-warm
+        minReplicas: 2
+        maxReplicas: 8
+        targetConcurrency: 64
+      api:
+        aliases:
+          - bge-large-en-v1.5
+          - baai/bge-large-en-v1.5
+
+# ── Network Policy ─────────────────────────────────────────────────────────
+networkPolicy:
+  enabled: true
+
+# ── KEDA — autoscaling for inference backends ──────────────────────────────
+keda:
+  enabled: true
+  pollingInterval: 10                 # Faster scaling response in prod
+  cooldownPeriod: 300
+
+# ── Prometheus / monitoring ────────────────────────────────────────────────
+prometheusRules:
+  enabled: true                       # Enable alerting rules in prod
+
+# ── Priority Class ─────────────────────────────────────────────────────────
+priorityClass:
+  enabled: true
+  name: directai-inference
+  value: 1000000
+
+# ── NVMe init — enabled for A100/H100 nodes with local NVMe ──────────────
+nvmeInit:
+  enabled: true
+  image: "alpine:3.20"
+  nodeSelector:
+    directai.io/pool: inference
+
+# ── DCGM Exporter — GPU metrics in prod ──────────────────────────────────
+dcgmExporter:
+  enabled: true
+  image:
+    repository: nvcr.io/nvidia/k8s/dcgm-exporter
+    tag: "3.3.8-3.6.0-ubuntu22.04"
+    pullPolicy: IfNotPresent
+  collectInterval: "15000"
+  customMetrics: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  nodeSelector:
+    directai.io/pool: inference
+  tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+    - key: directai.io/workload
+      operator: Exists
+      effect: NoSchedule
+
+# ── Datadog Integration — enable if Datadog Agent deployed ────────────────
+datadogOtlp:
+  enabled: false
+  endpoint: "http://datadog-agent.datadog.svc.cluster.local:4317"

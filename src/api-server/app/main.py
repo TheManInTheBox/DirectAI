@@ -149,8 +149,8 @@ app.add_middleware(RequestLoggingMiddleware)
 _settings = get_settings()
 app.add_middleware(
     RateLimitMiddleware,
-    rate=_settings.rate_limit_rps,
-    burst=_settings.rate_limit_burst,
+    rpm=_settings.rate_limit_rpm,
+    tpm=_settings.rate_limit_tpm,
     max_buckets=_settings.rate_limit_max_buckets,
 )
 app.add_middleware(CorrelationIdMiddleware)

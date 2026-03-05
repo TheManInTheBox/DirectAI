@@ -1,23 +1,56 @@
 """
-Rate limiting middleware — token-bucket per API key.
+Rate limiting middleware — tier-aware RPM + TPM enforcement.
 
-Provides per-key request rate limiting for the API server.
-When no API key is present (dev mode, auth disabled), uses client IP.
+Each API key (or client IP if unauthenticated) gets a pair of limiters:
+  1. **RPM** — token-bucket capping requests per minute.
+  2. **TPM** — sliding-window counter capping tokens per minute.
+
+Tier limits (configured via ``TIER_LIMITS``):
+  Developer  — 60 RPM,  100 000 TPM
+  Pro        — 600 RPM, 1 000 000 TPM
+  Enterprise — unlimited (placeholder, enforce at gateway)
+
+When no tier can be resolved (auth disabled / env-var keys), the
+**Developer** tier limits are applied as a safe default.
 
 Configuration via environment variables:
-  DIRECTAI_RATE_LIMIT_RPS:   requests per second per key (default: 60)
-  DIRECTAI_RATE_LIMIT_BURST: maximum burst size (default: 120)
+  DIRECTAI_RATE_LIMIT_RPM:         override Developer RPM (default: 60)
+  DIRECTAI_RATE_LIMIT_TPM:         override Developer TPM (default: 100000)
   DIRECTAI_RATE_LIMIT_MAX_BUCKETS: max tracked keys before eviction (default: 50000)
 """
 
 from __future__ import annotations
 
+import logging
 import time
 from collections import OrderedDict
+from dataclasses import dataclass, field
+from typing import Optional
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
+
+logger = logging.getLogger(__name__)
+
+# ── Tier limit definitions ──────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class TierLimits:
+    """Rate limits for a pricing tier."""
+
+    rpm: int  # Requests per minute
+    tpm: int  # Tokens per minute
+
+
+TIER_LIMITS: dict[str, TierLimits] = {
+    "developer": TierLimits(rpm=60, tpm=100_000),
+    "pro": TierLimits(rpm=600, tpm=1_000_000),
+    "enterprise": TierLimits(rpm=10_000, tpm=100_000_000),  # effectively unlimited
+}
+
+DEFAULT_TIER = "developer"
 
 # Buckets older than this (seconds since last access) are eligible for eviction.
 _BUCKET_TTL = 600  # 10 minutes
@@ -25,16 +58,23 @@ _BUCKET_TTL = 600  # 10 minutes
 _MAX_BUCKETS_DEFAULT = 50_000
 
 
+# ── RPM limiter (token bucket) ──────────────────────────────────────
+
+
 class _TokenBucket:
-    """Simple token-bucket rate limiter."""
+    """Token-bucket rate limiter for requests-per-minute.
+
+    ``rate`` = tokens added per second = RPM / 60.
+    ``burst`` = max tokens (allows short spikes above the steady rate).
+    """
 
     __slots__ = ("rate", "burst", "tokens", "last_refill")
 
-    def __init__(self, rate: float, burst: int) -> None:
-        self.rate = rate
-        self.burst = burst
-        self.tokens = float(burst)
-        self.last_refill = time.monotonic()
+    def __init__(self, rpm: int) -> None:
+        self.rate: float = rpm / 60.0  # tokens per second
+        self.burst: int = max(5, rpm // 10)  # ~10-second burst window
+        self.tokens: float = float(self.burst)
+        self.last_refill: float = time.monotonic()
 
     def allow(self) -> bool:
         now = time.monotonic()
@@ -47,17 +87,106 @@ class _TokenBucket:
         return False
 
 
+# ── TPM limiter (sliding window counter) ────────────────────────────
+
+
+class _SlidingWindowCounter:
+    """Sliding-window token counter for tokens-per-minute.
+
+    Records token consumption in 1-second buckets. The window is 60
+    seconds.  ``record(n)`` returns False if accepting *n* tokens would
+    exceed the TPM limit.
+    """
+
+    __slots__ = ("limit", "_buckets", "_total")
+
+    _WINDOW = 60  # seconds
+
+    def __init__(self, tpm: int) -> None:
+        self.limit = tpm
+        # (timestamp_second, token_count) pairs — kept sorted by time.
+        self._buckets: list[tuple[int, int]] = []
+        self._total = 0
+
+    def _prune(self, now_sec: int) -> None:
+        cutoff = now_sec - self._WINDOW
+        while self._buckets and self._buckets[0][0] <= cutoff:
+            _, count = self._buckets.pop(0)
+            self._total -= count
+
+    def check(self, tokens: int = 0) -> bool:
+        """Return True if *tokens* can be accepted within the window."""
+        now_sec = int(time.monotonic())
+        self._prune(now_sec)
+        return (self._total + tokens) <= self.limit
+
+    def record(self, tokens: int) -> bool:
+        """Record *tokens*.  Returns True if within limit, False if over.
+
+        If over the limit, the tokens are NOT recorded (caller should reject).
+        """
+        if tokens <= 0:
+            return True
+        now_sec = int(time.monotonic())
+        self._prune(now_sec)
+        if (self._total + tokens) > self.limit:
+            return False
+        # Append to current-second bucket
+        if self._buckets and self._buckets[-1][0] == now_sec:
+            ts, existing = self._buckets[-1]
+            self._buckets[-1] = (ts, existing + tokens)
+        else:
+            self._buckets.append((now_sec, tokens))
+        self._total += tokens
+        return True
+
+    @property
+    def remaining(self) -> int:
+        now_sec = int(time.monotonic())
+        self._prune(now_sec)
+        return max(0, self.limit - self._total)
+
+
+# ── Combined per-key state ──────────────────────────────────────────
+
+
+@dataclass
+class _KeyState:
+    """Per-key rate limit state — RPM bucket + TPM window."""
+
+    rpm_bucket: _TokenBucket
+    tpm_window: _SlidingWindowCounter
+    tier: str
+    last_access: float = field(default_factory=time.monotonic)
+
+    @classmethod
+    def for_tier(cls, tier: str) -> "_KeyState":
+        limits = TIER_LIMITS.get(tier, TIER_LIMITS[DEFAULT_TIER])
+        return cls(
+            rpm_bucket=_TokenBucket(rpm=limits.rpm),
+            tpm_window=_SlidingWindowCounter(tpm=limits.tpm),
+            tier=tier,
+        )
+
+
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Per-key token-bucket rate limiter with TTL eviction.
+    """Tier-aware per-key rate limiter (RPM + TPM) with TTL eviction.
 
     Exempt paths: /healthz, /readyz, /metrics (probes/monitoring).
 
+    **Tier resolution:**  On each request, the middleware attempts to
+    resolve the API key's tier via ``app.state.key_store``.  If the store
+    is unavailable or returns nothing, Developer-tier limits apply.
+
+    **TPM enforcement:** The middleware enforces TPM *pre-request* as a
+    rough gate.  Route handlers call ``record_tokens()`` after they know
+    the real token count, which updates the sliding window.
+
     Eviction strategy (two-pronged, no background task):
-      1. **TTL sweep** — every 1000 requests, evict buckets not accessed
-         in the last ``_BUCKET_TTL`` seconds.  O(n) but infrequent.
-      2. **Hard cap** — if len(buckets) exceeds ``max_buckets`` after a
-         new insert, evict the oldest entry (LRU via OrderedDict).
-         This bounds memory even under a DDoS with unique keys.
+      1. **TTL sweep** — every 1000 requests, evict keys not accessed
+         in the last ``_BUCKET_TTL`` seconds.
+      2. **Hard cap** — if len(keys) exceeds ``max_buckets`` after a
+         new insert, evict the LRU entry (OrderedDict).
     """
 
     _EXEMPT_PATHS = {"/healthz", "/readyz", "/metrics"}
@@ -66,54 +195,78 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(  # noqa: ANN001
         self,
         app,
-        rate: float = 60.0,
-        burst: int = 120,
+        rpm: int = 60,
+        tpm: int = 100_000,
         max_buckets: int = _MAX_BUCKETS_DEFAULT,
     ) -> None:
         super().__init__(app)
-        self._rate = rate
-        self._burst = burst
+        self._default_rpm = rpm
+        self._default_tpm = tpm
         self._max_buckets = max_buckets
         # OrderedDict gives O(1) move-to-end (LRU) + insertion-order iteration.
-        self._buckets: OrderedDict[str, _TokenBucket] = OrderedDict()
+        self._keys: OrderedDict[str, _KeyState] = OrderedDict()
         self._request_count = 0
 
-    def _get_bucket(self, key: str) -> _TokenBucket:
-        """Return the bucket for *key*, creating it if needed.
+    # ── Key state management ────────────────────────────────────
 
-        Newly accessed buckets are moved to the end (most-recently-used).
-        """
+    def _get_or_create(self, key: str, tier: str) -> _KeyState:
+        """Return the state for *key*, creating or upgrading if needed."""
         try:
-            bucket = self._buckets[key]
-            self._buckets.move_to_end(key)
-            return bucket
+            state = self._keys[key]
+            self._keys.move_to_end(key)
+            state.last_access = time.monotonic()
+            # If tier changed (e.g. user upgraded), rebuild limiters
+            if state.tier != tier:
+                state = _KeyState.for_tier(tier)
+                self._keys[key] = state
+            return state
         except KeyError:
-            bucket = _TokenBucket(self._rate, self._burst)
-            self._buckets[key] = bucket
+            state = _KeyState.for_tier(tier)
+            self._keys[key] = state
             # Hard cap — evict LRU entry if over limit
-            if len(self._buckets) > self._max_buckets:
-                self._buckets.popitem(last=False)
-            return bucket
+            if len(self._keys) > self._max_buckets:
+                self._keys.popitem(last=False)
+            return state
 
     def _maybe_sweep(self) -> None:
-        """Periodic TTL sweep — evict stale buckets."""
+        """Periodic TTL sweep — evict stale keys."""
         self._request_count += 1
         if self._request_count < self._SWEEP_INTERVAL:
             return
         self._request_count = 0
 
         cutoff = time.monotonic() - _BUCKET_TTL
-        # Iterate oldest-first; stop early because OrderedDict is sorted by
-        # last access (move_to_end on every hit).
         stale_keys = []
-        for key, bucket in self._buckets.items():
-            if bucket.last_refill < cutoff:
+        for key, state in self._keys.items():
+            if state.last_access < cutoff:
                 stale_keys.append(key)
             else:
-                # Everything after this is newer — stop scanning.
-                break
+                break  # OrderedDict is sorted by last access
         for key in stale_keys:
-            del self._buckets[key]
+            del self._keys[key]
+
+    # ── Tier resolution ─────────────────────────────────────────
+
+    async def _resolve_tier(self, request: Request, raw_key: str) -> str:
+        """Resolve the user's pricing tier from the key store.
+
+        Returns the tier string ('developer', 'pro', 'enterprise') or
+        DEFAULT_TIER if resolution fails or is unavailable.
+        """
+        key_store = getattr(request.app.state, "key_store", None)
+        if key_store is None or not key_store.enabled:
+            return DEFAULT_TIER
+        try:
+            info = await key_store.validate(raw_key)
+            if info is not None:
+                # Stash key_info early so auth dependency can skip re-validation
+                request.state.key_info = info
+                return info.tier
+        except Exception:
+            logger.debug("Tier lookup failed for key — using default", exc_info=True)
+        return DEFAULT_TIER
+
+    # ── Dispatch ────────────────────────────────────────────────
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         if request.url.path in self._EXEMPT_PATHS:
@@ -121,28 +274,80 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         self._maybe_sweep()
 
-        # Key by API key if present, otherwise by client IP
+        # Extract key identifier
         auth_header = request.headers.get("authorization", "")
         if auth_header.startswith("Bearer "):
-            key = auth_header[7:].strip()[:64]  # cap key length
+            raw_key = auth_header[7:].strip()
+            bucket_key = raw_key[:64]  # cap length for dict key
         else:
-            key = request.client.host if request.client else "unknown"
+            raw_key = ""
+            bucket_key = request.client.host if request.client else "unknown"
 
-        bucket = self._get_bucket(key)
-        if not bucket.allow():
+        # Resolve tier (hits key_store cache, not a raw DB query each time)
+        tier = await self._resolve_tier(request, raw_key) if raw_key else DEFAULT_TIER
+
+        state = self._get_or_create(bucket_key, tier)
+        limits = TIER_LIMITS.get(tier, TIER_LIMITS[DEFAULT_TIER])
+
+        # ── RPM check ──────────────────────────────────────────
+        if not state.rpm_bucket.allow():
             return JSONResponse(
                 status_code=429,
                 content={
                     "error": {
-                        "message": "Rate limit exceeded. Please slow down.",
+                        "message": "Rate limit exceeded. You are sending requests too quickly.",
                         "type": "rate_limit_error",
                         "code": "rate_limit_exceeded",
                     }
                 },
                 headers={
-                    "Retry-After": str(int(1.0 / self._rate) + 1),
-                    "X-RateLimit-Limit": str(self._burst),
+                    "Retry-After": "1",
+                    "X-RateLimit-Limit-Requests": str(limits.rpm),
+                    "X-RateLimit-Limit-Tokens": str(limits.tpm),
+                    "X-RateLimit-Remaining-Requests": "0",
                 },
             )
 
-        return await call_next(request)
+        # ── TPM pre-check (rough — route handler records actuals) ─
+        if not state.tpm_window.check():
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": {
+                        "message": "Token rate limit exceeded. You have consumed too many tokens this minute.",
+                        "type": "rate_limit_error",
+                        "code": "token_rate_limit_exceeded",
+                    }
+                },
+                headers={
+                    "Retry-After": "5",
+                    "X-RateLimit-Limit-Requests": str(limits.rpm),
+                    "X-RateLimit-Limit-Tokens": str(limits.tpm),
+                    "X-RateLimit-Remaining-Tokens": "0",
+                },
+            )
+
+        # Stash state on request so route handlers can record tokens
+        request.state.rate_limit_state = state
+
+        response = await call_next(request)
+
+        # Add rate limit headers to successful responses
+        response.headers["X-RateLimit-Limit-Requests"] = str(limits.rpm)
+        response.headers["X-RateLimit-Limit-Tokens"] = str(limits.tpm)
+        response.headers["X-RateLimit-Remaining-Tokens"] = str(state.tpm_window.remaining)
+
+        return response
+
+
+def record_tokens(request: Request, tokens: int) -> bool:
+    """Record token consumption against the rate limiter.
+
+    Call this from route handlers after you know the actual token count.
+    Returns False if recording would exceed the TPM limit (request already
+    in-flight, so this is informational — the *next* request will be rejected).
+    """
+    state: Optional[_KeyState] = getattr(request.state, "rate_limit_state", None)
+    if state is None:
+        return True
+    return state.tpm_window.record(tokens)

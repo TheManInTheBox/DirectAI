@@ -68,6 +68,11 @@ async def require_api_key(
 
     token = credentials.credentials
 
+    # ── 0. Already validated by rate-limit middleware? ───────────
+    existing_info = getattr(request.state, "key_info", None)
+    if existing_info is not None:
+        return token
+
     # ── 1. Try PostgreSQL key store ─────────────────────────────
     key_store = getattr(request.app.state, "key_store", None)
     if key_store is not None and key_store.enabled:

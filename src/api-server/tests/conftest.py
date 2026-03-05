@@ -12,6 +12,10 @@ from fastapi.testclient import TestClient
 
 # Ensure auth is disabled for tests unless explicitly set
 os.environ.setdefault("DIRECTAI_API_KEYS", "")
+# High rate limits for tests so non-rate-limit tests aren't throttled.
+# The rate limiter middleware captures these at module import time.
+os.environ.setdefault("DIRECTAI_RATE_LIMIT_RPM", "100000")
+os.environ.setdefault("DIRECTAI_RATE_LIMIT_TPM", "100000000")
 
 
 # ── Sample model config YAML ────────────────────────────────────────

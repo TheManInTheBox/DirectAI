@@ -40,18 +40,20 @@ class Settings(BaseSettings):
         description="Comma-separated API keys. Empty = auth disabled (dev only).",
     )
     # ── Rate limiting ───────────────────────────────────────────────
-    rate_limit_rps: float = Field(
-        default=60.0,
-        description="Max sustained requests per second per API key / IP.",
+    rate_limit_rpm: int = Field(
+        default=60,
+        description="Default requests per minute per API key (Developer tier). Tier-aware limits override this.",
     )
-    rate_limit_burst: int = Field(
-        default=120,
-        description="Token-bucket burst size (max concurrent spike).",
+    rate_limit_tpm: int = Field(
+        default=100_000,
+        description="Default tokens per minute per API key (Developer tier). Tier-aware limits override this.",
     )
     rate_limit_max_buckets: int = Field(
         default=50_000,
         description="Hard cap on tracked keys — prevents OOM under DDoS.",
-    )    # ── Database (model lifecycle persistence) ──────────────────
+    )
+
+    # ── Database (model lifecycle persistence) ──────────────────
     database_path: str = Field(
         default="/app/data/directai.db",
         description="SQLite database file path. Use ':memory:' for ephemeral storage.",

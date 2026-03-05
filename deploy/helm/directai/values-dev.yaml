@@ -129,6 +129,70 @@ backends:
         value: "t4"
         effect: "NoSchedule"
 
+  # ── vLLM — Qwen 2.5 3B Instruct (FP16 on T4) ────────────────────────────
+  # vLLM auto-downloads the model from HuggingFace at startup.
+  # First pod startup takes ~5-10 min (download). Subsequent starts use
+  # emptyDir cache (if pod stays on the same node).
+  qwen2-5-3b-instruct:
+    image: "vllm/vllm-openai:v0.16.0-cu130"
+    imagePullPolicy: IfNotPresent
+    modality: chat
+    replicas: 1
+    port: 8001
+    args:
+      - "--model"
+      - "Qwen/Qwen2.5-3B-Instruct"
+      - "--served-model-name"
+      - "qwen2-5-3b-instruct"
+      - "--port"
+      - "8001"
+      - "--dtype"
+      - "half"                      # T4 doesn't support BF16
+      - "--max-model-len"
+      - "4096"
+      - "--gpu-memory-utilization"
+      - "0.85"
+      - "--disable-log-requests"
+      - "--trust-remote-code"
+    gpu:
+      count: 1
+      nodePoolLabel: "t4"
+    resources:
+      requests:
+        cpu: "2"
+        memory: 8Gi
+      limits:
+        cpu: "8"
+        memory: 16Gi
+    securityContext:
+      readOnlyRootFilesystem: false   # vLLM writes to ~/.cache, ~/.triton, etc.
+    modelCache:
+      enabled: true                   # emptyDir for HuggingFace model cache
+    cacheSize: "20Gi"                 # 3B FP16 ≈ 6GB + overhead
+    probes:
+      liveness:
+        path: /health
+      readiness:
+        path: /health
+      startup:
+        path: /health
+        failureThreshold: 120         # 120 * 10s = 20 min for model download
+    env:
+      HF_HOME: "/model-cache/hf"
+      VLLM_NO_USAGE_STATS: "1"
+      VLLM_USAGE_SOURCE: "production"
+      # Prioritize host-mounted NVIDIA driver over container's compat libs.
+      # Container ships libcuda.so.580.82.07 in /usr/local/cuda-13.0/compat/
+      # which mismatches the host kernel driver 580.95.05 → CUDA Error 803.
+      LD_LIBRARY_PATH: "/lib/x86_64-linux-gnu"
+    scaling:
+      enabled: false
+    tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Equal"
+        value: "t4"
+        effect: "NoSchedule"
+
 # ── Model Configs (API server model registry) ─────────────────────────────
 # Embedded so bare `helm install -f values-dev.yaml` produces a working
 # API server with at least one model registered. CI/CD can override via
@@ -160,6 +224,33 @@ modelConfigs:
         aliases:
           - bge-large-en-v1.5
           - baai/bge-large-en-v1.5
+
+  qwen2.5-3b-instruct.yaml: |
+    apiVersion: directai/v1
+    kind: ModelDeployment
+    metadata:
+      name: qwen2-5-3b-instruct
+    spec:
+      displayName: "Qwen 2.5 3B Instruct"
+      ownedBy: qwen
+      modality: chat
+      engine:
+        type: vllm
+        image: "vllm/vllm-openai:v0.16.0-cu130"
+      hardware:
+        gpuSku: Standard_NCasT4_v3
+        gpuCount: 1
+        nvmeCacheEnabled: false
+      scaling:
+        tier: scale-to-zero
+        minReplicas: 0
+        maxReplicas: 2
+        targetConcurrency: 8
+      api:
+        aliases:
+          - qwen2.5-3b-instruct
+          - qwen/qwen2.5-3b-instruct
+          - Qwen/Qwen2.5-3B-Instruct
 
 # ── Network Policy ─────────────────────────────────────────────────────────
 networkPolicy:

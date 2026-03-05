@@ -58,6 +58,12 @@ param dnsZoneName string = 'agilecloud.ai'
 @description('Enable the public DNS zone for customer subdomains.')
 param enableDnsZone bool = true
 
+@description('IPv4 address of the Platform AKS NGINX Ingress LB (serves agilecloud.ai web app). Empty = skip record.')
+param platformWebIngressIp string = ''
+
+@description('IPv4 address of the Dev AKS NGINX Ingress LB (serves api.agilecloud.ai). Empty = skip record.')
+param devApiIngressIp string = ''
+
 // --- Platform AKS (CPU-only web hosting cluster) ---
 
 @description('Deploy the Platform AKS cluster for web hosting, metering workers, and webhooks.')
@@ -333,6 +339,44 @@ resource dnsZone 'Microsoft.Network/dnsZones@2023-07-01-preview' = if (enableDns
   properties: {
     zoneType: 'Public'
   }
+}
+
+// ── 6a. DNS A Records ──────────────────────────────────────────────
+// Apex (agilecloud.ai) → Platform AKS NGINX LB (web app)
+// api subdomain (api.agilecloud.ai) → Dev/Prod AKS NGINX LB (inference API)
+// Records are conditional: only created when the IP parameter is non-empty.
+
+module dnsRecordApex '../modules/dns-record.bicep' = if (enableDnsZone && !empty(platformWebIngressIp)) {
+  name: 'dnsRecordApex'
+  params: {
+    dnsZoneName: dnsZoneName
+    recordName: '@'
+    ipAddress: platformWebIngressIp
+    ttl: 300
+  }
+  dependsOn: [dnsZone]
+}
+
+module dnsRecordWww '../modules/dns-record.bicep' = if (enableDnsZone && !empty(platformWebIngressIp)) {
+  name: 'dnsRecordWww'
+  params: {
+    dnsZoneName: dnsZoneName
+    recordName: 'www'
+    ipAddress: platformWebIngressIp
+    ttl: 300
+  }
+  dependsOn: [dnsZone]
+}
+
+module dnsRecordApi '../modules/dns-record.bicep' = if (enableDnsZone && !empty(devApiIngressIp)) {
+  name: 'dnsRecordApi'
+  params: {
+    dnsZoneName: dnsZoneName
+    recordName: 'api'
+    ipAddress: devApiIngressIp
+    ttl: 300
+  }
+  dependsOn: [dnsZone]
 }
 
 // ===========================================================================

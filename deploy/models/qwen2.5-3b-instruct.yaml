@@ -1,0 +1,25 @@
+apiVersion: directai/v1
+kind: ModelDeployment
+metadata:
+  name: qwen2-5-3b-instruct
+spec:
+  displayName: "Qwen 2.5 3B Instruct"
+  ownedBy: qwen
+  modality: chat
+  engine:
+    type: vllm
+    image: "vllm/vllm-openai:v0.16.0-cu130"
+  hardware:
+    gpuSku: Standard_NCasT4_v3       # T4 16GB — 3B FP16 ≈ 6GB, leaves ~10GB for KV cache
+    gpuCount: 1
+    nvmeCacheEnabled: false
+  scaling:
+    tier: scale-to-zero
+    minReplicas: 0
+    maxReplicas: 2
+    targetConcurrency: 8
+  api:
+    aliases:
+      - qwen2.5-3b-instruct
+      - qwen/qwen2.5-3b-instruct
+      - Qwen/Qwen2.5-3B-Instruct

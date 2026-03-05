@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.auth import require_api_key
 from app.metrics import track_request
+from app.middleware.rate_limit import record_tokens
 from app.routing.backend_client import CircuitOpenError
 from app.schemas.embeddings import EmbeddingRequest, EmbeddingResponse
 
@@ -67,6 +68,7 @@ async def create_embedding(
     url = f"{model_spec.backend_url}/v1/embeddings"
     headers = {"X-Request-ID": request_id}
     payload = body.model_dump(exclude_none=True)
+    payload["model"] = model_spec.name  # Canonical name for backend
 
     try:
         with track_request(model_spec.name, "embedding"):
@@ -78,6 +80,9 @@ async def create_embedding(
         key_info = getattr(request.state, "key_info", None)
         if key_info is not None:
             usage = data.get("usage", {})
+            total_tokens = usage.get("total_tokens", usage.get("prompt_tokens", 0))
+            # Record tokens against TPM rate limiter
+            record_tokens(request, total_tokens)
             key_store = getattr(request.app.state, "key_store", None)
             if key_store is not None:
                 import asyncio

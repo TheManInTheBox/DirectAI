@@ -131,9 +131,17 @@ spec:
         - name: inference
           image: {{ $backend.image | quote }}
           imagePullPolicy: {{ $backend.imagePullPolicy | default "IfNotPresent" }}
+          {{- if $backend.command }}
+          command:
+            {{- toYaml $backend.command | nindent 12 }}
+          {{- end }}
+          {{- if $backend.args }}
+          args:
+            {{- toYaml $backend.args | nindent 12 }}
+          {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
+            readOnlyRootFilesystem: {{ dig "securityContext" "readOnlyRootFilesystem" true $backend }}
             capabilities:
               drop: ["ALL"]
           ports:
@@ -189,13 +197,13 @@ spec:
               mountPath: /tmp
             - name: home
               mountPath: /home/appuser
-            {{- if or $backend.weightsUri (and $backend.nvmeCache $backend.nvmeCache.enabled) }}
+            {{- if or $backend.weightsUri (and $backend.nvmeCache $backend.nvmeCache.enabled) (and $backend.modelCache $backend.modelCache.enabled) }}
             - name: model-cache
               mountPath: /model-cache
             {{- end }}
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: {{ dig "probes" "liveness" "path" "/healthz" $backend }}
               port: http
             initialDelaySeconds: 30
             periodSeconds: 15
@@ -203,7 +211,7 @@ spec:
             timeoutSeconds: 5
           readinessProbe:
             httpGet:
-              path: /readyz
+              path: {{ dig "probes" "readiness" "path" "/readyz" $backend }}
               port: http
             initialDelaySeconds: 15
             periodSeconds: 5
@@ -211,11 +219,11 @@ spec:
             timeoutSeconds: 5
           startupProbe:
             httpGet:
-              path: /healthz
+              path: {{ dig "probes" "startup" "path" (dig "probes" "liveness" "path" "/healthz" $backend) $backend }}
               port: http
-            # GPU models can take minutes to load. 60 * 10s = 10 min max.
-            failureThreshold: 60
-            periodSeconds: 10
+            # GPU models can take minutes to load. Default: 60 * 10s = 10 min max.
+            failureThreshold: {{ dig "probes" "startup" "failureThreshold" 60 $backend }}
+            periodSeconds: {{ dig "probes" "startup" "periodSeconds" 10 $backend }}
             timeoutSeconds: 5
       volumes:
         - name: tmp
@@ -224,7 +232,7 @@ spec:
         - name: home
           emptyDir:
             sizeLimit: 100Mi
-        {{- if or $backend.weightsUri (and $backend.nvmeCache $backend.nvmeCache.enabled) }}
+        {{- if or $backend.weightsUri (and $backend.nvmeCache $backend.nvmeCache.enabled) (and $backend.modelCache $backend.modelCache.enabled) }}
         - name: model-cache
           {{- if and $backend.nvmeCache $backend.nvmeCache.enabled }}
           hostPath:
