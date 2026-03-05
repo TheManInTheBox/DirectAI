@@ -42,8 +42,14 @@ export default async function DashboardPage() {
   ]);
 
   const keyCount = activeKeyRows.length;
-  const tier = user?.tier ?? "developer";
+  const tier = user?.tier ?? "free";
   const requestCount = Number(usageStat?.count ?? 0);
+  const tierLabel: Record<string, string> = {
+    free: "Free",
+    pro: "Pro",
+    managed: "Managed",
+    enterprise: "Enterprise",
+  };
 
   return (
     <div className="space-y-8">
@@ -69,7 +75,7 @@ export default async function DashboardPage() {
         />
         <StatCard
           title="Current Plan"
-          value={tier}
+          value={tierLabel[tier] ?? tier}
           subtitle="tier"
           icon={<CreditCard className="h-5 w-5" />}
           href="/dashboard/billing"

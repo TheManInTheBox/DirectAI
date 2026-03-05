@@ -472,7 +472,7 @@
           "type": "varchar(20)",
           "primaryKey": false,
           "notNull": true,
-          "default": "'developer'"
+          "default": "'free'"
         },
         "created_at": {
           "name": "created_at",

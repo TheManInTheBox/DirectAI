@@ -50,7 +50,7 @@ CREATE TABLE "users" (
 	"email_verified" timestamp,
 	"image" text,
 	"stripe_customer_id" varchar(255),
-	"tier" varchar(20) DEFAULT 'developer' NOT NULL,
+	"tier" varchar(20) DEFAULT 'free' NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT "users_email_unique" UNIQUE("email")
