@@ -3,8 +3,8 @@ import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { getDb } from "@/lib/db";
-import { apiKeys, users } from "@/lib/db/schema";
-import { eq, and, isNull } from "drizzle-orm";
+import { apiKeys, users, usageRecords } from "@/lib/db/schema";
+import { eq, and, isNull, gte, sql } from "drizzle-orm";
 import { Key, CreditCard, Zap } from "lucide-react";
 
 export const metadata: Metadata = {
@@ -17,9 +17,10 @@ export default async function DashboardPage() {
   if (!session?.user?.id) redirect("/login");
 
   const db = getDb();
+  const periodStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 
-  // Parallel queries: active key count + user tier
-  const [activeKeyRows, [user]] = await Promise.all([
+  // Parallel queries: active key count + user tier + requests this month
+  const [activeKeyRows, [user], [usageStat]] = await Promise.all([
     db
       .select({ id: apiKeys.id })
       .from(apiKeys)
@@ -29,10 +30,20 @@ export default async function DashboardPage() {
       .from(users)
       .where(eq(users.id, session.user.id))
       .limit(1),
+    db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(usageRecords)
+      .where(
+        and(
+          eq(usageRecords.userId, session.user.id),
+          gte(usageRecords.createdAt, periodStart)
+        )
+      ),
   ]);
 
   const keyCount = activeKeyRows.length;
   const tier = user?.tier ?? "developer";
+  const requestCount = Number(usageStat?.count ?? 0);
 
   return (
     <div className="space-y-8">
@@ -65,9 +76,10 @@ export default async function DashboardPage() {
         />
         <StatCard
           title="Requests"
-          value="—"
+          value={requestCount.toLocaleString()}
           subtitle="this month"
           icon={<Zap className="h-5 w-5" />}
+          href="/dashboard/usage"
         />
       </div>
 
