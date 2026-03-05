@@ -8,6 +8,13 @@
       "when": 1772655738508,
       "tag": "0000_ambiguous_bruce_banner",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1741214400000,
+      "tag": "0001_add_stripe_subscription_id",
+      "breakpoints": true
     }
   ]
 }

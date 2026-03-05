@@ -135,6 +135,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     .set({
       tier,
       stripeCustomerId: session.customer as string,
+      stripeSubscriptionId: session.subscription as string,
       updatedAt: new Date(),
     })
     .where(eq(users.id, userId));
@@ -178,7 +179,7 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
   ) {
     await db
       .update(users)
-      .set({ tier: "free", updatedAt: new Date() })
+      .set({ tier: "free", stripeSubscriptionId: null, updatedAt: new Date() })
       .where(eq(users.id, user.id));
     console.log(
       `[stripe-webhook] User ${user.id} downgraded to free (subscription status: ${subscription.status})`
@@ -229,7 +230,7 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
 
   await db
     .update(users)
-    .set({ tier: "free", updatedAt: new Date() })
+    .set({ tier: "free", stripeSubscriptionId: null, updatedAt: new Date() })
     .where(eq(users.id, user.id));
 
   console.log(
