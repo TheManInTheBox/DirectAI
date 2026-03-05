@@ -86,6 +86,7 @@ async def lifespan(app: FastAPI):
     key_store = PostgresKeyStore(
         database_url=settings.database_url,
         cache_ttl=settings.key_cache_ttl,
+        spend_cache_ttl=settings.spend_cache_ttl,
     )
     await key_store.startup()
     app.state.key_store = key_store

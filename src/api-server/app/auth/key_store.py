@@ -16,6 +16,7 @@ import hashlib
 import logging
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,17 @@ try:
     import asyncpg  # type: ignore[import-untyped]
 except ImportError:
     asyncpg = None  # type: ignore[assignment]
+
+
+# ── Per-modality token pricing (USD per token) ─────────────────────
+# Used to compute monthly spend for credit-cap enforcement.
+MODALITY_PRICING: dict[str, tuple[float, float]] = {
+    # (input_cost_per_token, output_cost_per_token)
+    "chat": (0.10 / 1_000_000, 0.20 / 1_000_000),
+    "embedding": (0.02 / 1_000_000, 0.0),
+    "transcription": (0.0, 0.10 / 1_000_000),
+}
+_DEFAULT_PRICING = MODALITY_PRICING["chat"]
 
 
 @dataclass(frozen=True)
@@ -45,6 +57,14 @@ class _CacheEntry:
 
 
 @dataclass
+class _SpendCacheEntry:
+    """Cached monthly spend for a user (in cents)."""
+
+    spend_cents: float
+    expires_at: float
+
+
+@dataclass
 class PostgresKeyStore:
     """
     Async PostgreSQL key store with connection pooling + TTL cache.
@@ -59,8 +79,10 @@ class PostgresKeyStore:
 
     database_url: str = ""
     cache_ttl: float = 60.0  # seconds
+    spend_cache_ttl: float = 30.0  # seconds
     _pool: object = field(default=None, init=False, repr=False)
     _cache: dict[str, _CacheEntry] = field(default_factory=dict, init=False, repr=False)
+    _spend_cache: dict[str, _SpendCacheEntry] = field(default_factory=dict, init=False, repr=False)
 
     @property
     def enabled(self) -> bool:
@@ -178,3 +200,54 @@ class PostgresKeyStore:
             )
         except Exception:
             logger.exception("Failed to record usage for user=%s model=%s", user_id, model)
+
+    async def get_monthly_spend(self, user_id: str) -> float:
+        """Return the user's current-month spend in cents.
+
+        Uses a short-TTL cache to avoid per-request DB queries.
+        Returns 0.0 if the store is disabled or on any error.
+        """
+        if not self.enabled or self._pool is None:
+            return 0.0
+
+        now = time.monotonic()
+        entry = self._spend_cache.get(user_id)
+        if entry is not None and entry.expires_at > now:
+            return entry.spend_cents
+
+        # Compute start of current month (UTC)
+        utcnow = datetime.now(timezone.utc)
+        month_start = utcnow.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        try:
+            rows = await self._pool.fetch(
+                """
+                SELECT modality,
+                       COALESCE(SUM(input_tokens), 0)::bigint  AS total_input,
+                       COALESCE(SUM(output_tokens), 0)::bigint AS total_output
+                FROM usage_records
+                WHERE user_id = $1 AND created_at >= $2
+                GROUP BY modality
+                """,
+                user_id,
+                month_start,
+            )
+        except Exception:
+            logger.exception("Failed to query monthly spend for user=%s", user_id)
+            return 0.0
+
+        # Compute cost in USD, convert to cents
+        cost_usd = 0.0
+        for row in rows:
+            pricing = MODALITY_PRICING.get(row["modality"], _DEFAULT_PRICING)
+            cost_usd += (
+                row["total_input"] * pricing[0]
+                + row["total_output"] * pricing[1]
+            )
+        spend_cents = cost_usd * 100.0
+
+        self._spend_cache[user_id] = _SpendCacheEntry(
+            spend_cents=spend_cents,
+            expires_at=now + self.spend_cache_ttl,
+        )
+        return spend_cents

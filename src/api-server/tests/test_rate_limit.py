@@ -342,3 +342,38 @@ class TestRecordTokens:
         request.state.rate_limit_state = state
         assert record_tokens(request, 100_000) is True  # fill exactly
         assert record_tokens(request, 1) is False  # over
+
+
+class TestMonthlyCreditGate:
+    """Unit tests for the monthly credit cap enforcement."""
+
+    def test_modality_pricing_defined(self):
+        """All expected modalities have pricing."""
+        from app.auth.key_store import MODALITY_PRICING
+
+        assert "chat" in MODALITY_PRICING
+        assert "embedding" in MODALITY_PRICING
+        assert "transcription" in MODALITY_PRICING
+        # Each is a (input, output) tuple of floats
+        for modality, (inp, out) in MODALITY_PRICING.items():
+            assert isinstance(inp, float), f"{modality} input is not float"
+            assert isinstance(out, float), f"{modality} output is not float"
+            assert inp >= 0 and out >= 0
+
+    def test_developer_credit_config_defaults(self):
+        """Default developer credit cap is 500 cents ($5.00)."""
+        import os
+        os.environ.pop("DIRECTAI_DEVELOPER_MONTHLY_CREDIT_CENTS", None)
+        from app.config import get_settings
+        get_settings.cache_clear()
+        s = get_settings()
+        assert s.developer_monthly_credit_cents == 500
+        get_settings.cache_clear()
+
+    def test_spend_cache_entry(self):
+        """_SpendCacheEntry can be created and stores values."""
+        from app.auth.key_store import _SpendCacheEntry
+
+        entry = _SpendCacheEntry(spend_cents=123.45, expires_at=99999.0)
+        assert entry.spend_cents == 123.45
+        assert entry.expires_at == 99999.0

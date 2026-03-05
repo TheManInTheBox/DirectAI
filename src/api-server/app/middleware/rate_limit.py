@@ -31,6 +31,8 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from app.config import get_settings
+
 logger = logging.getLogger(__name__)
 
 # ── Tier limit definitions ──────────────────────────────────────────
@@ -326,6 +328,38 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     "X-RateLimit-Remaining-Tokens": "0",
                 },
             )
+
+        # ── Monthly credit cap (Developer tier only) ────────────
+        if tier == DEFAULT_TIER and raw_key:
+            key_info = getattr(request.state, "key_info", None)
+            if key_info is not None:
+                key_store = getattr(request.app.state, "key_store", None)
+                if key_store is not None and key_store.enabled:
+                    settings = get_settings()
+                    cap_cents = settings.developer_monthly_credit_cents
+                    try:
+                        spend_cents = await key_store.get_monthly_spend(key_info.user_id)
+                        if spend_cents >= cap_cents:
+                            return JSONResponse(
+                                status_code=429,
+                                content={
+                                    "error": {
+                                        "message": (
+                                            f"Monthly credit limit exceeded. "
+                                            f"Developer tier includes ${cap_cents / 100:.2f}/month in credits. "
+                                            f"Current spend: ${spend_cents / 100:.2f}. "
+                                            f"Upgrade to Pro for higher limits."
+                                        ),
+                                        "type": "spending_limit_error",
+                                        "code": "monthly_credit_exceeded",
+                                    }
+                                },
+                                headers={
+                                    "Retry-After": "3600",
+                                },
+                            )
+                    except Exception:
+                        logger.debug("Spend check failed — allowing request", exc_info=True)
 
         # Stash state on request so route handlers can record tokens
         request.state.rate_limit_state = state

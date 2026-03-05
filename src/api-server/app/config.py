@@ -53,6 +53,16 @@ class Settings(BaseSettings):
         description="Hard cap on tracked keys — prevents OOM under DDoS.",
     )
 
+    # ── Spending limits ──────────────────────────────────────
+    developer_monthly_credit_cents: int = Field(
+        default=500,
+        description="Developer tier monthly credit cap in cents ($5.00 = 500).",
+    )
+    spend_cache_ttl: float = Field(
+        default=30.0,
+        description="TTL in seconds for cached monthly spend lookups.",
+    )
+
     # ── Database (model lifecycle persistence) ──────────────────
     database_path: str = Field(
         default="/app/data/directai.db",

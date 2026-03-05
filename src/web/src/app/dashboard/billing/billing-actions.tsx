@@ -59,7 +59,7 @@ export function BillingActions({
           </button>
         )}
 
-        {hasStripeCustomer && (
+        {currentTier !== "developer" && hasStripeCustomer && (
           <button
             onClick={handleManage}
             disabled={isPending}
