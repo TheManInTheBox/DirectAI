@@ -1,99 +1,54 @@
 /**
  * Waitlist persistence layer.
  *
- * Uses Azure Table Storage when AZURE_STORAGE_CONNECTION_STRING is set.
- * Falls back to in-memory Set for local dev / environments without Azure.
- *
- * Table schema:
- *   PartitionKey: "waitlist"
- *   RowKey: sha256(email) — deterministic, no PII in the key
- *   email: string
- *   signedUpAt: string (ISO 8601)
- *   source: "website"
+ * Uses PostgreSQL via Drizzle ORM (same DB as the rest of the app).
+ * Falls back to in-memory Set only when DATABASE_URL is not set (local dev).
  */
 
 import { createHash } from "crypto";
 
-const TABLE_NAME = "waitlist";
-const PARTITION_KEY = "waitlist";
-
-interface WaitlistEntry {
-  email: string;
-  signedUpAt: string;
-  source: string;
-}
-
-// ── Azure Table Storage backend ──────────────────────────────────────────
-
-let tableClient: import("@azure/data-tables").TableClient | null = null;
-
-async function getTableClient() {
-  if (tableClient) return tableClient;
-
-  const connStr = process.env.AZURE_STORAGE_CONNECTION_STRING;
-  if (!connStr) return null;
-
-  const { TableClient, TableServiceClient } = await import("@azure/data-tables");
-
-  // Ensure table exists (idempotent)
-  const serviceClient = TableServiceClient.fromConnectionString(connStr);
-  try {
-    await serviceClient.createTable(TABLE_NAME);
-  } catch (e: unknown) {
-    // TableAlreadyExists is fine
-    if (
-      typeof e === "object" &&
-      e !== null &&
-      "statusCode" in e &&
-      (e as { statusCode: number }).statusCode !== 409
-    ) {
-      throw e;
-    }
-  }
-
-  tableClient = TableClient.fromConnectionString(connStr, TABLE_NAME);
-  return tableClient;
-}
-
-function emailToRowKey(email: string): string {
+function hashEmail(email: string): string {
   return createHash("sha256").update(email).digest("hex");
 }
 
-// ── In-memory fallback ──────────────────────────────────────────────────
+// ── In-memory fallback (local dev only) ─────────────────────────────────
 
 const memoryStore = new Set<string>();
 
 // ── Public API ──────────────────────────────────────────────────────────
 
 export async function addToWaitlist(email: string): Promise<{ alreadyExists: boolean }> {
-  const client = await getTableClient();
-
-  if (client) {
-    const rowKey = emailToRowKey(email);
-    try {
-      await client.getEntity(PARTITION_KEY, rowKey);
-      return { alreadyExists: true };
-    } catch {
-      // Entity doesn't exist — create it
-    }
-
-    const entry: WaitlistEntry & { partitionKey: string; rowKey: string } = {
-      partitionKey: PARTITION_KEY,
-      rowKey,
-      email,
-      signedUpAt: new Date().toISOString(),
-      source: "website",
-    };
-    await client.createEntity(entry);
-    console.log(`[waitlist] Persisted to Azure Table Storage: ${email}`);
+  if (!process.env.DATABASE_URL) {
+    if (memoryStore.has(email)) return { alreadyExists: true };
+    memoryStore.add(email);
+    console.log(`[waitlist] In-memory (no DATABASE_URL): ${email} (total: ${memoryStore.size})`);
     return { alreadyExists: false };
   }
 
-  // Fallback: in-memory
-  if (memoryStore.has(email)) {
+  const { getDb } = await import("@/lib/db");
+  const { waitlistEntries } = await import("@/lib/db/schema");
+  const { eq } = await import("drizzle-orm");
+
+  const db = getDb();
+  const emailHash = hashEmail(email);
+
+  // Check for duplicate
+  const existing = await db
+    .select({ id: waitlistEntries.id })
+    .from(waitlistEntries)
+    .where(eq(waitlistEntries.emailHash, emailHash))
+    .limit(1);
+
+  if (existing.length > 0) {
     return { alreadyExists: true };
   }
-  memoryStore.add(email);
-  console.log(`[waitlist] In-memory store (no AZURE_STORAGE_CONNECTION_STRING): ${email} (total: ${memoryStore.size})`);
+
+  await db.insert(waitlistEntries).values({
+    email,
+    emailHash,
+    source: "website",
+  });
+
+  console.log(`[waitlist] Persisted to PostgreSQL: ${email}`);
   return { alreadyExists: false };
 }

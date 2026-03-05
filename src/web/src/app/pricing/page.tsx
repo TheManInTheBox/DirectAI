@@ -26,8 +26,8 @@ const tiers: Tier[] = [
     priceDetail: "$5/mo in credits",
     description:
       "Get started instantly. Shared GPU pool with generous free credits and pay-as-you-go after.",
-    cta: "Join Waitlist",
-    ctaHref: "/waitlist",
+    cta: "Get Started Free",
+    ctaHref: "/login",
     highlighted: false,
     features: [
       { text: "$5/month in free credits", included: true },
@@ -47,8 +47,8 @@ const tiers: Tier[] = [
     priceDetail: "/month + usage",
     description:
       "Priority GPU access with $50/month in included credits. For production workloads that need reliability.",
-    cta: "Join Waitlist",
-    ctaHref: "/waitlist",
+    cta: "Get Started",
+    ctaHref: "/login",
     highlighted: true,
     features: [
       { text: "$50/month in included credits", included: true },

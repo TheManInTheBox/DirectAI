@@ -141,3 +141,17 @@ export const usageRecords = pgTable(
     index("idx_usage_records_user_model").on(record.userId, record.model),
   ]
 );
+
+export const waitlistEntries = pgTable(
+  "waitlist_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: varchar("email", { length: 320 }).notNull(),
+    emailHash: varchar("email_hash", { length: 64 }).notNull(),
+    source: varchar("source", { length: 50 }).default("website").notNull(),
+    createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
+  },
+  (entry) => [
+    uniqueIndex("idx_waitlist_email_hash").on(entry.emailHash),
+  ]
+);
