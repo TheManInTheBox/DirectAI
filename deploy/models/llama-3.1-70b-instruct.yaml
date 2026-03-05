@@ -1,19 +1,21 @@
 apiVersion: directai/v1
 kind: ModelDeployment
 metadata:
-  name: llama-3.1-70b-instruct
+  name: llama-3-1-70b-instruct
 spec:
   displayName: "Meta Llama 3.1 70B Instruct"
   ownedBy: meta
   modality: chat
   engine:
-    type: tensorrt-llm
-    image: "${ACR_LOGIN_SERVER}/directai/trtllm-llama:0.1.0"
-    weightsUri: "az://models/llama-3.1-70b-instruct/weights/"
-    engineUri: "az://models/llama-3.1-70b-instruct/engine/"
+    type: vllm
+    image: "vllm/vllm-openai:v0.16.0"
+    # vLLM auto-downloads from HuggingFace — no weightsUri/engineUri needed.
+    # First cold start ~10-20 min (140GB download). NVMe cache makes subsequent
+    # starts near-instant if the node stays warm (always-warm tier).
+    # Migrate to TRT-LLM only when compile ROI justifies it (high-traffic prod).
   hardware:
     gpuSku: Standard_ND96asr_v4     # A100 80GB node pool
-    gpuCount: 2                      # TP=2
+    gpuCount: 2                      # TP=2 — tensor parallel across 2 A100s via NVLink
     nvmeCacheEnabled: true
   scaling:
     tier: always-warm
@@ -24,3 +26,4 @@ spec:
     aliases:
       - llama-3.1-70b-instruct
       - meta/llama-3.1-70b-instruct
+      - meta-llama/Llama-3.1-70B-Instruct

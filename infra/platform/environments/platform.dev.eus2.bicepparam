@@ -22,3 +22,18 @@ param kubernetesVersion = '1.33'
 param tags = {
   costCenter: 'platform'
 }
+
+// --- Front Door Premium ---
+// Disabled until prod AKS clusters are deployed and have NGINX LB IPs.
+// Once prod clusters are online:
+//   1. Delete the api.agilecloud.ai A record: az network dns record-set a delete -g rg-dai-platform-dev-eus2 -z agilecloud.ai -n api --yes
+//   2. Set enableFrontDoor = true
+//   3. Add prod AKS IPs to inferenceApiOrigins
+//   4. Redeploy
+param enableFrontDoor = false
+param inferenceApiOrigins = [
+  // { region: 'scus', hostname: '48.192.177.54' }     // Dev SCUS AKS (current)
+  // { region: 'scus', hostname: '<prod-scus-ip>' }    // Prod SCUS AKS
+  // { region: 'eus2', hostname: '<prod-eus2-ip>' }    // Prod EUS2 AKS
+  // { region: 'wus3', hostname: '<prod-wus3-ip>' }    // Prod WUS3 AKS
+]

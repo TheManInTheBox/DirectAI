@@ -112,6 +112,14 @@ param aksCpuPoolMinCount int = 1
 @description('Platform AKS CPU user pool max node count.')
 param aksCpuPoolMaxCount int = 5
 
+// --- Azure Front Door Premium (latency-based inference API routing) ---
+
+@description('Deploy Azure Front Door Premium for latency-based routing across inference regions.')
+param enableFrontDoor bool = false
+
+@description('Inference API origin configs. Each entry: { region: "scus", hostname: "48.192.177.54" }. Empty = no origins (deploy profile only).')
+param inferenceApiOrigins array = []
+
 // ---------------------------------------------------------------------------
 // Naming convention: dai-platform-{env}-{regionShort}
 // ---------------------------------------------------------------------------
@@ -133,6 +141,10 @@ var platformKeyVaultName = 'kvplatdai${take(uniqueSuffix, 6)}'
 
 // Platform PostgreSQL naming
 var postgresServerName = 'psql-${baseName}'
+
+// Front Door naming
+var frontDoorName = 'fd-${baseName}'
+var wafPolicyName = 'waf-fd-${baseName}'
 
 // Role Definition IDs (used by Platform AKS RBAC assignments)
 var managedIdentityOperatorRoleId = subscriptionResourceId(
@@ -368,7 +380,9 @@ module dnsRecordWww '../modules/dns-record.bicep' = if (enableDnsZone && !empty(
   dependsOn: [dnsZone]
 }
 
-module dnsRecordApi '../modules/dns-record.bicep' = if (enableDnsZone && !empty(devApiIngressIp)) {
+// When Front Door is enabled, api.agilecloud.ai uses a CNAME → FD endpoint (section 9).
+// The A record is only used for direct-to-AKS routing (dev/staging without FD).
+module dnsRecordApi '../modules/dns-record.bicep' = if (enableDnsZone && !empty(devApiIngressIp) && !enableFrontDoor) {
   name: 'dnsRecordApi'
   params: {
     dnsZoneName: dnsZoneName
@@ -690,6 +704,234 @@ module platformDb 'br/public:avm/res/db-for-postgre-sql/flexible-server:0.14.0' 
 }
 
 // ---------------------------------------------------------------------------
+// 9. Azure Front Door Premium — Latency-Based Inference API Routing
+//
+//    Routes api.agilecloud.ai traffic to the closest healthy inference region
+//    using latency-based load balancing. Premium SKU enables WAF with managed
+//    rule sets (DRS 2.1 + Bot Manager) and custom rate limiting.
+//
+//    Conditional on enableFrontDoor. Origins are added via inferenceApiOrigins
+//    param — each prod AKS cluster's NGINX Ingress LB IP.
+//
+//    DNS CUTOVER: When enabling Front Door, manually delete the existing
+//    api.agilecloud.ai A record before deploying:
+//      az network dns record-set a delete -g rg-dai-platform-dev-eus2 \
+//        -z agilecloud.ai -n api --yes
+//    The CNAME to the Front Door endpoint is created automatically below.
+//
+//    SSE STREAMING: No cacheConfiguration or compression on the inference
+//    route. Front Door passes through chunked/SSE responses transparently
+//    when caching is disabled. Backend sets Content-Type: text/event-stream.
+// ---------------------------------------------------------------------------
+
+// ── 9a. WAF Policy ──────────────────────────────────────────────────
+
+resource wafPolicy 'Microsoft.Network/FrontDoorWebApplicationFirewallPolicies@2024-02-01' = if (enableFrontDoor) {
+  name: wafPolicyName
+  location: 'global'
+  tags: defaultTags
+  sku: {
+    name: 'Premium_AzureFrontDoor'
+  }
+  properties: {
+    policySettings: {
+      enabledState: 'Enabled'
+      mode: 'Prevention'
+      requestBodyCheck: 'Enabled'
+    }
+    managedRules: {
+      managedRuleSets: [
+        {
+          ruleSetType: 'Microsoft_DefaultRuleSet'
+          ruleSetVersion: '2.1'
+          ruleSetAction: 'Block'
+        }
+        {
+          ruleSetType: 'Microsoft_BotManagerRuleSet'
+          ruleSetVersion: '1.0'
+        }
+      ]
+    }
+    customRules: {
+      rules: [
+        {
+          name: 'RateLimitInferenceAPI'
+          priority: 100
+          ruleType: 'RateLimitRule'
+          action: 'Block'
+          enabledState: 'Enabled'
+          rateLimitDurationInMinutes: 1
+          rateLimitThreshold: 1000 // 1000 req/min per IP — coarse edge limit; fine-grained per-key in API server
+          matchConditions: [
+            {
+              matchVariable: 'RequestUri'
+              operator: 'Contains'
+              matchValue: ['/v1/']
+              negateCondition: false
+              transforms: []
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+
+// ── 9b. Front Door Profile ──────────────────────────────────────────
+
+resource frontDoorProfile 'Microsoft.Cdn/profiles@2024-09-01' = if (enableFrontDoor) {
+  name: frontDoorName
+  location: 'global'
+  tags: defaultTags
+  sku: {
+    name: 'Premium_AzureFrontDoor'
+  }
+  properties: {
+    originResponseTimeoutSeconds: 300 // Inference can be slow for large contexts
+  }
+}
+
+// ── 9c. AFD Endpoint ────────────────────────────────────────────────
+
+resource frontDoorEndpoint 'Microsoft.Cdn/profiles/afdEndpoints@2024-09-01' = if (enableFrontDoor) {
+  parent: frontDoorProfile
+  name: 'ep-inference'
+  location: 'global'
+  tags: defaultTags
+  properties: {
+    enabledState: 'Enabled'
+  }
+}
+
+// ── 9d. Origin Group — latency-based routing across inference regions ──
+
+resource frontDoorOriginGroup 'Microsoft.Cdn/profiles/originGroups@2024-09-01' = if (enableFrontDoor) {
+  parent: frontDoorProfile
+  name: 'og-inference'
+  properties: {
+    loadBalancingSettings: {
+      additionalLatencyInMilliseconds: 50 // 50ms tolerance for latency routing
+      sampleSize: 4
+      successfulSamplesRequired: 3
+    }
+    healthProbeSettings: {
+      probePath: '/readyz'
+      probeProtocol: 'Https'
+      probeIntervalInSeconds: 30
+      probeRequestType: 'GET'
+    }
+    sessionAffinityState: 'Disabled'
+    trafficRestorationTimeToHealedOrNewEndpointsInMinutes: 5
+  }
+}
+
+// ── 9e. Origins — one per inference region ──────────────────────────
+
+resource frontDoorOrigins 'Microsoft.Cdn/profiles/originGroups/origins@2024-09-01' = [for (origin, i) in inferenceApiOrigins: if (enableFrontDoor) {
+  parent: frontDoorOriginGroup
+  name: 'origin-${origin.region}'
+  properties: {
+    hostName: origin.hostname
+    httpPort: 80
+    httpsPort: 443
+    originHostHeader: 'api.${dnsZoneName}'
+    priority: 1 // All origins equal priority — latency decides
+    weight: 1000
+    enabledState: 'Enabled'
+    enforceCertificateNameCheck: true
+  }
+}]
+
+// ── 9f. Custom Domain — api.agilecloud.ai with managed TLS cert ────
+
+resource frontDoorCustomDomain 'Microsoft.Cdn/profiles/customDomains@2024-09-01' = if (enableFrontDoor && enableDnsZone) {
+  parent: frontDoorProfile
+  name: 'api-agilecloud-ai'
+  properties: {
+    hostName: 'api.${dnsZoneName}'
+    tlsSettings: {
+      certificateType: 'ManagedCertificate'
+      minimumTlsVersion: 'TLS12'
+    }
+    azureDnsZoneResourceId: dnsZone!.id
+  }
+}
+
+// ── 9g. Route — forwards all /v1/* traffic to inference origins ─────
+//    No cacheConfiguration: inference is real-time, every response unique.
+//    No compression: SSE streaming must not be buffered by Front Door.
+
+resource frontDoorRoute 'Microsoft.Cdn/profiles/afdEndpoints/routes@2024-09-01' = if (enableFrontDoor) {
+  parent: frontDoorEndpoint
+  name: 'route-inference-api'
+  properties: {
+    customDomains: (enableFrontDoor && enableDnsZone) ? [
+      { id: frontDoorCustomDomain!.id }
+    ] : []
+    originGroup: { id: frontDoorOriginGroup!.id }
+    supportedProtocols: [ 'Http', 'Https' ]
+    patternsToMatch: [ '/*' ]
+    forwardingProtocol: 'HttpsOnly'
+    httpsRedirect: 'Enabled'
+    linkToDefaultDomain: 'Enabled'
+  }
+  dependsOn: [frontDoorOrigins] // Origins must exist before route
+}
+
+// ── 9h. Security Policy — associates WAF with the endpoint ─────────
+
+resource frontDoorSecurityPolicy 'Microsoft.Cdn/profiles/securityPolicies@2024-09-01' = if (enableFrontDoor) {
+  parent: frontDoorProfile
+  name: 'secpol-waf'
+  properties: {
+    parameters: {
+      type: 'WebApplicationFirewall'
+      wafPolicy: { id: wafPolicy!.id }
+      associations: [
+        {
+          domains: concat(
+            (enableFrontDoor && enableDnsZone) ? [{ id: frontDoorCustomDomain!.id }] : [],
+            [{ id: frontDoorEndpoint!.id }]
+          )
+          patternsToMatch: [ '/*' ]
+        }
+      ]
+    }
+  }
+}
+
+// ── 9i. DNS CNAME — api.agilecloud.ai → Front Door endpoint ────────
+//    Replaces the A record when Front Door is enabled.
+//    IMPORTANT: Delete the existing A record manually before first deploy.
+
+resource dnsRecordApiFrontDoor 'Microsoft.Network/dnsZones/CNAME@2023-07-01-preview' = if (enableDnsZone && enableFrontDoor) {
+  parent: dnsZone!
+  name: 'api'
+  properties: {
+    TTL: 300
+    CNAMERecord: {
+      cname: frontDoorEndpoint!.properties.hostName
+    }
+  }
+}
+
+// ── 9j. Front Door Diagnostics ──────────────────────────────────────
+
+resource frontDoorDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (enableFrontDoor) {
+  name: 'diag-${frontDoorName}'
+  scope: frontDoorProfile
+  properties: {
+    workspaceId: logAnalytics.outputs.resourceId
+    logs: [
+      { category: 'FrontDoorAccessLog', enabled: true }
+      { category: 'FrontDoorHealthProbeLog', enabled: true }
+      { category: 'FrontDoorWebApplicationFirewallLog', enabled: true }
+    ]
+    metrics: [{ category: 'AllMetrics', enabled: true }]
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Outputs
 // ---------------------------------------------------------------------------
 
@@ -759,3 +1001,17 @@ output platformDbName string = enablePlatformDb ? platformDb.outputs.name : ''
 
 @description('Platform PostgreSQL server resource ID.')
 output platformDbResourceId string = enablePlatformDb ? platformDb.outputs.resourceId : ''
+
+// --- Front Door outputs ---
+
+@description('Front Door profile name.')
+output frontDoorName string = enableFrontDoor ? frontDoorProfile!.name : ''
+
+@description('Front Door profile resource ID.')
+output frontDoorResourceId string = enableFrontDoor ? frontDoorProfile!.id : ''
+
+@description('Front Door endpoint hostname (e.g., ep-inference-xxxxxxxx.z01.azurefd.net).')
+output frontDoorEndpointHostName string = enableFrontDoor ? frontDoorEndpoint!.properties.hostName : ''
+
+@description('WAF policy resource ID.')
+output wafPolicyResourceId string = enableFrontDoor ? wafPolicy!.id : ''

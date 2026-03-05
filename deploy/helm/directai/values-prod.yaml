@@ -1,15 +1,24 @@
 # ============================================================================
 # DirectAI Helm Chart — Production Environment Values
-# AKS: aks-dai-{customer}-prod-{region}  |  ACR: acrplatformdaiv7fgid.azurecr.io
+# AKS: aks-dai-internal-prod-{scus,eus2,wus3}
+# GPU: Standard_ND96asr_v4 (8× A100 80GB, NVLink, 3.8TB NVMe per node)
+# ACR: acrplatformdaiv7fgid.azurecr.io
 #
 # Production differs from dev:
-#   - A100/H100 GPU pools (NVMe-backed), not T4
-#   - TRT-LLM compiled engines, not vLLM HuggingFace auto-download
-#   - HPA autoscaling on all backends
+#   - A100 80GB GPU pools (NVMe-backed), not T4
+#   - vLLM with BF16 (A100 native), not FP16
+#   - Llama 3.1 70B with TP=2 (tensor parallel across 2 GPUs)
+#   - HPA autoscaling on all backends (always-warm, minReplicas >= 1)
 #   - Stricter resource limits and rate limiting
-#   - OTEL tracing + Prometheus rules enabled
+#   - OTEL tracing at 10% sampling + Prometheus rules enabled
 #   - Multi-replica API server with HPA
-#   - HSTS, metrics endpoint lockdown
+#   - NVMe init DaemonSet + DCGM GPU exporter
+#   - Front Door Premium handles global routing to this cluster
+#
+# Per-stamp overrides (Key Vault name, workload identity):
+#   helm upgrade directai ./deploy/helm/directai -f values-prod.yaml \
+#     --set apiServer.secretStore.keyVaultName=<kv-name> \
+#     --set serviceAccount.annotations."azure\.workload\.identity/client-id"=<id>
 # ============================================================================
 
 global:
@@ -118,12 +127,141 @@ web:
   enabled: false
 
 # ── Inference Backends ──────────────────────────────────────────────────────
-# Production backends use TRT-LLM compiled engines and NVMe-cached weights.
-# Models are pre-compiled via compile-engine.yml and stored in Blob Storage.
-# Init containers pull weights + engines from Blob → NVMe before the engine starts.
+# Production backends use vLLM for LLMs (BF16, auto HF download + NVMe cache).
+# vLLM eliminates the TRT-LLM compile step — ship immediately when GPU quota lands.
+# Migrate to TRT-LLM only for high-traffic models where compile ROI justifies it.
 backends:
 
-  # ── Embeddings — BGE-large-en-v1.5 (ONNX Runtime, A10G) ──────────────
+  # ── LLM — Llama 3.1 70B Instruct (vLLM, 2×A100 TP=2) ─────────────────
+  # vLLM auto-downloads from HuggingFace. First pod startup ~10-20 min (140GB).
+  # Subsequent starts use NVMe cache (seconds) if node stays warm.
+  # TP=2 across 2 A100 GPUs on same node via NVLink.
+  llama-3-1-70b-instruct:
+    image: "vllm/vllm-openai:v0.16.0"
+    imagePullPolicy: IfNotPresent
+    modality: chat
+    replicas: 1
+    port: 8001
+    args:
+      - "--model"
+      - "meta-llama/Llama-3.1-70B-Instruct"
+      - "--served-model-name"
+      - "llama-3.1-70b-instruct"
+      - "--port"
+      - "8001"
+      - "--dtype"
+      - "bfloat16"                    # A100 supports BF16 natively — no precision loss
+      - "--max-model-len"
+      - "8192"                        # 8K context — fits comfortably in 2×80GB
+      - "--gpu-memory-utilization"
+      - "0.90"
+      - "--tensor-parallel-size"
+      - "2"                           # TP=2 across 2 A100 GPUs on same node
+      - "--disable-log-requests"
+      - "--trust-remote-code"
+      - "--enforce-eager"             # Disable CUDA graphs — simpler debugging, minor throughput tradeoff
+    gpu:
+      count: 2                        # 2× A100 80GB per replica
+      nodePoolLabel: "a100"           # Matches directai.io/gpu-pool=a100 label
+    resources:
+      requests:
+        cpu: "8"
+        memory: 64Gi
+      limits:
+        cpu: "32"
+        memory: 128Gi
+    securityContext:
+      readOnlyRootFilesystem: false   # vLLM writes to ~/.cache, ~/.triton, etc.
+    modelCache:
+      enabled: true
+    cacheSize: "200Gi"                # 70B BF16 ≈ 140GB + tokenizer + overhead
+    probes:
+      liveness:
+        path: /health
+      readiness:
+        path: /health
+      startup:
+        path: /health
+        failureThreshold: 180         # 180 × 10s = 30 min for 140GB model download
+    env:
+      HF_HOME: "/model-cache/hf"
+      VLLM_NO_USAGE_STATS: "1"
+      VLLM_USAGE_SOURCE: "production"
+      NCCL_DEBUG: "WARN"              # NVLink NCCL — bump to INFO for troubleshooting
+    scaling:
+      enabled: true
+      minReplicas: 1                  # Always-warm — keeps node alive, NVMe cache hot
+      maxReplicas: 4
+      targetConcurrency: 8
+    tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Equal"
+        value: "a100"
+        effect: "NoSchedule"
+
+  # ── LLM — Qwen 2.5 3B Instruct (vLLM, 1×A100 — lightweight fast model) ─
+  # Small model for low-latency simple tasks. Fits easily in a single A100.
+  qwen2-5-3b-instruct:
+    image: "vllm/vllm-openai:v0.16.0"
+    imagePullPolicy: IfNotPresent
+    modality: chat
+    replicas: 1
+    port: 8001
+    args:
+      - "--model"
+      - "Qwen/Qwen2.5-3B-Instruct"
+      - "--served-model-name"
+      - "qwen2-5-3b-instruct"
+      - "--port"
+      - "8001"
+      - "--dtype"
+      - "bfloat16"
+      - "--max-model-len"
+      - "8192"
+      - "--gpu-memory-utilization"
+      - "0.50"                        # 3B BF16 ≈ 6GB — leave headroom for co-scheduling
+      - "--disable-log-requests"
+      - "--trust-remote-code"
+    gpu:
+      count: 1
+      nodePoolLabel: "a100"
+    resources:
+      requests:
+        cpu: "4"
+        memory: 16Gi
+      limits:
+        cpu: "16"
+        memory: 32Gi
+    securityContext:
+      readOnlyRootFilesystem: false
+    modelCache:
+      enabled: true
+    cacheSize: "20Gi"
+    probes:
+      liveness:
+        path: /health
+      readiness:
+        path: /health
+      startup:
+        path: /health
+        failureThreshold: 60          # 60 × 10s = 10 min
+    env:
+      HF_HOME: "/model-cache/hf"
+      VLLM_NO_USAGE_STATS: "1"
+      VLLM_USAGE_SOURCE: "production"
+    scaling:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 4
+      targetConcurrency: 16
+    tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Equal"
+        value: "a100"
+        effect: "NoSchedule"
+
+  # ── Embeddings — BGE-large-en-v1.5 (ONNX Runtime, A100) ──────────────
+  # Runs on A100 initially. Move to dedicated A10G embeddings pool when provisioned.
   bge-large-en-v1-5:
     image: "acrplatformdaiv7fgid.azurecr.io/embeddings-engine:bge-baked"
     imagePullPolicy: IfNotPresent
@@ -132,7 +270,7 @@ backends:
     port: 8001
     gpu:
       count: 1
-      nodePoolLabel: "a10g"
+      nodePoolLabel: "a100"           # TODO: move to "embeddings" pool (A10G) when available
     resources:
       requests:
         cpu: "2"
@@ -152,49 +290,11 @@ backends:
     tolerations:
       - key: "nvidia.com/gpu"
         operator: "Equal"
-        value: "a10g"
+        value: "a100"
         effect: "NoSchedule"
 
-  # ── LLM — Llama 3.1 70B Instruct (TRT-LLM, 2×A100 TP=2) ─────────────
-  # Requires pre-compiled TRT-LLM engine. Run compile-engine.yml first.
-  # Weights + engine pulled from Blob Storage via init container.
-  # llama-3-1-70b-instruct:
-  #   image: "acrplatformdaiv7fgid.azurecr.io/trtllm-engine:latest"
-  #   imagePullPolicy: IfNotPresent
-  #   modality: chat
-  #   replicas: 1
-  #   port: 8001
-  #   gpu:
-  #     count: 2                       # TP=2 on same node
-  #     nodePoolLabel: "a100"
-  #   resources:
-  #     requests:
-  #       cpu: "8"
-  #       memory: 64Gi
-  #     limits:
-  #       cpu: "16"
-  #       memory: 128Gi
-  #   env:
-  #     TRTLLM_ENGINE_DIR: "/models/engine"
-  #     TRTLLM_TOKENIZER_DIR: "/models/tokenizer"
-  #     TRTLLM_TP_SIZE: "2"
-  #     TRTLLM_KV_CACHE_FREE_GPU_MEM_FRACTION: "0.85"
-  #     TRTLLM_MAX_BATCH_SIZE: "64"
-  #   nvmeCache:
-  #     enabled: true
-  #     sizeMi: 200000                 # 200GB for 70B weights + engine
-  #   scaling:
-  #     enabled: true
-  #     minReplicas: 1                 # Always-warm — keeps NVMe cache alive
-  #     maxReplicas: 4
-  #     targetConcurrency: 8
-  #   tolerations:
-  #     - key: "nvidia.com/gpu"
-  #       operator: "Equal"
-  #       value: "a100"
-  #       effect: "NoSchedule"
-
   # ── STT — Whisper Large v3 (TRT-LLM, A100) ────────────────────────────
+  # Not MVP. Enable when TRT-LLM Whisper engine is compiled.
   # whisper-large-v3:
   #   image: "acrplatformdaiv7fgid.azurecr.io/trtllm-engine:whisper-latest"
   #   imagePullPolicy: IfNotPresent
@@ -213,10 +313,10 @@ backends:
   #       memory: 32Gi
   #   nvmeCache:
   #     enabled: true
-  #     sizeMi: 50000                  # 50GB
+  #     sizeMi: 50000
   #   scaling:
   #     enabled: true
-  #     minReplicas: 0                 # Scale-to-zero — batch workload
+  #     minReplicas: 0
   #     maxReplicas: 4
   #     targetConcurrency: 4
   #   tolerations:
@@ -226,10 +326,62 @@ backends:
   #       effect: "NoSchedule"
 
 # ── Model Configs (API server model registry) ─────────────────────────────
-# Production model configs are injected at deploy time:
-#   --set-file "modelConfigs.llama\.yaml=deploy/models/llama-3.1-70b-instruct.yaml"
-# Only include always-on models here. Others via deploy-model.yml workflow.
+# Inline model deployment YAMLs — mounted into API server at /app/models.
 modelConfigs:
+  llama-3.1-70b-instruct.yaml: |
+    apiVersion: directai/v1
+    kind: ModelDeployment
+    metadata:
+      name: llama-3-1-70b-instruct
+    spec:
+      displayName: "Meta Llama 3.1 70B Instruct"
+      ownedBy: meta
+      modality: chat
+      engine:
+        type: vllm
+        image: "vllm/vllm-openai:v0.16.0"
+      hardware:
+        gpuSku: Standard_ND96asr_v4
+        gpuCount: 2
+        nvmeCacheEnabled: true
+      scaling:
+        tier: always-warm
+        minReplicas: 1
+        maxReplicas: 4
+        targetConcurrency: 8
+      api:
+        aliases:
+          - llama-3.1-70b-instruct
+          - meta/llama-3.1-70b-instruct
+          - meta-llama/Llama-3.1-70B-Instruct
+
+  qwen2.5-3b-instruct.yaml: |
+    apiVersion: directai/v1
+    kind: ModelDeployment
+    metadata:
+      name: qwen2-5-3b-instruct
+    spec:
+      displayName: "Qwen 2.5 3B Instruct"
+      ownedBy: qwen
+      modality: chat
+      engine:
+        type: vllm
+        image: "vllm/vllm-openai:v0.16.0"
+      hardware:
+        gpuSku: Standard_ND96asr_v4
+        gpuCount: 1
+        nvmeCacheEnabled: false
+      scaling:
+        tier: always-warm
+        minReplicas: 1
+        maxReplicas: 4
+        targetConcurrency: 16
+      api:
+        aliases:
+          - qwen2.5-3b-instruct
+          - qwen/qwen2.5-3b-instruct
+          - Qwen/Qwen2.5-3B-Instruct
+
   bge-large-en-v1.5.yaml: |
     apiVersion: directai/v1
     kind: ModelDeployment
@@ -244,7 +396,7 @@ modelConfigs:
         image: "acrplatformdaiv7fgid.azurecr.io/embeddings-engine:bge-baked"
         maxBatchSize: 256
       hardware:
-        gpuSku: Standard_NC24ads_A100_v4
+        gpuSku: Standard_ND96asr_v4
         gpuCount: 1
         nvmeCacheEnabled: false
       scaling:

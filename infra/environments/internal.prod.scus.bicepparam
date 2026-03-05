@@ -1,21 +1,22 @@
-// DirectAI Stamp — Production Environment (East US 2)
+// DirectAI Stamp — Production Environment (South Central US)
 // Subscription: 0ae2be9a-f470-4dfe-b2e0-b7e9726acdfb
 // GPU: ND96asr_v4 (8× A100 80GB, NVLink, 3.8TB NVMe)
 // Purpose: Production inference — multi-model, multi-GPU, latency-based routing via Front Door
 using '../main.bicep'
 
 param customerId = 'internal'
-param regionShort = 'eus2'
+param regionShort = 'scus'
 param environment = 'prod'
 param kubernetesVersion = '1.33'
 
-// GPU pools — disabled until ND A100 v4 quota (192 vCPU) approved in EUS2.
+// GPU pools — disabled until ND A100 v4 quota (192 vCPU) approved in SCUS.
 // Once approved: set enableGpuPools = true. gpuPoolTier = 'production' deploys
 // A100 + H100 + embeddings pools. Only A100 pool will scale initially.
 param enableGpuPools = false
 param gpuPoolTier = 'production'
 
 // Private endpoints disabled for initial deployment — enable once networking is validated.
+// Production security baseline requires PEs for Storage, Key Vault, and ACR.
 param enablePrivateEndpoints = false
 
 // System pool — 3-node minimum for zone-redundant HA
@@ -27,9 +28,9 @@ param platformAcrLoginServer = 'acrplatformdaiv7fgid.azurecr.io'
 
 // VNet — unique CIDR per region within the subscription.
 // Dev SCUS: 10.1.0.0/16 | Prod SCUS: 10.2.0.0/16 | Prod EUS2: 10.3.0.0/16 | Prod WUS3: 10.4.0.0/16
-param vnetAddressPrefix = '10.3.0.0/16'
-param aksSubnetPrefix = '10.3.0.0/22'
-param endpointsSubnetPrefix = '10.3.4.0/24'
+param vnetAddressPrefix = '10.2.0.0/16'
+param aksSubnetPrefix = '10.2.0.0/22'
+param endpointsSubnetPrefix = '10.2.4.0/24'
 
 param tags = {
   costCenter: 'engineering'
