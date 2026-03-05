@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from app.auth import require_api_key
+from app.billing import emit_usage_event
 from app.metrics import INFLIGHT_REQUESTS, REQUEST_DURATION, REQUESTS_TOTAL, track_request
 from app.middleware.rate_limit import record_tokens
 from app.routing.backend_client import CircuitOpenError
@@ -128,6 +129,19 @@ async def create_chat_completion(
                             output_tokens=completion_tokens,
                             request_id=request_id or None,
                         ))
+                    # Stripe metering — output tokens only (input unknown for streaming)
+                    settings = request.app.state._settings if hasattr(request.app.state, '_settings') else None
+                    if settings is None:
+                        from app.config import get_settings
+                        settings = get_settings()
+                    if completion_tokens > 0:
+                        emit_usage_event(
+                            tier=key_info.tier,
+                            stripe_customer_id=key_info.stripe_customer_id,
+                            event_name=settings.stripe_meter_chat_output,
+                            value=completion_tokens,
+                            idempotency_key=f"{request_id}:chat:output",
+                        )
 
         return StreamingResponse(
             event_stream(),
@@ -161,6 +175,27 @@ async def create_chat_completion(
                     output_tokens=usage.get("completion_tokens", 0),
                     request_id=request_id or None,
                 ))
+            # Stripe metering — separate events for input and output tokens
+            from app.config import get_settings as _get_settings
+            _s = _get_settings()
+            prompt_tok = usage.get("prompt_tokens", 0)
+            completion_tok = usage.get("completion_tokens", 0)
+            if prompt_tok > 0:
+                emit_usage_event(
+                    tier=key_info.tier,
+                    stripe_customer_id=key_info.stripe_customer_id,
+                    event_name=_s.stripe_meter_chat_input,
+                    value=prompt_tok,
+                    idempotency_key=f"{request_id}:chat:input",
+                )
+            if completion_tok > 0:
+                emit_usage_event(
+                    tier=key_info.tier,
+                    stripe_customer_id=key_info.stripe_customer_id,
+                    event_name=_s.stripe_meter_chat_output,
+                    value=completion_tok,
+                    idempotency_key=f"{request_id}:chat:output",
+                )
 
         return data
     except CircuitOpenError:

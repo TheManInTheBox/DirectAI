@@ -5,17 +5,18 @@ Each API key (or client IP if unauthenticated) gets a pair of limiters:
   1. **RPM** — token-bucket capping requests per minute.
   2. **TPM** — sliding-window counter capping tokens per minute.
 
-Tier limits (configured via ``TIER_LIMITS``):
-  Open Source — 60 RPM,  100 000 TPM
-  Managed    — 600 RPM, 1 000 000 TPM
-  Enterprise — unlimited (placeholder, enforce at gateway)
+Hybrid billing model — base fee + metered per-token usage:
+  Free       —  20 RPM,    40 000 TPM  ($0 self-hosted / $5 credit on shared)
+  Pro        — 300 RPM,   500 000 TPM  ($50/mo  + metered per-token)
+  Managed    — 1 000 RPM, 5 000 000 TPM ($3 500/mo + metered per-token)
+  Enterprise — 10 000 RPM, 100M TPM     (custom flat fee)
 
 When no tier can be resolved (auth disabled / env-var keys), the
-**Open Source** tier limits are applied as a safe default.
+**Free** tier limits are applied as a safe default.
 
 Configuration via environment variables:
-  DIRECTAI_RATE_LIMIT_RPM:         override Open Source RPM (default: 60)
-  DIRECTAI_RATE_LIMIT_TPM:         override Open Source TPM (default: 100000)
+  DIRECTAI_RATE_LIMIT_RPM:         override Free RPM (default: 20)
+  DIRECTAI_RATE_LIMIT_TPM:         override Free TPM (default: 40000)
   DIRECTAI_RATE_LIMIT_MAX_BUCKETS: max tracked keys before eviction (default: 50000)
 """
 
@@ -47,13 +48,13 @@ class TierLimits:
 
 
 TIER_LIMITS: dict[str, TierLimits] = {
-    "free": TierLimits(rpm=60, tpm=100_000),
+    "free": TierLimits(rpm=20, tpm=40_000),
     "pro": TierLimits(rpm=300, tpm=500_000),
-    "managed": TierLimits(rpm=600, tpm=1_000_000),
+    "managed": TierLimits(rpm=1_000, tpm=5_000_000),
     "enterprise": TierLimits(rpm=10_000, tpm=100_000_000),  # effectively unlimited
     # Legacy aliases — map old DB values to new tiers during migration
-    "developer": TierLimits(rpm=60, tpm=100_000),  # → free
-    "open-source": TierLimits(rpm=60, tpm=100_000),  # → free
+    "developer": TierLimits(rpm=20, tpm=40_000),  # → free
+    "open-source": TierLimits(rpm=20, tpm=40_000),  # → free
 }
 
 DEFAULT_TIER = "free"
@@ -201,8 +202,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(  # noqa: ANN001
         self,
         app,
-        rpm: int = 60,
-        tpm: int = 100_000,
+        rpm: int = 20,
+        tpm: int = 40_000,
         max_buckets: int = _MAX_BUCKETS_DEFAULT,
     ) -> None:
         super().__init__(app)

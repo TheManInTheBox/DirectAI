@@ -152,25 +152,34 @@ Pre-warmed replicas and true zero-cost idle are **mutually exclusive per model.*
 
 ### Pricing Architecture
 
-**4 tiers.** Free (self-hosted OSS) → Pro (shared GPU cluster) → Managed (dedicated subscription) → Enterprise (customer's own subscription).
+**4 tiers — hybrid billing (base fee + metered per-token usage).** Free (self-hosted OSS / $5 credit) → Pro ($50/mo + metered) → Managed ($3,500/mo + metered) → Enterprise (custom flat fee).
 
-| | Free | Pro ($499/mo) | Managed ($3K/mo) | Enterprise (Custom) |
+| | Free | Pro ($50/mo + usage) | Managed ($3,500/mo + usage) | Enterprise (Custom) |
 |---|---|---|---|---|
-| **Base** | $0/mo | $499/mo (compute included) | $3K/mo management fee | Custom contract (starting $10K/mo) |
-| **Compute billing** | Customer pays Azure directly | Included in Pro fee | Customer pays Azure directly | Customer pays Azure directly |
-| **Deployment** | Self-service (Helm + Bicep) | Shared DirectAI cluster (`api.agilecloud.ai`) | DirectAI deploys into customer's Azure subscription | Customer's own Azure subscription, DirectAI deploys |
+| **Base** | $0/mo (self-hosted) or $5 one-time credit (shared API) | $50/mo + per-token usage | $3,500/mo + per-token usage (2× Pro rates) | Custom flat fee (starting $10K/mo) |
+| **Compute billing** | Customer pays Azure directly (self-hosted) / included (shared) | Included in per-token rates | Included in per-token rates (DirectAI-owned subscription) | Customer pays Azure directly |
+| **Deployment** | Self-service (Helm + Bicep) | Shared DirectAI cluster (`api.agilecloud.ai`) | DirectAI-owned Azure subscription, isolated per customer | Customer's own Azure subscription, DirectAI deploys |
 | **Models** | Any OSS model | Curated models (Qwen, Llama, BGE, Whisper) | Any OSS + fine-tuned | + custom model optimization |
-| **Rate limits** | N/A (self-hosted) | 300 RPM / 500K TPM | 600 RPM / 1M TPM | 10K RPM / 100M TPM |
+| **Rate limits** | 20 RPM / 40K TPM (shared) or N/A (self-hosted) | 300 RPM / 500K TPM | 1,000 RPM / 5M TPM | Custom (default 10K RPM / 100M TPM) |
 | **Support** | Community (GitHub Issues) | Email, 48hr SLA | Email, 24hr SLA | Slack + phone, 1hr SLA |
 | **SLA** | Best-effort | 99.5% | 99.9% | 99.99% |
-| **Compliance** | Customer's responsibility | Standard (data on DirectAI infra) | Shared responsibility (data in customer subscription) | HIPAA/SOC 2 documentation provided |
-| **Vendor lock-in** | None — Apache 2.0 | None — cancel anytime | None — cancel anytime, stack keeps running | None |
+| **Compliance** | Customer's responsibility | Standard (data on DirectAI infra) | Shared responsibility (data in DirectAI-owned sub) | HIPAA/SOC 2 documentation provided |
+| **Vendor lock-in** | None — Apache 2.0 | None — cancel anytime | None — cancel anytime | None |
 
-**Key principle:** On Managed/Enterprise, DirectAI never touches GPU costs — the customer pays Azure through their existing EA/MCA. On Pro, compute is bundled into the flat monthly fee. DirectAI charges only for the management/deployment/support layer. Margin is pure software/services.
+**Per-token usage rates (Pro tier):**
 
-**Target market:** Pro targets developers and startups who want instant API access. Managed/Enterprise target Azure-first regulated enterprises (healthcare, financial services, government) where data cannot leave the customer's Azure subscription.
+| Modality | Metric | Pro | Managed (2×) |
+|---|---|---|---|
+| Chat — input | per 1M tokens | $1.00 | $2.00 |
+| Chat — output | per 1M tokens | $2.00 | $4.00 |
+| Embeddings | per 1M tokens | $0.10 | $0.20 |
+| Transcription | per minute | $0.10 | $0.20 |
 
-**Revenue model:** Flat management fees per tier. Stripe billing for Pro/Managed/Enterprise. No per-token metering.
+**Key principle:** Pro and Managed are hybrid — base fee covers platform access + support, per-token rates cover compute. Enterprise pays a flat management fee; the customer pays Azure for compute directly. On Free, the $5 credit is consumed at Pro rates until exhausted.
+
+**Target market:** Free/Pro targets developers and startups who want instant API access. Managed targets teams needing isolated infrastructure without managing it themselves. Enterprise targets Azure-first regulated enterprises (healthcare, financial services, government) where data must stay in the customer's own subscription.
+
+**Revenue model:** Base fees (Stripe subscriptions) + per-token metering (Stripe Meters API) for Pro/Managed. Flat contract for Enterprise. Free tier is capped at $5 credit — no ongoing billing.
 
 ### Authentication Architecture (Entra External ID)
 
@@ -243,7 +252,10 @@ User signup (Entra + NextAuth)
 | `STRIPE_SECRET_KEY` | Stripe API secret key |
 | `STRIPE_PUBLISHABLE_KEY` | Stripe publishable key (client-side) |
 | `STRIPE_WEBHOOK_SECRET` | Webhook endpoint signing secret |
-| `STRIPE_METER_ID_TOKENS` | Meter ID for token usage |
+| `DIRECTAI_STRIPE_METER_CHAT_INPUT` | Stripe Meter event name for chat input tokens (default: `chat_input_tokens`) |
+| `DIRECTAI_STRIPE_METER_CHAT_OUTPUT` | Stripe Meter event name for chat output tokens (default: `chat_output_tokens`) |
+| `DIRECTAI_STRIPE_METER_EMBEDDING` | Stripe Meter event name for embedding tokens (default: `embedding_tokens`) |
+| `DIRECTAI_STRIPE_METER_TRANSCRIPTION` | Stripe Meter event name for transcription (default: `transcription_seconds`) |
 
 ### Database (PostgreSQL + Drizzle ORM)
 
@@ -521,9 +533,12 @@ All settings use the `DIRECTAI_` prefix.
 | `DIRECTAI_BACKEND_CONNECT_TIMEOUT` | `5` | Backend connect-phase timeout (seconds) |
 | `DIRECTAI_DATABASE_URL` | *(empty)* | PostgreSQL connection for key validation + usage metering |
 | `DIRECTAI_KEY_CACHE_TTL` | `60` | API key in-memory cache TTL (seconds) |
-| `DIRECTAI_STRIPE_SECRET_KEY` | *(empty)* | Stripe API secret key for usage billing |
-| `DIRECTAI_STRIPE_METER_ID_TOKENS` | *(empty)* | Stripe Meter ID for token usage |
-| `DIRECTAI_USAGE_REPORT_INTERVAL` | `60` | Seconds between Stripe usage report flushes |
+| `DIRECTAI_STRIPE_SECRET_KEY` | *(empty)* | Stripe API secret key. Empty = dry-run mode (events logged, not sent) |
+| `DIRECTAI_USAGE_REPORT_INTERVAL` | `60` | Seconds between Stripe Meter flush cycles |
+| `DIRECTAI_STRIPE_METER_CHAT_INPUT` | `chat_input_tokens` | Stripe Meter event name for chat input tokens |
+| `DIRECTAI_STRIPE_METER_CHAT_OUTPUT` | `chat_output_tokens` | Stripe Meter event name for chat output tokens |
+| `DIRECTAI_STRIPE_METER_EMBEDDING` | `embedding_tokens` | Stripe Meter event name for embedding tokens |
+| `DIRECTAI_STRIPE_METER_TRANSCRIPTION` | `transcription_seconds` | Stripe Meter event name for transcription (centiseconds) |
 | `DIRECTAI_OTEL_ENABLED` | `true` | Enable OpenTelemetry tracing |
 | `DIRECTAI_APPINSIGHTS_CONNECTION_STRING` | *(empty)* | Azure Application Insights connection string |
 | `DIRECTAI_OTLP_ENDPOINT` | *(empty)* | OTLP gRPC endpoint for trace export |

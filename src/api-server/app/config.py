@@ -41,12 +41,12 @@ class Settings(BaseSettings):
     )
     # ── Rate limiting ───────────────────────────────────────────────
     rate_limit_rpm: int = Field(
-        default=60,
-        description="Default requests per minute per API key (Open Source tier). Tier-aware limits override this.",
+        default=20,
+        description="Default requests per minute per API key (Free tier). Tier-aware limits override this.",
     )
     rate_limit_tpm: int = Field(
-        default=100_000,
-        description="Default tokens per minute per API key (Open Source tier). Tier-aware limits override this.",
+        default=40_000,
+        description="Default tokens per minute per API key (Free tier). Tier-aware limits override this.",
     )
     rate_limit_max_buckets: int = Field(
         default=50_000,
@@ -79,21 +79,32 @@ class Settings(BaseSettings):
         description="TTL in seconds for API key validation cache.",
     )
 
-    # ── Stripe (legacy — kept for reference, no longer used) ──────
-    # Token-based metering has been removed. DirectAI uses flat management
-    # fees ($3K/mo Managed, custom Enterprise). These fields are retained
-    # so existing env vars don't cause startup errors, but nothing reads them.
+    # ── Stripe (hybrid billing — base fee + per-token metering) ──────
     stripe_secret_key: str = Field(
         default="",
-        description="(Unused) Stripe API secret key — token metering removed.",
-    )
-    stripe_meter_id_tokens: str = Field(
-        default="",
-        description="(Unused) Stripe Meter ID — token metering removed.",
+        description="Stripe API secret key. Empty = dry-run mode (events logged, not sent).",
     )
     usage_report_interval: float = Field(
         default=60.0,
-        description="(Unused) Seconds between usage report flushes — token metering removed.",
+        description="Seconds between Stripe Meter flush cycles.",
+    )
+    # Per-modality Stripe Meter event names.  These must match the meter
+    # event_name values configured in the Stripe dashboard.
+    stripe_meter_chat_input: str = Field(
+        default="chat_input_tokens",
+        description="Stripe Meter event name for chat input tokens.",
+    )
+    stripe_meter_chat_output: str = Field(
+        default="chat_output_tokens",
+        description="Stripe Meter event name for chat output tokens.",
+    )
+    stripe_meter_embedding: str = Field(
+        default="embedding_tokens",
+        description="Stripe Meter event name for embedding tokens.",
+    )
+    stripe_meter_transcription: str = Field(
+        default="transcription_seconds",
+        description="Stripe Meter event name for transcription (centiseconds).",
     )
 
     # ── Tracing (OpenTelemetry) ──────────────────────────────────

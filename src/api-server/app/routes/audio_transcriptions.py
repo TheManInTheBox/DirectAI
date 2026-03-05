@@ -13,6 +13,7 @@ import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
 from app.auth import require_api_key
+from app.billing import emit_usage_event
 from app.metrics import track_request
 from app.routing.backend_client import CircuitOpenError
 from app.schemas.audio import TranscriptionResponse
@@ -119,6 +120,18 @@ async def create_transcription(
                     output_tokens=int(audio_seconds * 100),
                     request_id=request_id or None,
                 ))
+            # Stripe metering — centiseconds of audio
+            centiseconds = int(audio_seconds * 100)
+            if centiseconds > 0:
+                from app.config import get_settings as _get_settings
+                _s = _get_settings()
+                emit_usage_event(
+                    tier=key_info.tier,
+                    stripe_customer_id=key_info.stripe_customer_id,
+                    event_name=_s.stripe_meter_transcription,
+                    value=centiseconds,
+                    idempotency_key=f"{request_id}:transcription:output",
+                )
 
         return resp_data
     except CircuitOpenError:

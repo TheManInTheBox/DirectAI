@@ -12,6 +12,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.auth import require_api_key
+from app.billing import emit_usage_event
 from app.metrics import track_request
 from app.middleware.rate_limit import record_tokens
 from app.routing.backend_client import CircuitOpenError
@@ -95,6 +96,17 @@ async def create_embedding(
                     output_tokens=0,
                     request_id=request_id or None,
                 ))
+            # Stripe metering — embedding tokens
+            if total_tokens > 0:
+                from app.config import get_settings as _get_settings
+                _s = _get_settings()
+                emit_usage_event(
+                    tier=key_info.tier,
+                    stripe_customer_id=key_info.stripe_customer_id,
+                    event_name=_s.stripe_meter_embedding,
+                    value=total_tokens,
+                    idempotency_key=f"{request_id}:embedding:input",
+                )
 
         return data
     except CircuitOpenError:

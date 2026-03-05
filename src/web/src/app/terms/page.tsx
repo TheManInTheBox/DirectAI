@@ -60,9 +60,12 @@ export default function TermsPage() {
           <p>
             The Service offers tiered pricing plans as described on our{" "}
             <Link href="/pricing" className="text-blue-400 hover:underline">pricing page</Link>.
-            Usage-based charges are calculated per token, per minute, or per request depending on the
-            modality. You authorize us to charge your payment method for all fees incurred. Fees are
-            non-refundable except as required by law.
+            Plans may include a monthly base fee and usage-based charges calculated per token,
+            per minute, or per request depending on the modality and tier. Usage is metered
+            continuously and billed monthly via Stripe. The Free tier provides a one-time
+            credit; usage beyond the credit requires upgrading to a paid plan. You authorize
+            us to charge your payment method for all fees incurred. Fees are non-refundable
+            except as required by law.
           </p>
         </section>
 

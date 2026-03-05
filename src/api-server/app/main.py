@@ -91,9 +91,12 @@ async def lifespan(app: FastAPI):
     await key_store.startup()
     app.state.key_store = key_store
 
-    # ── Stripe usage reporter (no-op — flat management-fee pricing) ──
+    # ── Stripe usage reporter (hybrid billing — metered per-token) ──
     from app.billing import StripeUsageReporter
-    usage_reporter = StripeUsageReporter()
+    usage_reporter = StripeUsageReporter(
+        stripe_secret_key=settings.stripe_secret_key,
+        flush_interval=settings.usage_report_interval,
+    )
     await usage_reporter.start()
     app.state.usage_reporter = usage_reporter
 

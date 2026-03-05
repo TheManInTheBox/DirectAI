@@ -28,11 +28,12 @@ except ImportError:
 
 
 # ── Per-modality token pricing (USD per token) ─────────────────────
-# Used to compute monthly spend for credit-cap enforcement.
+# Pro-tier rates — used to compute monthly spend for credit-cap enforcement.
+# Managed tier applies a 2× multiplier via Stripe Meters (not here).
 MODALITY_PRICING: dict[str, tuple[float, float]] = {
     # (input_cost_per_token, output_cost_per_token)
-    "chat": (0.10 / 1_000_000, 0.20 / 1_000_000),
-    "embedding": (0.02 / 1_000_000, 0.0),
+    "chat": (1.00 / 1_000_000, 2.00 / 1_000_000),
+    "embedding": (0.10 / 1_000_000, 0.0),
     "transcription": (0.0, 0.10 / 1_000_000),
 }
 _DEFAULT_PRICING = MODALITY_PRICING["chat"]
@@ -46,6 +47,7 @@ class KeyInfo:
     user_id: str
     name: str
     tier: str = "free"
+    stripe_customer_id: str = ""
 
 
 @dataclass
@@ -133,7 +135,8 @@ class PostgresKeyStore:
             row = await self._pool.fetchrow(
                 """
                 SELECT ak.id, ak.user_id, ak.name, ak.revoked_at,
-                       COALESCE(u.tier, 'free') AS tier
+                       COALESCE(u.tier, 'free') AS tier,
+                       COALESCE(u.stripe_customer_id, '') AS stripe_customer_id
                 FROM api_keys ak
                 LEFT JOIN users u ON u.id = ak.user_id
                 WHERE ak.key_hash = $1
@@ -155,6 +158,7 @@ class PostgresKeyStore:
             user_id=str(row["user_id"]),
             name=row["name"],
             tier=row["tier"],
+            stripe_customer_id=row["stripe_customer_id"],
         )
         self._cache[key_hash] = _CacheEntry(value=info, expires_at=now + self.cache_ttl)
 

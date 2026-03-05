@@ -141,8 +141,8 @@ class TestTierLimits:
         from app.middleware.rate_limit import TIER_LIMITS
 
         free = TIER_LIMITS["free"]
-        assert free.rpm == 60
-        assert free.tpm == 100_000
+        assert free.rpm == 20
+        assert free.tpm == 40_000
 
     def test_pro_limits(self):
         from app.middleware.rate_limit import TIER_LIMITS
@@ -156,6 +156,13 @@ class TestTierLimits:
 
         ent = TIER_LIMITS["enterprise"]
         assert ent.rpm == 10_000
+
+    def test_managed_limits(self):
+        from app.middleware.rate_limit import TIER_LIMITS
+
+        managed = TIER_LIMITS["managed"]
+        assert managed.rpm == 1_000
+        assert managed.tpm == 5_000_000
 
 
 class TestKeyState:
@@ -174,8 +181,8 @@ class TestKeyState:
 
         state = _KeyState.for_tier("nonexistent")
         assert state.tier == "nonexistent"  # tier string preserved
-        assert state.rpm_bucket.rate == pytest.approx(1.0)  # free: 60/60
-        assert state.tpm_window.limit == 100_000
+        assert state.rpm_bucket.rate == pytest.approx(20.0 / 60.0)  # free: 20/60
+        assert state.tpm_window.limit == 40_000
 
 
 class TestEviction:
@@ -186,8 +193,8 @@ class TestEviction:
         from app.middleware.rate_limit import RateLimitMiddleware
 
         mw = RateLimitMiddleware.__new__(RateLimitMiddleware)
-        mw._default_rpm = 60
-        mw._default_tpm = 100_000
+        mw._default_rpm = 20
+        mw._default_tpm = 40_000
         mw._max_buckets = 3
         mw._keys = __import__("collections").OrderedDict()
         mw._request_count = 0
@@ -206,8 +213,8 @@ class TestEviction:
         from app.middleware.rate_limit import RateLimitMiddleware
 
         mw = RateLimitMiddleware.__new__(RateLimitMiddleware)
-        mw._default_rpm = 60
-        mw._default_tpm = 100_000
+        mw._default_rpm = 20
+        mw._default_tpm = 40_000
         mw._max_buckets = 3
         mw._keys = __import__("collections").OrderedDict()
         mw._request_count = 0
@@ -229,8 +236,8 @@ class TestEviction:
         )
 
         mw = RateLimitMiddleware.__new__(RateLimitMiddleware)
-        mw._default_rpm = 60
-        mw._default_tpm = 100_000
+        mw._default_rpm = 20
+        mw._default_tpm = 40_000
         mw._max_buckets = 50_000
         mw._keys = __import__("collections").OrderedDict()
         mw._request_count = 0
@@ -256,14 +263,14 @@ class TestEviction:
         from app.middleware.rate_limit import RateLimitMiddleware
 
         mw = RateLimitMiddleware.__new__(RateLimitMiddleware)
-        mw._default_rpm = 60
-        mw._default_tpm = 100_000
+        mw._default_rpm = 20
+        mw._default_tpm = 40_000
         mw._max_buckets = 50_000
         mw._keys = __import__("collections").OrderedDict()
         mw._request_count = 0
 
         state1 = mw._get_or_create("key-x", "free")
-        assert state1.rpm_bucket.rate == pytest.approx(1.0)
+        assert state1.rpm_bucket.rate == pytest.approx(20.0 / 60.0)
 
         state2 = mw._get_or_create("key-x", "pro")
         assert state2.rpm_bucket.rate == pytest.approx(5.0)
@@ -326,10 +333,10 @@ class TestRecordTokens:
         from app.middleware.rate_limit import _KeyState, record_tokens
 
         request = MagicMock()
-        state = _KeyState.for_tier("free")  # 100K TPM
+        state = _KeyState.for_tier("free")  # 40K TPM
         request.state.rate_limit_state = state
-        assert record_tokens(request, 50_000) is True
-        assert state.tpm_window.remaining == 50_000
+        assert record_tokens(request, 20_000) is True
+        assert state.tpm_window.remaining == 20_000
 
     def test_record_tokens_over_limit(self):
         """record_tokens returns False when TPM would be exceeded."""
@@ -338,9 +345,9 @@ class TestRecordTokens:
         from app.middleware.rate_limit import _KeyState, record_tokens
 
         request = MagicMock()
-        state = _KeyState.for_tier("free")  # 100K TPM
+        state = _KeyState.for_tier("free")  # 40K TPM
         request.state.rate_limit_state = state
-        assert record_tokens(request, 100_000) is True  # fill exactly
+        assert record_tokens(request, 40_000) is True  # fill exactly
         assert record_tokens(request, 1) is False  # over
 
 

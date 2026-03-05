@@ -30,6 +30,7 @@ dependencies = [
 dev = [
     "pytest>=8.0,<9",
     "pytest-asyncio>=0.24,<1",
+    "pytest-httpx>=0.34,<1",  # mock httpx calls in billing tests
     "httpx",             # TestClient uses httpx
     "ruff>=0.8,<1",
     "opentelemetry-exporter-otlp-proto-grpc>=1.27,<2",  # test_tracing patches this

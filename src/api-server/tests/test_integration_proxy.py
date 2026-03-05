@@ -283,6 +283,9 @@ spec:
     monkeypatch.setenv("DIRECTAI_API_KEYS", "")
     monkeypatch.setenv("DIRECTAI_DATABASE_PATH", ":memory:")
     monkeypatch.setenv("DIRECTAI_OTEL_ENABLED", "false")
+    # Override free-tier limits so integration tests aren't throttled.
+    from app.middleware.rate_limit import TIER_LIMITS, TierLimits
+    monkeypatch.setitem(TIER_LIMITS, "free", TierLimits(rpm=600, tpm=10_000_000))
 
     from app.config import get_settings
 
@@ -291,6 +294,14 @@ spec:
     from app.main import app
 
     with TestClient(app, raise_server_exceptions=False) as client:
+        # Reset rate limiter state to pick up the patched TIER_LIMITS.
+        from app.middleware.rate_limit import RateLimitMiddleware
+        mw = app.middleware_stack
+        while mw is not None:
+            if isinstance(mw, RateLimitMiddleware):
+                mw.reset()
+                break
+            mw = getattr(mw, 'app', None)
         yield client
 
 

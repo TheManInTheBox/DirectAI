@@ -124,6 +124,10 @@ def test_client(model_config_dir: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("DIRECTAI_MODEL_CONFIG_DIR", str(model_config_dir))
     monkeypatch.setenv("DIRECTAI_DATABASE_PATH", ":memory:")
     monkeypatch.setenv("DIRECTAI_OTEL_ENABLED", "false")
+    # Override free-tier limits so integration tests aren't throttled.
+    # Production free tier is 20 RPM / 40K TPM — too tight for rapid-fire tests.
+    from app.middleware.rate_limit import TIER_LIMITS, TierLimits
+    monkeypatch.setitem(TIER_LIMITS, "free", TierLimits(rpm=600, tpm=10_000_000))
 
     # Clear cached settings so env var takes effect
     from app.config import get_settings
@@ -139,6 +143,10 @@ def test_client(model_config_dir: Path, monkeypatch: pytest.MonkeyPatch):
         while mw is not None:
             if isinstance(mw, RateLimitMiddleware):
                 mw.reset()
+                # Apply test overrides — module-level middleware was created
+                # before the monkeypatch env vars took effect.
+                mw._default_rpm = 600
+                mw._default_tpm = 10_000_000
                 break
             mw = getattr(mw, 'app', None)
         yield client

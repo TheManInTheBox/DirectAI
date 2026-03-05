@@ -24,9 +24,9 @@ const tiers: Tier[] = [
   {
     name: "Free",
     price: "Free",
-    priceDetail: "forever",
+    priceDetail: "$5 credit on shared API",
     description:
-      "Helm charts, Bicep templates, and model configs to deploy AI inference on your own AKS cluster. Community support via GitHub.",
+      "Self-host with our open-source Helm charts and Bicep templates — or try the shared API with $5 of free credit. No credit card required.",
     cta: "View on GitHub",
     ctaHref: "https://github.com/TheManInTheBox/DirectAI",
     highlighted: false,
@@ -35,17 +35,18 @@ const tiers: Tier[] = [
       "vLLM, ONNX Runtime, Whisper engines",
       "OpenAI-compatible API server",
       "GPU autoscaling (KEDA + Cluster Autoscaler)",
-      "Model deployment configs",
+      "$5 one-time API credit (shared cluster)",
+      "20 RPM / 40K TPM rate limits",
       "Community support (GitHub Issues)",
       "Apache 2.0 license",
     ],
   },
   {
     name: "Pro",
-    price: "$499",
-    priceDetail: "/month",
+    price: "$50",
+    priceDetail: "/month + usage",
     description:
-      "Instant access to our shared GPU cluster. OpenAI-compatible API at api.agilecloud.ai — no infrastructure to manage. Start building in minutes.",
+      "Instant access to our shared GPU cluster. Pay a low base fee plus per-token usage. OpenAI-compatible API — start building in minutes.",
     cta: "Get Started",
     ctaHref: "/waitlist",
     highlighted: true,
@@ -55,30 +56,31 @@ const tiers: Tier[] = [
       "OpenAI-compatible API endpoint",
       "LLMs, embeddings, transcription",
       "300 RPM / 500K TPM rate limits",
+      "Per-token usage billing via Stripe",
       "Dashboard & API key management",
-      "Usage analytics & billing",
       "Email support (48hr SLA)",
       "99.5% uptime SLA",
     ],
   },
   {
     name: "Managed",
-    price: "$3K",
-    priceDetail: "/month + your Azure compute",
+    price: "$3,500",
+    priceDetail: "/month + usage",
     description:
-      "DirectAI deploys and manages inference inside your Azure subscription. You pay Azure for compute via your EA. We handle the rest.",
+      "DirectAI deploys and manages inference inside a dedicated Azure subscription we own on your behalf. Base fee covers operations — usage billed per token.",
     cta: "Talk to an Engineer",
     ctaHref: "/waitlist",
     highlighted: false,
     features: [
       "Everything in Pro",
       "Dedicated Azure subscription",
-      "Deployment into your Azure subscription",
+      "Isolated infrastructure & networking",
       "Entra ID & Private Link integration",
       "Azure Monitor dashboards & alerts",
       "Scaling configuration & optimization",
       "Model updates & security patches",
       "Email support (24hr SLA)",
+      "1,000 RPM / 5M TPM rate limits",
       "99.9% uptime SLA",
     ],
   },
@@ -87,13 +89,14 @@ const tiers: Tier[] = [
     price: "Custom",
     priceDetail: "starting at $10K/month",
     description:
-      "Your Azure subscription, your rules. Dedicated engineering support for regulated industries with custom model optimization and compliance documentation.",
+      "Your Azure subscription, your rules. Flat management fee — no per-token metering. Dedicated engineering support for regulated industries.",
     cta: "Talk to an Engineer",
     ctaHref: "/waitlist",
     highlighted: false,
     features: [
       "Everything in Managed",
       "Deploy into your own Azure subscription",
+      "Flat fee — no usage metering",
       "Dedicated solutions engineer",
       "Custom model optimization & tuning",
       "HIPAA / SOC 2 compliance documentation",
@@ -101,7 +104,6 @@ const tiers: Tier[] = [
       "Compound AI pipeline support",
       "Slack + phone support (1hr SLA)",
       "99.99% uptime SLA",
-      "Training & fine-tuning pipeline (roadmap)",
     ],
   },
 ];
@@ -109,31 +111,35 @@ const tiers: Tier[] = [
 const faqs = [
   {
     q: "What's the difference between Pro and Managed?",
-    a: "Pro gives you instant API access on our shared GPU cluster — no infrastructure to manage. Managed deploys a dedicated inference stack inside your own Azure subscription, so your data never leaves your boundary. Choose Pro to move fast, Managed when compliance requires data sovereignty.",
+    a: "Pro gives you instant API access on our shared GPU cluster — $50/mo base plus per-token usage. Managed deploys a dedicated inference stack in an Azure subscription we own on your behalf, so your data is fully isolated. Choose Pro to move fast, Managed when you need dedicated infrastructure and higher throughput.",
+  },
+  {
+    q: "How does usage billing work?",
+    a: "Pro and Managed charge per token processed. Chat completions: $1.00 per million input tokens, $2.00 per million output tokens (Pro rates). Embeddings: $0.10 per million tokens. Transcription: $0.10 per minute. Managed rates are 2× Pro. Enterprise pays a flat management fee with no per-token metering.",
   },
   {
     q: "Who pays for the GPU compute?",
-    a: "On Pro, compute is included in the $499/mo fee. On Managed and Enterprise, you pay Azure directly through your existing Enterprise Agreement or subscription. DirectAI never touches your compute bill — our management fee is separate.",
+    a: "On Free and Pro, compute is included — you just pay the base fee plus usage. On Managed, DirectAI owns the Azure subscription and compute costs are baked into the per-token rates. On Enterprise, you pay Azure directly through your EA — DirectAI charges a flat management fee.",
   },
   {
     q: "What happens if I cancel?",
-    a: "On Pro, your API access stops at the end of the billing period. On Managed/Enterprise, the infrastructure keeps running in your subscription. You own the AKS cluster, the model weights, the Helm releases — everything. There is zero vendor lock-in.",
+    a: "On Pro, your API access stops at the end of the billing period. On Managed, we decommission the dedicated infrastructure. On Enterprise, the infrastructure keeps running in your subscription — you own the AKS cluster, the model weights, the Helm releases. Zero vendor lock-in.",
   },
   {
     q: "Can I start with Pro and upgrade later?",
-    a: "Absolutely. Most customers start on Pro to validate their use case, then upgrade to Managed when they need data sovereignty or higher throughput. The API is identical — same endpoints, same SDKs.",
+    a: "Absolutely. Most customers start on Pro to validate their use case, then upgrade to Managed when they need isolated infrastructure or higher throughput. The API is identical — same endpoints, same SDKs.",
   },
   {
     q: "What models can I run?",
-    a: "Pro tier includes curated models (Qwen, Llama, BGE, Whisper). Managed and Enterprise support any model that runs on vLLM, ONNX Runtime, or Whisper — including custom fine-tuned models.",
+    a: "Free (self-hosted) supports any model that runs on vLLM, ONNX Runtime, or Whisper. Pro includes curated models (Qwen, Llama, BGE, Whisper). Managed and Enterprise support any model including custom fine-tuned weights.",
   },
   {
-    q: "Does my data leave my Azure subscription?",
-    a: "On Managed and Enterprise, never. All inference runs inside your AKS cluster on your GPU nodes. On Pro, requests go through our shared cluster — still encrypted in transit and at rest, but hosted on DirectAI infrastructure.",
+    q: "What about the $5 free credit?",
+    a: "Sign up for a Free account and get $5 of API credit on our shared cluster — no credit card needed. Use it to test chat completions, embeddings, or transcription. When the credit runs out, upgrade to Pro for continued access.",
   },
   {
     q: "What Azure regions do you support?",
-    a: "Pro runs in East US 2 and South Central US. Managed and Enterprise deploy to any region with GPU VM availability, including sovereign and government clouds.",
+    a: "Pro runs in East US 2 and South Central US. Managed deploys to any region with GPU VM availability. Enterprise supports sovereign and government clouds.",
   },
 ];
 
@@ -234,59 +240,65 @@ export default function PricingPage() {
         </div>
       </section>
 
-      {/* What's Included Table */}
+      {/* Per-Token Pricing Table */}
       <section className="border-t border-gray-800 bg-gray-950 py-24">
         <div className="mx-auto max-w-4xl px-6">
           <h2 className="text-center text-2xl font-bold text-white sm:text-3xl">
-            What Azure Compute Costs Look Like
+            Per-Token Usage Rates
           </h2>
           <p className="mt-3 text-center text-gray-400">
-            You pay Azure directly for GPU VMs through your EA. These are
-            Azure&apos;s published rates — DirectAI adds zero markup on compute.
+            Pro and Managed tiers pay per token processed. Enterprise pays a
+            flat management fee with no per-token metering.
           </p>
           <div className="mt-12 overflow-hidden rounded-xl border border-gray-800">
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-gray-800 bg-gray-900/50">
                   <th className="px-6 py-4 font-semibold text-white">
-                    GPU SKU
+                    Modality
                   </th>
                   <th className="px-6 py-4 font-semibold text-white">
-                    Use Case
+                    Metric
                   </th>
                   <th className="px-6 py-4 font-semibold text-white">
-                    Azure Cost
+                    Pro Rate
+                  </th>
+                  <th className="px-6 py-4 font-semibold text-white">
+                    Managed Rate
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
                 <tr>
-                  <td className="px-6 py-4 text-gray-300">
-                    T4 (NC16as_T4_v3)
-                  </td>
-                  <td className="px-6 py-4 text-gray-300">Dev/staging, small models ≤8B</td>
-                  <td className="px-6 py-4 text-gray-300">~$879/mo PAYG</td>
+                  <td className="px-6 py-4 text-gray-300">Chat — input</td>
+                  <td className="px-6 py-4 text-gray-300">per 1M tokens</td>
+                  <td className="px-6 py-4 text-gray-300">$1.00</td>
+                  <td className="px-6 py-4 text-gray-300">$2.00</td>
                 </tr>
                 <tr>
-                  <td className="px-6 py-4 text-gray-300">
-                    A100 80GB (ND96asr_v4)
-                  </td>
-                  <td className="px-6 py-4 text-gray-300">Production LLMs (70B), transcription</td>
-                  <td className="px-6 py-4 text-gray-300">~$9,947/mo 1yr RI</td>
+                  <td className="px-6 py-4 text-gray-300">Chat — output</td>
+                  <td className="px-6 py-4 text-gray-300">per 1M tokens</td>
+                  <td className="px-6 py-4 text-gray-300">$2.00</td>
+                  <td className="px-6 py-4 text-gray-300">$4.00</td>
                 </tr>
                 <tr>
-                  <td className="px-6 py-4 text-gray-300">
-                    A100 PCIe (NC24ads)
-                  </td>
-                  <td className="px-6 py-4 text-gray-300">Embeddings, reranking, small models</td>
-                  <td className="px-6 py-4 text-gray-300">~$1,654/mo 1yr RI</td>
+                  <td className="px-6 py-4 text-gray-300">Embeddings</td>
+                  <td className="px-6 py-4 text-gray-300">per 1M tokens</td>
+                  <td className="px-6 py-4 text-gray-300">$0.10</td>
+                  <td className="px-6 py-4 text-gray-300">$0.20</td>
+                </tr>
+                <tr>
+                  <td className="px-6 py-4 text-gray-300">Transcription</td>
+                  <td className="px-6 py-4 text-gray-300">per minute</td>
+                  <td className="px-6 py-4 text-gray-300">$0.10</td>
+                  <td className="px-6 py-4 text-gray-300">$0.20</td>
                 </tr>
               </tbody>
             </table>
           </div>
           <p className="mt-4 text-center text-xs text-gray-500">
-            Prices are Azure list rates as of 2025. Your EA negotiated rates may be lower.
-            Reserved Instances and Savings Plans reduce costs 40–80%.
+            Free tier gets a one-time $5 credit at Pro rates. Enterprise pricing
+            is a flat monthly fee — contact us for a quote.
           </p>
         </div>
       </section>
