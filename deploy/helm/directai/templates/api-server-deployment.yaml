@@ -18,6 +18,9 @@ spec:
     metadata:
       labels:
         {{- include "directai.apiServerSelectorLabels" . | nindent 8 }}
+        {{- if .Values.workloadIdentity.enabled }}
+        azure.workload.identity/use: "true"
+        {{- end }}
       {{- with .Values.apiServer.podAnnotations }}
       annotations:
         prometheus.io/scrape: "true"
@@ -77,6 +80,11 @@ spec:
                   name: {{ .Values.apiServer.apiKeysSecretName }}
                   key: api-keys
             {{- end }}
+          {{- if .Values.apiServer.secretStore.enabled }}
+          envFrom:
+            - secretRef:
+                name: {{ .Release.Name }}-api-server-env
+          {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz
@@ -101,6 +109,11 @@ spec:
               mountPath: /tmp
             - name: data
               mountPath: /app/data
+            {{- if .Values.apiServer.secretStore.enabled }}
+            - name: secrets-store
+              mountPath: /mnt/secrets-store
+              readOnly: true
+            {{- end }}
       volumes:
         - name: model-config
           configMap:
@@ -112,6 +125,14 @@ spec:
         - name: data
           emptyDir:
             sizeLimit: 128Mi
+        {{- if .Values.apiServer.secretStore.enabled }}
+        - name: secrets-store
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: {{ .Release.Name }}-api-server-secrets
+        {{- end }}
       {{- with .Values.apiServer.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

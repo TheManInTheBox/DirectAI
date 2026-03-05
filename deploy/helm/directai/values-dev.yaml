@@ -33,6 +33,18 @@ apiServer:
     DIRECTAI_BACKEND_CONNECT_TIMEOUT: "10"
     DIRECTAI_OTEL_ENABLED: "false"
 
+  secretStore:
+    enabled: true
+    keyVaultName: "kvdaioruw33y5cls6bz"
+    tenantId: "7dd8cf8b-3a69-4cb3-96c9-0a9e63fe6127"
+    secrets:
+      - objectName: database-url
+        secretKey: DIRECTAI_DATABASE_URL
+      - objectName: stripe-secret-key
+        secretKey: DIRECTAI_STRIPE_SECRET_KEY
+      - objectName: stripe-meter-id-tokens
+        secretKey: DIRECTAI_STRIPE_METER_ID_TOKENS
+
   modelConfigDir: /app/models
 
   autoscaling:
