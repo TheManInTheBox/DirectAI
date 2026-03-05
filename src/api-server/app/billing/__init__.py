@@ -146,7 +146,7 @@ class StripeUsageReporter:
                 resp = await self._http.post(
                     "/v1/billing/meter_events",
                     data={
-                        "event_name": "token_usage",
+                        "event_name": "directai_token_usage",
                         "payload[value]": str(total_tokens),
                         "payload[stripe_customer_id]": stripe_customer_id,
                     },
