@@ -152,24 +152,25 @@ Pre-warmed replicas and true zero-cost idle are **mutually exclusive per model.*
 
 ### Pricing Architecture
 
-**3 tiers. Customer pays Azure for compute, DirectAI charges a management fee.** Self-hosted (open source) is the entry point, not an add-on.
+**4 tiers.** Free (self-hosted OSS) → Pro (shared GPU cluster) → Managed (dedicated subscription) → Enterprise (customer's own subscription).
 
-| | Open Source (Free) | Managed ($3K/mo) | Enterprise (Custom) |
-|---|---|---|---|
-| **Base** | $0/mo | $3K/mo management fee | Custom contract (starting $10K/mo) |
-| **Compute billing** | Customer pays Azure directly | Customer pays Azure directly | Customer pays Azure directly |
-| **Deployment** | Self-service (Helm + Bicep) | DirectAI deploys into customer's Azure subscription | Dedicated solutions engineering |
-| **Models** | Any OSS model | Any OSS + fine-tuned | + custom model optimization |
-| **Support** | Community (GitHub Issues) | Email, 24hr SLA | Slack + phone, 1hr SLA |
-| **SLA** | Best-effort | 99.9% | 99.99% |
-| **Compliance** | Customer's responsibility | Shared responsibility | HIPAA/SOC 2 documentation provided |
-| **Vendor lock-in** | None — Apache 2.0 | None — cancel anytime, stack keeps running | None |
+| | Free | Pro ($499/mo) | Managed ($3K/mo) | Enterprise (Custom) |
+|---|---|---|---|---|
+| **Base** | $0/mo | $499/mo (compute included) | $3K/mo management fee | Custom contract (starting $10K/mo) |
+| **Compute billing** | Customer pays Azure directly | Included in Pro fee | Customer pays Azure directly | Customer pays Azure directly |
+| **Deployment** | Self-service (Helm + Bicep) | Shared DirectAI cluster (`api.agilecloud.ai`) | DirectAI deploys into customer's Azure subscription | Customer's own Azure subscription, DirectAI deploys |
+| **Models** | Any OSS model | Curated models (Qwen, Llama, BGE, Whisper) | Any OSS + fine-tuned | + custom model optimization |
+| **Rate limits** | N/A (self-hosted) | 300 RPM / 500K TPM | 600 RPM / 1M TPM | 10K RPM / 100M TPM |
+| **Support** | Community (GitHub Issues) | Email, 48hr SLA | Email, 24hr SLA | Slack + phone, 1hr SLA |
+| **SLA** | Best-effort | 99.5% | 99.9% | 99.99% |
+| **Compliance** | Customer's responsibility | Standard (data on DirectAI infra) | Shared responsibility (data in customer subscription) | HIPAA/SOC 2 documentation provided |
+| **Vendor lock-in** | None — Apache 2.0 | None — cancel anytime | None — cancel anytime, stack keeps running | None |
 
-**Key principle:** DirectAI never touches GPU costs. The customer pays Azure through their existing EA/MCA. DirectAI charges only for the management/deployment/support layer. Margin is pure software/services.
+**Key principle:** On Managed/Enterprise, DirectAI never touches GPU costs — the customer pays Azure through their existing EA/MCA. On Pro, compute is bundled into the flat monthly fee. DirectAI charges only for the management/deployment/support layer. Margin is pure software/services.
 
-**Target market:** Azure-first regulated enterprises (healthcare, financial services, government) where data cannot leave the customer's Azure subscription. Third-party inference APIs (Baseten, Together AI, Fireworks) are disqualified by compliance requirements.
+**Target market:** Pro targets developers and startups who want instant API access. Managed/Enterprise target Azure-first regulated enterprises (healthcare, financial services, government) where data cannot leave the customer's Azure subscription.
 
-**Revenue model:** Management fees, not token metering. Stripe billing for Managed/Enterprise management fees only.
+**Revenue model:** Flat management fees per tier. Stripe billing for Pro/Managed/Enterprise. No per-token metering.
 
 ### Authentication Architecture (Entra External ID)
 

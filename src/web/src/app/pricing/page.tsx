@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Check, ArrowRight, GitBranch } from "lucide-react";
+import { Check, ArrowRight, GitBranch, Zap } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "Pricing",
   description:
-    "Open-source deployment stack. Managed inference in your Azure subscription. Enterprise support for regulated industries.",
+    "From self-hosted open-source to fully managed enterprise inference — deploy AI models on Azure with zero vendor lock-in.",
 };
 
 interface Tier {
@@ -16,12 +16,13 @@ interface Tier {
   cta: string;
   ctaHref: string;
   highlighted: boolean;
+  badge?: string;
   features: string[];
 }
 
 const tiers: Tier[] = [
   {
-    name: "Open Source",
+    name: "Free",
     price: "Free",
     priceDetail: "forever",
     description:
@@ -40,6 +41,27 @@ const tiers: Tier[] = [
     ],
   },
   {
+    name: "Pro",
+    price: "$499",
+    priceDetail: "/month",
+    description:
+      "Instant access to our shared GPU cluster. OpenAI-compatible API at api.agilecloud.ai — no infrastructure to manage. Start building in minutes.",
+    cta: "Get Started",
+    ctaHref: "/waitlist",
+    highlighted: true,
+    badge: "Best for Developers",
+    features: [
+      "Shared GPU cluster (T4, A100)",
+      "OpenAI-compatible API endpoint",
+      "LLMs, embeddings, transcription",
+      "300 RPM / 500K TPM rate limits",
+      "Dashboard & API key management",
+      "Usage analytics & billing",
+      "Email support (48hr SLA)",
+      "99.5% uptime SLA",
+    ],
+  },
+  {
     name: "Managed",
     price: "$3K",
     priceDetail: "/month + your Azure compute",
@@ -47,9 +69,10 @@ const tiers: Tier[] = [
       "DirectAI deploys and manages inference inside your Azure subscription. You pay Azure for compute via your EA. We handle the rest.",
     cta: "Talk to an Engineer",
     ctaHref: "/waitlist",
-    highlighted: true,
+    highlighted: false,
     features: [
-      "Everything in Open Source",
+      "Everything in Pro",
+      "Dedicated Azure subscription",
       "Deployment into your Azure subscription",
       "Entra ID & Private Link integration",
       "Azure Monitor dashboards & alerts",
@@ -64,12 +87,13 @@ const tiers: Tier[] = [
     price: "Custom",
     priceDetail: "starting at $10K/month",
     description:
-      "Dedicated engineering support for regulated industries. Custom model optimization, compliance documentation, and white-glove onboarding.",
+      "Your Azure subscription, your rules. Dedicated engineering support for regulated industries with custom model optimization and compliance documentation.",
     cta: "Talk to an Engineer",
     ctaHref: "/waitlist",
     highlighted: false,
     features: [
       "Everything in Managed",
+      "Deploy into your own Azure subscription",
       "Dedicated solutions engineer",
       "Custom model optimization & tuning",
       "HIPAA / SOC 2 compliance documentation",
@@ -84,28 +108,32 @@ const tiers: Tier[] = [
 
 const faqs = [
   {
+    q: "What's the difference between Pro and Managed?",
+    a: "Pro gives you instant API access on our shared GPU cluster — no infrastructure to manage. Managed deploys a dedicated inference stack inside your own Azure subscription, so your data never leaves your boundary. Choose Pro to move fast, Managed when compliance requires data sovereignty.",
+  },
+  {
     q: "Who pays for the GPU compute?",
-    a: "You do — directly to Azure through your existing Enterprise Agreement or subscription. DirectAI never touches your compute bill. Our management fee is separate and covers deployment, monitoring, optimization, and support. Your Azure EA committed spend burns down as intended.",
+    a: "On Pro, compute is included in the $499/mo fee. On Managed and Enterprise, you pay Azure directly through your existing Enterprise Agreement or subscription. DirectAI never touches your compute bill — our management fee is separate.",
   },
   {
     q: "What happens if I cancel?",
-    a: "The infrastructure keeps running in your subscription. You own the AKS cluster, the model weights, the Helm releases — everything. You just lose DirectAI's managed updates and support. There is zero vendor lock-in.",
+    a: "On Pro, your API access stops at the end of the billing period. On Managed/Enterprise, the infrastructure keeps running in your subscription. You own the AKS cluster, the model weights, the Helm releases — everything. There is zero vendor lock-in.",
   },
   {
-    q: "Can I start with Open Source and upgrade later?",
-    a: "Absolutely. Most customers start with the open-source stack to validate the deployment model, then upgrade to Managed when they need production SLAs and ongoing support. The migration is seamless — same charts, same configs.",
+    q: "Can I start with Pro and upgrade later?",
+    a: "Absolutely. Most customers start on Pro to validate their use case, then upgrade to Managed when they need data sovereignty or higher throughput. The API is identical — same endpoints, same SDKs.",
   },
   {
     q: "What models can I run?",
-    a: "Any model that runs on vLLM, ONNX Runtime, or Whisper. That includes Llama, Qwen, Mistral, DeepSeek for LLMs. BGE, E5, GTE for embeddings. Whisper for transcription. Enterprise customers can deploy any custom or fine-tuned model.",
+    a: "Pro tier includes curated models (Qwen, Llama, BGE, Whisper). Managed and Enterprise support any model that runs on vLLM, ONNX Runtime, or Whisper — including custom fine-tuned models.",
   },
   {
     q: "Does my data leave my Azure subscription?",
-    a: "Never. All inference runs inside your AKS cluster on your GPU nodes. Model weights are stored in your Blob Storage. Secrets in your Key Vault. Logs in your Azure Monitor. DirectAI's management plane connects via scoped, auditable access — never to your inference traffic.",
+    a: "On Managed and Enterprise, never. All inference runs inside your AKS cluster on your GPU nodes. On Pro, requests go through our shared cluster — still encrypted in transit and at rest, but hosted on DirectAI infrastructure.",
   },
   {
     q: "What Azure regions do you support?",
-    a: "Any region with GPU VM availability. We deploy wherever your existing Azure footprint is. For sovereign/government clouds, contact us about the Enterprise tier.",
+    a: "Pro runs in East US 2 and South Central US. Managed and Enterprise deploy to any region with GPU VM availability, including sovereign and government clouds.",
   },
 ];
 
@@ -116,11 +144,11 @@ export default function PricingPage() {
       <section className="bg-gray-950 py-20">
         <div className="mx-auto max-w-7xl px-6 text-center">
           <h1 className="text-4xl font-bold text-white sm:text-5xl">
-            You Pay Azure. We Make It Work.
+            Start Free. Scale to Enterprise.
           </h1>
           <p className="mt-4 text-lg text-gray-400">
-            Open-source stack you can run yourself, or a managed service where
-            we deploy and operate inference inside your Azure subscription.
+            Self-hosted open-source, shared API, or fully managed inference
+            inside your Azure subscription — your data, your rules.
           </p>
         </div>
       </section>
@@ -128,7 +156,7 @@ export default function PricingPage() {
       {/* Pricing Grid */}
       <section className="bg-gray-950 pb-24">
         <div className="mx-auto max-w-7xl px-6">
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid gap-6 lg:grid-cols-4">
             {tiers.map((tier) => (
               <div
                 key={tier.name}
@@ -138,9 +166,9 @@ export default function PricingPage() {
                     : "border-gray-800 bg-gray-900/50"
                 }`}
               >
-                {tier.highlighted && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-blue-600 px-3 py-1 text-xs font-semibold text-white">
-                    Most Popular
+                {tier.badge && (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-blue-600 px-3 py-1 text-xs font-semibold text-white whitespace-nowrap">
+                    {tier.badge}
                   </div>
                 )}
                 <div>

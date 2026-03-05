@@ -88,9 +88,10 @@ export default function TermsPage() {
         <section>
           <h2 className="text-lg font-semibold text-white mb-2">8. Uptime and SLA</h2>
           <p>
-            We target 99.9% uptime for Pro plans and 99.99% for Enterprise plans. SLA credits
-            are available for Enterprise customers per their service agreement. The Developer
-            (Free) tier is provided on a best-effort basis with no uptime guarantees.
+            We target 99.5% uptime for Pro plans, 99.9% for Managed plans, and 99.99% for
+            Enterprise plans. SLA credits are available for Managed and Enterprise customers per
+            their service agreement. The Free tier is provided on a best-effort basis with no
+            uptime guarantees.
           </p>
         </section>
 

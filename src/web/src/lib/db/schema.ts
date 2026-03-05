@@ -35,7 +35,7 @@ export const users = pgTable("users", {
   image: text("image"),
   // DirectAI extensions — nullable, populated after Stripe sync
   stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
-  tier: varchar("tier", { length: 20 }).default("open-source").notNull(),
+  tier: varchar("tier", { length: 20 }).default("free").notNull(),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow().notNull(),
 });

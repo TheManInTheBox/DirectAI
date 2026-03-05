@@ -47,15 +47,16 @@ class TierLimits:
 
 
 TIER_LIMITS: dict[str, TierLimits] = {
-    "open-source": TierLimits(rpm=60, tpm=100_000),
+    "free": TierLimits(rpm=60, tpm=100_000),
+    "pro": TierLimits(rpm=300, tpm=500_000),
     "managed": TierLimits(rpm=600, tpm=1_000_000),
     "enterprise": TierLimits(rpm=10_000, tpm=100_000_000),  # effectively unlimited
     # Legacy aliases — map old DB values to new tiers during migration
-    "developer": TierLimits(rpm=60, tpm=100_000),
-    "pro": TierLimits(rpm=600, tpm=1_000_000),
+    "developer": TierLimits(rpm=60, tpm=100_000),  # → free
+    "open-source": TierLimits(rpm=60, tpm=100_000),  # → free
 }
 
-DEFAULT_TIER = "open-source"
+DEFAULT_TIER = "free"
 
 # Buckets older than this (seconds since last access) are eligible for eviction.
 _BUCKET_TTL = 600  # 10 minutes
@@ -260,7 +261,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     async def _resolve_tier(self, request: Request, raw_key: str) -> str:
         """Resolve the user's pricing tier from the key store.
 
-        Returns the tier string ('developer', 'pro', 'enterprise') or
+        Returns the tier string ('free', 'pro', 'managed', 'enterprise') or
         DEFAULT_TIER if resolution fails or is unavailable.
         """
         key_store = getattr(request.app.state, "key_store", None)

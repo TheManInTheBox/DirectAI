@@ -45,7 +45,7 @@ class KeyInfo:
     key_id: str
     user_id: str
     name: str
-    tier: str = "developer"
+    tier: str = "free"
 
 
 @dataclass
@@ -133,7 +133,7 @@ class PostgresKeyStore:
             row = await self._pool.fetchrow(
                 """
                 SELECT ak.id, ak.user_id, ak.name, ak.revoked_at,
-                       COALESCE(u.tier, 'developer') AS tier
+                       COALESCE(u.tier, 'free') AS tier
                 FROM api_keys ak
                 LEFT JOIN users u ON u.id = ak.user_id
                 WHERE ak.key_hash = $1

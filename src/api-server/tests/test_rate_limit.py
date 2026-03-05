@@ -137,19 +137,19 @@ class TestSlidingWindowCounter:
 class TestTierLimits:
     """Verify tier limit definitions."""
 
-    def test_developer_limits(self):
+    def test_free_limits(self):
         from app.middleware.rate_limit import TIER_LIMITS
 
-        dev = TIER_LIMITS["developer"]
-        assert dev.rpm == 60
-        assert dev.tpm == 100_000
+        free = TIER_LIMITS["free"]
+        assert free.rpm == 60
+        assert free.tpm == 100_000
 
     def test_pro_limits(self):
         from app.middleware.rate_limit import TIER_LIMITS
 
         pro = TIER_LIMITS["pro"]
-        assert pro.rpm == 600
-        assert pro.tpm == 1_000_000
+        assert pro.rpm == 300
+        assert pro.tpm == 500_000
 
     def test_enterprise_limits(self):
         from app.middleware.rate_limit import TIER_LIMITS
@@ -166,15 +166,15 @@ class TestKeyState:
 
         state = _KeyState.for_tier("pro")
         assert state.tier == "pro"
-        assert state.rpm_bucket.rate == pytest.approx(10.0)  # 600/60
-        assert state.tpm_window.limit == 1_000_000
+        assert state.rpm_bucket.rate == pytest.approx(5.0)  # 300/60
+        assert state.tpm_window.limit == 500_000
 
-    def test_unknown_tier_defaults_to_developer(self):
+    def test_unknown_tier_defaults_to_free(self):
         from app.middleware.rate_limit import _KeyState
 
         state = _KeyState.for_tier("nonexistent")
         assert state.tier == "nonexistent"  # tier string preserved
-        assert state.rpm_bucket.rate == pytest.approx(1.0)  # developer: 60/60
+        assert state.rpm_bucket.rate == pytest.approx(1.0)  # free: 60/60
         assert state.tpm_window.limit == 100_000
 
 
@@ -192,11 +192,11 @@ class TestEviction:
         mw._keys = __import__("collections").OrderedDict()
         mw._request_count = 0
 
-        mw._get_or_create("a", "developer")
-        mw._get_or_create("b", "developer")
-        mw._get_or_create("c", "developer")
+        mw._get_or_create("a", "free")
+        mw._get_or_create("b", "free")
+        mw._get_or_create("c", "free")
         assert len(mw._keys) == 3
-        mw._get_or_create("d", "developer")
+        mw._get_or_create("d", "free")
         assert len(mw._keys) == 3
         assert "a" not in mw._keys
         assert "d" in mw._keys
@@ -212,11 +212,11 @@ class TestEviction:
         mw._keys = __import__("collections").OrderedDict()
         mw._request_count = 0
 
-        mw._get_or_create("a", "developer")
-        mw._get_or_create("b", "developer")
-        mw._get_or_create("c", "developer")
-        mw._get_or_create("a", "developer")  # re-access "a"
-        mw._get_or_create("d", "developer")
+        mw._get_or_create("a", "free")
+        mw._get_or_create("b", "free")
+        mw._get_or_create("c", "free")
+        mw._get_or_create("a", "free")  # re-access "a"
+        mw._get_or_create("d", "free")
         assert "a" in mw._keys  # survived because re-accessed
         assert "b" not in mw._keys  # evicted as LRU
 
@@ -236,12 +236,12 @@ class TestEviction:
         mw._request_count = 0
 
         # Insert a stale key
-        stale = _KeyState.for_tier("developer")
+        stale = _KeyState.for_tier("free")
         stale.last_access = time.monotonic() - _BUCKET_TTL - 1
         mw._keys["stale-key"] = stale
 
         # Insert a fresh key
-        fresh = _KeyState.for_tier("developer")
+        fresh = _KeyState.for_tier("free")
         mw._keys["fresh-key"] = fresh
 
         # Force sweep
@@ -262,11 +262,11 @@ class TestEviction:
         mw._keys = __import__("collections").OrderedDict()
         mw._request_count = 0
 
-        state1 = mw._get_or_create("key-x", "developer")
+        state1 = mw._get_or_create("key-x", "free")
         assert state1.rpm_bucket.rate == pytest.approx(1.0)
 
         state2 = mw._get_or_create("key-x", "pro")
-        assert state2.rpm_bucket.rate == pytest.approx(10.0)
+        assert state2.rpm_bucket.rate == pytest.approx(5.0)
         assert state2 is not state1  # new object
 
 
@@ -326,7 +326,7 @@ class TestRecordTokens:
         from app.middleware.rate_limit import _KeyState, record_tokens
 
         request = MagicMock()
-        state = _KeyState.for_tier("developer")  # 100K TPM
+        state = _KeyState.for_tier("free")  # 100K TPM
         request.state.rate_limit_state = state
         assert record_tokens(request, 50_000) is True
         assert state.tpm_window.remaining == 50_000
@@ -338,7 +338,7 @@ class TestRecordTokens:
         from app.middleware.rate_limit import _KeyState, record_tokens
 
         request = MagicMock()
-        state = _KeyState.for_tier("developer")  # 100K TPM
+        state = _KeyState.for_tier("free")  # 100K TPM
         request.state.rate_limit_state = state
         assert record_tokens(request, 100_000) is True  # fill exactly
         assert record_tokens(request, 1) is False  # over
