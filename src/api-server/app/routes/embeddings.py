@@ -79,6 +79,8 @@ async def create_embedding(
 
         # ── Usage metering ──────────────────────────────────────────
         key_info = getattr(request.state, "key_info", None)
+        if key_info is None:
+            logger.debug("Skipping usage metering — key_info not set on request.state")
         if key_info is not None:
             usage = data.get("usage", {})
             total_tokens = usage.get("total_tokens", usage.get("prompt_tokens", 0))
@@ -100,13 +102,18 @@ async def create_embedding(
             if total_tokens > 0:
                 from app.config import get_settings as _get_settings
                 _s = _get_settings()
-                emit_usage_event(
+                queued = emit_usage_event(
                     tier=key_info.tier,
                     stripe_customer_id=key_info.stripe_customer_id,
                     event_name=_s.stripe_meter_embedding,
                     value=total_tokens,
                     idempotency_key=f"{request_id}:embedding:input",
                 )
+                if not queued:
+                    logger.debug(
+                        "Meter event dropped for embedding: tier=%s, cust=%s, tokens=%d",
+                        key_info.tier, key_info.stripe_customer_id[:8] if key_info.stripe_customer_id else "", total_tokens,
+                    )
 
         return data
     except CircuitOpenError:

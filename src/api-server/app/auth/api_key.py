@@ -84,6 +84,18 @@ async def require_api_key(
 
     # ── 2. Fall back to env-var static keys ─────────────────────
     if settings.api_key_set and _constant_time_key_check(token, settings.api_key_set):
+        # Stash a minimal KeyInfo so route handlers can still meter usage.
+        # Env-var keys don't map to a DB user, so tier/stripe fields are
+        # empty — emit_usage_event will correctly drop non-metered tiers.
+        from app.auth.key_store import KeyInfo as _KeyInfo
+        request.state.key_info = _KeyInfo(
+            key_id="env",
+            user_id="env",
+            name="static-env-key",
+            tier="free",
+            stripe_customer_id="",
+        )
+        logger.debug("Auth via env-var key — key_info set with tier=free (no DB user)")
         return token
 
     # ── 3. Both missed → reject ─────────────────────────────────
