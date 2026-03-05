@@ -90,17 +90,39 @@ function buildAuthConfig(): NextAuthConfig {
     },
 
     callbacks: {
-      async jwt({ token, user }) {
+      async jwt({ token, user, profile }) {
         // On first sign-in, user object is available — persist the DB id in the token
         if (user) {
           token.sub = user.id;
+          token.name = user.name;
+          token.email = user.email;
+          token.picture = user.image;
+        }
+        // On subsequent OIDC sign-ins, profile has fresh claims — update the token
+        if (profile) {
+          const freshName =
+            profile.name ??
+            profile.given_name ??
+            profile.preferred_username ??
+            token.name;
+          const freshEmail =
+            profile.email ??
+            profile.preferred_username ??
+            (profile.emails as string[] | undefined)?.[0] ??
+            token.email;
+          token.name = freshName;
+          token.email = freshEmail;
+          token.picture = (profile.picture as string) ?? token.picture;
         }
         return token;
       },
       async session({ session, token }) {
-        // Expose user ID from JWT in the session
+        // Expose user ID + fresh profile data from JWT in the session
         if (session.user && token.sub) {
           session.user.id = token.sub;
+          session.user.name = token.name as string;
+          session.user.email = token.email as string;
+          session.user.image = token.picture as string | null;
         }
         return session;
       },
@@ -113,6 +135,48 @@ function buildAuthConfig(): NextAuthConfig {
     },
 
     events: {
+      async signIn({ user, profile }) {
+        // Update user profile from OIDC claims on every sign-in
+        // (Drizzle adapter only writes on createUser, never updates)
+        if (user.id && profile && process.env.DATABASE_URL) {
+          try {
+            const freshName =
+              profile.name ??
+              profile.given_name ??
+              profile.preferred_username ??
+              undefined;
+            const freshEmail =
+              profile.email ??
+              profile.preferred_username ??
+              (profile.emails as string[] | undefined)?.[0] ??
+              undefined;
+            const freshImage = (profile.picture as string) ?? undefined;
+
+            // Only update if we have something real to write
+            if (freshName || freshEmail || freshImage) {
+              const { eq } = await import("drizzle-orm");
+              const db = getDb();
+              await db
+                .update(users)
+                .set({
+                  ...(freshName ? { name: freshName } : {}),
+                  ...(freshEmail && !freshEmail.endsWith("@directai.user")
+                    ? { email: freshEmail }
+                    : {}),
+                  ...(freshImage ? { image: freshImage } : {}),
+                  updatedAt: new Date(),
+                })
+                .where(eq(users.id, user.id));
+              console.log(
+                `[auth] Updated user profile on sign-in: ${user.id} → name=${freshName}, email=${freshEmail}`
+              );
+            }
+          } catch (err) {
+            // Don't fail sign-in if DB update fails
+            console.error(`[auth] Failed to update user profile for ${user.id}:`, err);
+          }
+        }
+      },
       async createUser({ user }) {
         // Create Stripe customer on first sign-up
         if (user.id && user.email) {
