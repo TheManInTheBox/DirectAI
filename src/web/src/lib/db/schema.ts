@@ -132,6 +132,8 @@ export const usageRecords = pgTable(
     /** Correlation ID from the API request (X-Request-ID). */
     requestId: uuid("request_id"),
     createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
+    /** Set by billing reporter after sending to Stripe. NULL = unreported. */
+    reportedAt: timestamp("reported_at", { mode: "date" }),
   },
   (record) => [
     index("idx_usage_records_user_id").on(record.userId),

@@ -94,17 +94,18 @@ class StripeUsageReporter:
                 logger.exception("StripeUsageReporter flush failed")
 
     async def _flush(self) -> None:
-        """Read unreported usage, send to Stripe, then delete reported rows."""
+        """Read unreported usage, send to Stripe, then mark as reported."""
         if self._pool is None or self._http is None:
             return
 
-        # Grab a batch of un-reported rows.  We select IDs so we can delete
+        # Grab a batch of un-reported rows.  We select IDs so we can mark
         # exactly the rows we reported — no time-window overlap, no double-count.
         rows = await self._pool.fetch(
             """
             WITH batch AS (
                 SELECT id, user_id, input_tokens, output_tokens
                 FROM usage_records
+                WHERE reported_at IS NULL
                 ORDER BY id
                 LIMIT 10000
             )
@@ -167,13 +168,14 @@ class StripeUsageReporter:
             except Exception:
                 logger.exception("Failed to report usage for user %s", user_id)
 
-        # Delete successfully reported rows to prevent double-counting.
+        # Mark successfully reported rows to prevent double-counting.
+        # Rows are kept for dashboard analytics — never deleted.
         if reported_ids:
             try:
-                deleted = await self._pool.execute(
-                    "DELETE FROM usage_records WHERE id = ANY($1::bigint[])",
+                result = await self._pool.execute(
+                    "UPDATE usage_records SET reported_at = NOW() WHERE id = ANY($1::bigint[])",
                     reported_ids,
                 )
-                logger.info("Deleted %s reported usage rows", deleted)
+                logger.info("Marked %s usage rows as reported", result)
             except Exception:
-                logger.exception("Failed to delete reported usage rows")
+                logger.exception("Failed to mark reported usage rows")
