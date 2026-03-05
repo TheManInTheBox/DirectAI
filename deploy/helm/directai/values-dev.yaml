@@ -50,7 +50,7 @@ apiServer:
   autoscaling:
     enabled: false
 
-# ── Ingress — internal.agilecloud.ai ───────────────────────────────────────
+# ── Ingress — api.agilecloud.ai ────────────────────────────────────────────
 ingress:
   enabled: true
   className: nginx
@@ -66,14 +66,14 @@ ingress:
     nginx.ingress.kubernetes.io/limit-burst-multiplier: "0"
     nginx.ingress.kubernetes.io/limit-connections: "0"
   hosts:
-    - host: internal.agilecloud.ai
+    - host: api.agilecloud.ai
       paths:
         - path: /
           pathType: Prefix
   tls:
     - secretName: directai-tls
       hosts:
-        - internal.agilecloud.ai
+        - api.agilecloud.ai
 
 # ── TLS — Let's Encrypt via cert-manager ──────────────────────────────────
 tls:
