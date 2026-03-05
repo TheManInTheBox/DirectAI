@@ -1,20 +1,39 @@
 # DirectAI
 
-High-performance, multi-modal AI inference API on Azure. Drop-in OpenAI-compatible replacement for LLMs, embeddings, and speech-to-text — backed by TensorRT-LLM and ONNX Runtime on AKS GPU clusters.
+**AI Inference Inside Your Azure.** Production-grade, multi-modal inference deployed inside your own Azure subscription. Data never leaves your boundary.
+
+Drop-in OpenAI-compatible API for LLMs, embeddings, and speech-to-text — backed by vLLM, TensorRT-LLM, and ONNX Runtime on AKS GPU clusters. Purpose-built for healthcare, financial services, and government organizations where compliance requirements (HIPAA, SOC 2, data residency) disqualify third-party inference APIs.
+
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
+## Why DirectAI?
+
+| | Third-Party API (Baseten, Together, etc.) | Self-Managed vLLM on AKS | **DirectAI** |
+|---|---|---|---|
+| **Data residency** | ❌ Data leaves your boundary | ✅ Your subscription | ✅ Your subscription |
+| **Compliance** | ❌ Shared infra | ✅ Full control | ✅ Full control + docs |
+| **Time to production** | Days | 3–6 months | **Hours** |
+| **OpenAI-compatible** | Varies | DIY | ✅ Drop-in |
+| **Autoscaling / zero-cost idle** | ✅ | DIY | ✅ Built-in |
+| **Vendor lock-in** | High | None | **None — Apache 2.0** |
 
 ## Architecture
 
 ```
                          ┌─────────────────────────────────────────┐
-                         │           Azure AKS Cluster             │
+                         │      Customer's Azure Subscription      │
+                         │           AKS GPU Cluster               │
                          │                                         │
   Client ──► Ingress ──► │  API Server (FastAPI routing proxy)     │
   (OpenAI SDK)           │    │                                    │
+                         │    ├──► vLLM Engine (T4/A100/H100)     │
+                         │    │     └─ /v1/chat/completions        │
+                         │    │                                    │
                          │    ├──► TRT-LLM Engine  (A100/H100)    │
                          │    │     └─ /v1/chat/completions        │
                          │    │     └─ /v1/audio/transcriptions    │
                          │    │                                    │
-                         │    └──► Embeddings Engine (A10G)        │
+                         │    └──► Embeddings Engine (T4/A10G)     │
                          │          └─ /v1/embeddings              │
                          │                                         │
                          │  KEDA ──► Pod autoscaling               │
@@ -26,12 +45,29 @@ The **API server** does NOT run inference — it resolves model names, validates
 
 ## Endpoints
 
+### OpenAI-Compatible
+
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/v1/chat/completions` | Chat completions (streaming SSE + sync) |
 | `POST` | `/v1/embeddings` | Text embeddings |
 | `POST` | `/v1/audio/transcriptions` | Audio transcription (multipart) |
 | `GET` | `/v1/models` | List all registered models |
+
+### DirectAI Native
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST/GET` | `/api/v1/models` | Model lifecycle CRUD |
+| `POST/GET` | `/api/v1/deployments` | Deployment management |
+| `GET` | `/api/v1/engine-cache` | Compiled engine registry |
+| `GET` | `/api/v1/system/health` | Service health snapshot |
+| `GET` | `/api/v1/system/capacity` | GPU pool capacity and utilization |
+
+### Health & Observability
+
+| Method | Path | Description |
+|--------|------|-------------|
 | `GET` | `/healthz` | Liveness probe |
 | `GET` | `/readyz` | Readiness probe |
 | `GET` | `/metrics` | Prometheus metrics |
@@ -40,22 +76,29 @@ The **API server** does NOT run inference — it resolves model names, validates
 
 ```
 DirectAI/
-├── .github/workflows/           # CI/CD pipelines
-│   ├── build-api-server.yml     # Lint → test → build → optional deploy
-│   ├── build-engines.yml        # Lint → test → build engine images
-│   ├── deploy-stamp.yml         # Bicep IaC deployment per region
-│   └── onboard-customer.yml     # Automated customer provisioning
-├── infra/                       # Bicep IaC (AKS, Storage, ACR, KeyVault, VNet)
+├── .github/workflows/           # CI/CD pipelines (9 workflows)
+│   ├── onboard-customer.yml     # Automated customer onboarding
+│   ├── deploy-platform.yml      # Shared platform infra
+│   ├── deploy-stamp.yml         # Regional stamp deployment
+│   ├── build-api-server.yml     # API server CI/CD
+│   ├── build-web.yml            # Web app CI/CD
+│   ├── build-engines.yml        # Inference engine images
+│   ├── compile-engine.yml       # TRT-LLM engine compilation
+│   ├── deploy-model.yml         # Model deployment
+│   └── populate-cache.yml       # Pre-compile engine cache
+├── infra/                       # Bicep IaC (Azure Verified Modules)
 │   ├── main.bicep               # Stamp orchestrator
+│   ├── platform/main.bicep      # Shared platform infra
 │   ├── customers/               # Customer manifests
 │   └── environments/            # Per-env parameter files
 ├── src/
-│   ├── api-server/              # FastAPI routing proxy
+│   ├── api-server/              # FastAPI routing proxy (Python 3.11)
 │   ├── embeddings-engine/       # ONNX Runtime GPU embedding server
-│   └── trtllm-engine/           # TensorRT-LLM chat/STT server
+│   ├── trtllm-engine/           # TensorRT-LLM chat/STT server
+│   └── web/                     # Next.js marketing + dashboard
 └── deploy/
     ├── models/                  # ModelDeployment YAML configs
-    └── helm/directai/           # Helm chart for K8s deployment
+    └── helm/directai/           # Helm chart (24 templates)
 ```
 
 ## Quick Start (Local Dev)
@@ -106,7 +149,7 @@ curl http://localhost:8000/v1/models
 ## Running Tests
 
 ```bash
-# API server (unit + integration)
+# API server (unit + integration — 192 tests)
 cd src/api-server && python -m pytest tests/ -v
 
 # TRT-LLM engine (runs in stub mode — no GPU needed)
@@ -118,33 +161,35 @@ cd src/embeddings-engine && pip install -e ".[dev,cpu]" && python -m pytest test
 
 ## Inference Engines
 
-| Engine | Modality | Stack |
-|--------|----------|-------|
-| **TensorRT-LLM** | LLMs, STT | TRT-LLM HLAPI, version negotiation (0.12+/0.14+/0.16+), stub mode for dev |
-| **ONNX Runtime** | Embeddings, reranking | ONNX Runtime GPU, dynamic batching, HuggingFace tokenizers |
+| Engine | Modality | When to Use |
+|--------|----------|-------------|
+| **vLLM** | LLMs | Default for dev/staging. No build step — point at HuggingFace model and go. |
+| **TensorRT-LLM** | LLMs, STT | Production A100/H100 where compilation ROI justifies 30–60 min build time. |
+| **ONNX Runtime** | Embeddings, reranking | Dynamic batching, async queue, GPU-accelerated. |
+| **Ollama** | LLMs (local dev) | Local development only — zero setup. |
 
-Both engines expose OpenAI-compatible HTTP APIs on port 8001 and run inside GPU containers on AKS.
+All engines expose OpenAI-compatible HTTP APIs on port 8001 and run inside GPU containers on AKS.
 
 ## Deployment
 
 ### Infrastructure (Bicep)
 
-Each customer gets an isolated Azure subscription with a regional "stamp":
+Each customer gets an **isolated Azure subscription** with a regional "stamp":
 
 ```bash
-# Deploy a stamp (validate → what-if → deploy)
+# Deploy a stamp (validate → what-if → approval gate → deploy)
 # Run via GitHub Actions: deploy-stamp.yml
 ```
 
-**Resources per stamp:** AKS, Storage Account, Key Vault, Log Analytics, VNet, ACR (optional), 2 Managed Identities.
+**Resources per stamp:** AKS (GPU node pools), Storage Account (model weights), Key Vault, Log Analytics, VNet, ACR (optional), 2 Managed Identities (control plane + kubelet, least-privilege).
 
 ### Application (Helm)
 
 ```bash
 helm upgrade --install directai deploy/helm/directai \
   --namespace directai --create-namespace \
-  --set apiServer.image.tag=<sha> \
-  --set-file "modelConfigs.llama\.yaml=deploy/models/llama-3.1-70b-instruct.yaml"
+  -f deploy/helm/directai/values-dev.yaml \
+  --set apiServer.image.tag=<sha>
 ```
 
 ### Adding a New Customer
@@ -153,7 +198,7 @@ Run the `Onboard Customer` workflow from GitHub Actions. It creates the subscrip
 
 ## Configuration
 
-All API server settings use the `DIRECTAI_` prefix:
+All API server settings use the `DIRECTAI_` prefix. Copy `.env.example` to `.env` for local dev:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -162,7 +207,30 @@ All API server settings use the `DIRECTAI_` prefix:
 | `DIRECTAI_MODEL_CONFIG_DIR` | `/app/models` | Model YAML directory |
 | `DIRECTAI_API_KEYS` | *(empty)* | Comma-separated API keys (empty = auth disabled) |
 | `DIRECTAI_BACKEND_TIMEOUT` | `300` | Backend request timeout (seconds) |
+| `DIRECTAI_RATE_LIMIT_RPM` | `60` | Per-key rate limit (requests/minute) |
+| `DIRECTAI_DATABASE_URL` | *(empty)* | PostgreSQL connection for key validation + billing |
+| `DIRECTAI_OTEL_ENABLED` | `true` | Enable OpenTelemetry tracing |
+
+See `.env.example` for the full list.
+
+## Pricing
+
+| | Open Source (Free) | Managed ($3K/mo) | Enterprise (Custom) |
+|---|---|---|---|
+| **Compute** | Customer pays Azure directly | Customer pays Azure directly | Customer pays Azure directly |
+| **Deployment** | Self-service (Helm + Bicep) | DirectAI deploys into your subscription | Dedicated solutions engineering |
+| **Support** | Community (GitHub Issues) | Email, 24hr SLA | Slack + phone, 1hr SLA |
+| **SLA** | Best-effort | 99.9% | 99.99% |
+| **Lock-in** | None — Apache 2.0 | None — cancel anytime, stack keeps running | None |
+
+DirectAI never touches GPU costs. You pay Azure through your existing EA/MCA.
+
+## Contributing
+
+Contributions are welcome. Please open an issue first to discuss what you'd like to change.
 
 ## License
 
-Proprietary. All rights reserved.
+Licensed under the [Apache License, Version 2.0](LICENSE).
+
+Copyright 2025-2026 DirectAI Contributors.

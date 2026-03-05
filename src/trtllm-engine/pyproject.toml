@@ -9,6 +9,7 @@ build-backend = "hatchling.build"
 name = "directai-trtllm-engine"
 version = "0.1.0"
 description = "TensorRT-LLM inference server with OpenAI-compatible API for DirectAI."
+license = "Apache-2.0"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115,<1",

@@ -214,6 +214,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     # ── Key state management ────────────────────────────────────
 
+    def reset(self) -> None:
+        """Clear all per-key state.  Used by tests to avoid cross-test pollution."""
+        self._keys.clear()
+        self._request_count = 0
+
     def _get_or_create(self, key: str, tier: str) -> _KeyState:
         """Return the state for *key*, creating or upgrading if needed."""
         try:

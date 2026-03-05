@@ -130,5 +130,15 @@ def test_client(model_config_dir: Path, monkeypatch: pytest.MonkeyPatch):
     get_settings.cache_clear()
 
     from app.main import app
+
     with TestClient(app, raise_server_exceptions=False) as client:
+        # Reset rate limiter state after lifespan builds the middleware stack
+        # to prevent 429 bleed between test classes.
+        from app.middleware.rate_limit import RateLimitMiddleware
+        mw = app.middleware_stack
+        while mw is not None:
+            if isinstance(mw, RateLimitMiddleware):
+                mw.reset()
+                break
+            mw = getattr(mw, 'app', None)
         yield client
