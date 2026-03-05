@@ -52,27 +52,25 @@ function buildAuthConfig(): NextAuthConfig {
         clientSecret: process.env.AUTH_ENTRA_EXTERNAL_CLIENT_SECRET,
         authorization: {
           params: {
-            scope: "openid profile email",
+            scope: "openid profile email User.Read",
           },
         },
-        profile(profile) {
-          // Extract email from OIDC claims. Entra External ID returns email in
-          // different claim locations depending on the identity provider and
-          // tenant configuration. We try every known location.
+        async profile(profile, tokens) {
+          // Extract email from OIDC claims. Entra External ID (CIAM) does NOT
+          // include email in the ID token even with optional claims configured.
+          // Fallback: use the access token to call Microsoft Graph /me endpoint.
           //
-          // Entra-specific claims reference:
-          //   email               — standard OIDC, returned if optional claim configured
-          //   preferred_username  — often the email for local/social accounts
-          //   upn                 — User Principal Name, email-like for org accounts
-          //   emails              — array, used in some B2C flows
-          //   signInNames         — B2C custom policy claim
-          //   otherMails          — secondary emails from directory object
+          // Claim sources tried in order:
+          //   1. ID token claims (email, preferred_username, upn, emails, etc.)
+          //   2. Microsoft Graph /me endpoint via access_token (User.Read scope)
+          //   3. OIDC userinfo endpoint via access_token
+          //   4. Garbage fallback: {sub}@directai.user
 
-          // Helper: only accept a string that looks like an email
           const isEmail = (v: unknown): v is string =>
             typeof v === "string" && v.includes("@") && !v.endsWith("@directai.user");
 
-          const candidates = [
+          // --- Source 1: ID token claims ---
+          const idTokenCandidates = [
             profile.email,
             profile.preferred_username,
             profile.upn,
@@ -81,12 +79,66 @@ function buildAuthConfig(): NextAuthConfig {
             (profile.otherMails as string[] | undefined)?.[0],
           ];
 
-          const email = candidates.find(isEmail) ?? `${profile.sub}@directai.user`;
+          let email = idTokenCandidates.find(isEmail);
+
+          // --- Source 2: Microsoft Graph /me (requires User.Read scope) ---
+          if (!email && tokens.access_token) {
+            try {
+              const graphRes = await fetch(
+                "https://graph.microsoft.com/v1.0/me?$select=mail,otherMails,userPrincipalName",
+                { headers: { Authorization: `Bearer ${tokens.access_token}` } }
+              );
+              if (graphRes.ok) {
+                const me = await graphRes.json();
+                console.log(
+                  `[auth] Graph /me response: mail=${me.mail}, upn=${me.userPrincipalName}, ` +
+                  `otherMails=${JSON.stringify(me.otherMails)}`
+                );
+                const graphCandidates = [
+                  me.mail,
+                  me.userPrincipalName,
+                  ...(me.otherMails ?? []),
+                ];
+                email = graphCandidates.find(isEmail);
+              } else {
+                console.warn(
+                  `[auth] Graph /me failed: ${graphRes.status} ${graphRes.statusText}`
+                );
+              }
+            } catch (err) {
+              console.warn(`[auth] Graph /me fetch error:`, err);
+            }
+          }
+
+          // --- Source 3: OIDC userinfo endpoint ---
+          if (!email && tokens.access_token) {
+            try {
+              const userinfoRes = await fetch(
+                "https://graph.microsoft.com/oidc/userinfo",
+                { headers: { Authorization: `Bearer ${tokens.access_token}` } }
+              );
+              if (userinfoRes.ok) {
+                const info = await userinfoRes.json();
+                console.log(
+                  `[auth] OIDC userinfo response: email=${info.email}, keys=[${Object.keys(info).join(",")}]`
+                );
+                if (isEmail(info.email)) email = info.email;
+              } else {
+                console.warn(
+                  `[auth] OIDC userinfo failed: ${userinfoRes.status} ${userinfoRes.statusText}`
+                );
+              }
+            } catch (err) {
+              console.warn(`[auth] OIDC userinfo fetch error:`, err);
+            }
+          }
+
+          // --- Source 4: garbage fallback ---
+          if (!email) email = `${profile.sub}@directai.user`;
 
           const name =
             profile.name ??
             profile.given_name ??
-            // Only use preferred_username as name if it's NOT the email
             (profile.preferred_username !== email ? profile.preferred_username : undefined) ??
             email.split("@")[0];
 
@@ -96,10 +148,9 @@ function buildAuthConfig(): NextAuthConfig {
             `has_upn=${!!profile.upn}, raw_keys=[${Object.keys(profile).join(",")}]`
           );
 
-          // Warn loudly if we fell through to the garbage fallback
           if (email.endsWith("@directai.user")) {
             console.error(
-              `[auth] WARNING: No email found in OIDC claims for sub=${profile.sub}. ` +
+              `[auth] WARNING: No email found in OIDC claims OR Graph /me for sub=${profile.sub}. ` +
               `Check Entra External ID token configuration. Claims received: ${JSON.stringify(profile)}`
             );
           }
@@ -128,15 +179,17 @@ function buildAuthConfig(): NextAuthConfig {
     },
 
     callbacks: {
-      async jwt({ token, user, profile }) {
-        // On first sign-in, user object is available — persist the DB id in the token
+      async jwt({ token, user, profile, account }) {
+        // On first sign-in, user object is available — persist the DB id in the token.
+        // The profile() callback already resolved email via Graph if needed.
         if (user) {
           token.sub = user.id;
           token.name = user.name;
           token.email = user.email;
           token.picture = user.image;
         }
-        // On subsequent OIDC sign-ins, profile has fresh claims — update the token
+        // On subsequent OIDC sign-ins, profile has fresh claims — update the token.
+        // If profile doesn't have email (CIAM issue), use Graph /me via access_token.
         if (profile) {
           const isEmail = (v: unknown): v is string =>
             typeof v === "string" && v.includes("@") && !v.endsWith("@directai.user");
@@ -153,10 +206,31 @@ function buildAuthConfig(): NextAuthConfig {
             profile.upn,
             (profile.emails as string[] | undefined)?.[0],
           ];
-          const freshEmail = emailCandidates.find(isEmail) ?? token.email;
+          let freshEmail = emailCandidates.find(isEmail);
+
+          // Graph /me fallback (same as profile callback)
+          if (!freshEmail && account?.access_token) {
+            try {
+              const graphRes = await fetch(
+                "https://graph.microsoft.com/v1.0/me?$select=mail,otherMails,userPrincipalName",
+                { headers: { Authorization: `Bearer ${account.access_token}` } }
+              );
+              if (graphRes.ok) {
+                const me = await graphRes.json();
+                const graphCandidates = [
+                  me.mail,
+                  me.userPrincipalName,
+                  ...(me.otherMails ?? []),
+                ];
+                freshEmail = graphCandidates.find(isEmail);
+              }
+            } catch {
+              // Silently fall through — email will come from existing token
+            }
+          }
 
           token.name = freshName;
-          token.email = freshEmail;
+          token.email = freshEmail ?? token.email;
           token.picture = (profile.picture as string) ?? token.picture;
         }
         return token;
@@ -180,7 +254,7 @@ function buildAuthConfig(): NextAuthConfig {
     },
 
     events: {
-      async signIn({ user, profile }) {
+      async signIn({ user, profile, account }) {
         // Update user profile from OIDC claims on every sign-in
         // (Drizzle adapter only writes on createUser, never updates)
         if (user.id && profile && process.env.DATABASE_URL) {
@@ -200,7 +274,29 @@ function buildAuthConfig(): NextAuthConfig {
               profile.upn,
               (profile.emails as string[] | undefined)?.[0],
             ];
-            const freshEmail = emailCandidates.find(isEmail);
+            let freshEmail = emailCandidates.find(isEmail);
+
+            // Graph /me fallback for CIAM tenants that don't emit email in ID token
+            if (!freshEmail && account?.access_token) {
+              try {
+                const graphRes = await fetch(
+                  "https://graph.microsoft.com/v1.0/me?$select=mail,otherMails,userPrincipalName",
+                  { headers: { Authorization: `Bearer ${account.access_token}` } }
+                );
+                if (graphRes.ok) {
+                  const me = await graphRes.json();
+                  const graphCandidates = [
+                    me.mail,
+                    me.userPrincipalName,
+                    ...(me.otherMails ?? []),
+                  ];
+                  freshEmail = graphCandidates.find(isEmail);
+                }
+              } catch {
+                // Silently fall through
+              }
+            }
+
             const freshImage = (profile.picture as string) ?? undefined;
 
             // Only update if we have something real to write
