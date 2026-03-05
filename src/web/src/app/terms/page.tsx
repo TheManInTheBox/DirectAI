@@ -1,0 +1,156 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+
+export const metadata: Metadata = {
+  title: "Terms of Service — DirectAI",
+  description: "DirectAI Terms of Service — rules governing use of the DirectAI inference API platform.",
+};
+
+export default function TermsPage() {
+  return (
+    <main className="mx-auto max-w-3xl px-6 py-20 text-zinc-300">
+      <h1 className="text-3xl font-bold text-white mb-2">Terms of Service</h1>
+      <p className="text-sm text-zinc-500 mb-10">
+        Last updated: March 4, 2026
+      </p>
+
+      <div className="space-y-8 text-sm leading-relaxed">
+        <section>
+          <h2 className="text-lg font-semibold text-white mb-2">1. Acceptance of Terms</h2>
+          <p>
+            By accessing or using the DirectAI platform (&quot;Service&quot;), operated by Agile Cloud LLC
+            (&quot;Company,&quot; &quot;we,&quot; &quot;us&quot;), you agree to be bound by these Terms of Service
+            (&quot;Terms&quot;). If you do not agree, do not use the Service.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-lg font-semibold text-white mb-2">2. Description of Service</h2>
+          <p>
+            DirectAI provides AI inference API services including large language model completions,
+            text embeddings, audio transcription, and related capabilities. The Service is accessed
+            via API endpoints and a web dashboard at agilecloud.ai.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-lg font-semibold text-white mb-2">3. Account Registration</h2>
+          <p>
+            You must create an account to use the Service. You are responsible for maintaining the
+            confidentiality of your account credentials and API keys. You are responsible for all
+            activity that occurs under your account. Notify us immediately of any unauthorized use.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-lg font-semibold text-white mb-2">4. Acceptable Use</h2>
+          <p>You agree not to:</p>
+          <ul className="list-disc list-inside mt-2 space-y-1 text-zinc-400">
+            <li>Use the Service to generate content that is illegal, harmful, or violates third-party rights</li>
+            <li>Attempt to reverse-engineer, decompile, or extract model weights from the Service</li>
+            <li>Exceed rate limits or circumvent usage controls</li>
+            <li>Share API keys or allow unauthorized third-party access to your account</li>
+            <li>Use the Service in any manner that could disable, overburden, or impair our infrastructure</li>
+            <li>Resell access to the Service without a written reseller agreement</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2 className="text-lg font-semibold text-white mb-2">5. Pricing and Payment</h2>
+          <p>
+            The Service offers tiered pricing plans as described on our{" "}
+            <Link href="/pricing" className="text-blue-400 hover:underline">pricing page</Link>.
+            Usage-based charges are calculated per token, per minute, or per request depending on the
+            modality. You authorize us to charge your payment method for all fees incurred. Fees are
+            non-refundable except as required by law.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-lg font-semibold text-white mb-2">6. API Keys</h2>
+          <p>
+            API keys are secrets that authenticate your requests. You are solely responsible for
+            keeping them secure. We store only SHA-256 hashes of your keys — we cannot recover a
+            lost key. Revoke compromised keys immediately via the dashboard.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-lg font-semibold text-white mb-2">7. Data and Privacy</h2>
+          <p>
+            We process your API inputs only to provide inference responses. We do not use your
+            input data to train models. Please review our{" "}
+            <Link href="/privacy" className="text-blue-400 hover:underline">Privacy Policy</Link>{" "}
+            for details on data collection, storage, and processing.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-lg font-semibold text-white mb-2">8. Uptime and SLA</h2>
+          <p>
+            We target 99.9% uptime for Pro plans and 99.99% for Enterprise plans. SLA credits
+            are available for Enterprise customers per their service agreement. The Developer
+            (Free) tier is provided on a best-effort basis with no uptime guarantees.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-lg font-semibold text-white mb-2">9. Intellectual Property</h2>
+          <p>
+            You retain all rights to your input data and the outputs generated by the Service.
+            We retain all rights to the Service itself, including our infrastructure, APIs,
+            documentation, and proprietary technology.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-lg font-semibold text-white mb-2">10. Limitation of Liability</h2>
+          <p>
+            TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE SERVICE IS PROVIDED &quot;AS IS.&quot; WE
+            DISCLAIM ALL WARRANTIES, EXPRESS OR IMPLIED. OUR TOTAL LIABILITY SHALL NOT EXCEED THE
+            AMOUNT YOU PAID US IN THE 12 MONTHS PRECEDING THE CLAIM. WE ARE NOT LIABLE FOR INDIRECT,
+            INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-lg font-semibold text-white mb-2">11. Termination</h2>
+          <p>
+            We may suspend or terminate your access at any time for violation of these Terms or for
+            any reason with 30 days&apos; notice. You may cancel your account at any time via the
+            dashboard. Upon termination, your right to use the Service ceases immediately.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-lg font-semibold text-white mb-2">12. Governing Law</h2>
+          <p>
+            These Terms are governed by the laws of the State of Texas, without regard to
+            conflict-of-law principles. Any disputes shall be resolved in the state or federal
+            courts located in Travis County, Texas.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-lg font-semibold text-white mb-2">13. Changes to Terms</h2>
+          <p>
+            We may update these Terms at any time. We will notify you of material changes via
+            email or a prominent notice on the Service. Continued use after changes constitutes
+            acceptance of the revised Terms.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-lg font-semibold text-white mb-2">14. Contact</h2>
+          <p>
+            Questions about these Terms? Contact us at{" "}
+            <a href="mailto:legal@agilecloud.ai" className="text-blue-400 hover:underline">
+              legal@agilecloud.ai
+            </a>
+            .
+          </p>
+        </section>
+      </div>
+    </main>
+  );
+}

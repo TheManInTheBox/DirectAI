@@ -69,8 +69,8 @@ export function Footer() {
             <h3 className="text-sm font-semibold text-white">Legal</h3>
             <ul className="mt-4 space-y-3">
               {[
-                { href: "#", label: "Privacy Policy" },
-                { href: "#", label: "Terms of Service" },
+                { href: "/privacy", label: "Privacy Policy" },
+                { href: "/terms", label: "Terms of Service" },
               ].map((link) => (
                 <li key={link.href}>
                   <Link

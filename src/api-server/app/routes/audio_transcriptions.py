@@ -99,7 +99,28 @@ async def create_transcription(
         with track_request(model_spec.name, "transcription"):
             response = await backend.post_multipart(url, files=files, data=data, headers=headers)
         _check_backend_response(response, model)
-        return response.json()
+        resp_data = response.json()
+
+        # ── Usage metering (approximate: bytes → minutes) ───────────
+        key_info = getattr(request.state, "key_info", None)
+        if key_info is not None:
+            # Rough estimate: audio_bytes / (16000 * 2) = seconds (16kHz 16-bit mono)
+            audio_seconds = len(file_content) / 32000
+            # Store as "output_tokens" = seconds * 100 (centiseconds for precision)
+            key_store = getattr(request.app.state, "key_store", None)
+            if key_store is not None:
+                import asyncio
+                asyncio.ensure_future(key_store.record_usage(
+                    user_id=key_info.user_id,
+                    api_key_id=key_info.key_id,
+                    model=model_spec.name,
+                    modality="transcription",
+                    input_tokens=0,
+                    output_tokens=int(audio_seconds * 100),
+                    request_id=request_id or None,
+                ))
+
+        return resp_data
     except CircuitOpenError:
         raise HTTPException(
             status_code=503,

@@ -76,13 +76,27 @@ async def create_chat_completion(
 
     # ── Streaming ───────────────────────────────────────────────────
     if body.stream:
-
         async def event_stream():
             INFLIGHT_REQUESTS.labels(model=model_spec.name).inc()
             t_start = time.monotonic()
             status = "ok"
+            completion_tokens = 0
             try:
                 async for chunk in backend.post_stream(url, payload, headers=headers):
+                    # Count tokens from SSE chunks
+                    if isinstance(chunk, bytes):
+                        chunk_str = chunk.decode("utf-8", errors="ignore")
+                    else:
+                        chunk_str = chunk
+                    for line in chunk_str.split("\n"):
+                        if line.startswith("data: ") and line.strip() != "data: [DONE]":
+                            try:
+                                chunk_data = json.loads(line[6:])
+                                for choice in chunk_data.get("choices", []):
+                                    if choice.get("delta", {}).get("content"):
+                                        completion_tokens += 1  # Approximate: 1 chunk ≈ 1 token
+                            except (json.JSONDecodeError, KeyError):
+                                pass
                     yield chunk
             except Exception:
                 status = "error"
@@ -95,6 +109,21 @@ async def create_chat_completion(
                 INFLIGHT_REQUESTS.labels(model=model_spec.name).dec()
                 REQUEST_DURATION.labels(model=model_spec.name, method="chat").observe(duration)
                 REQUESTS_TOTAL.labels(model=model_spec.name, method="chat", status=status).inc()
+                # Record streaming usage
+                key_info = getattr(request.state, "key_info", None)
+                if key_info is not None and status == "ok":
+                    key_store = getattr(request.app.state, "key_store", None)
+                    if key_store is not None:
+                        import asyncio
+                        asyncio.ensure_future(key_store.record_usage(
+                            user_id=key_info.user_id,
+                            api_key_id=key_info.key_id,
+                            model=model_spec.name,
+                            modality="chat",
+                            input_tokens=0,  # Unknown for streaming
+                            output_tokens=completion_tokens,
+                            request_id=request_id or None,
+                        ))
 
         return StreamingResponse(
             event_stream(),
@@ -107,7 +136,26 @@ async def create_chat_completion(
         with track_request(model_spec.name, "chat"):
             response = await backend.post_json(url, payload, headers=headers)
         _check_backend_response(response, body.model)
-        return response.json()
+        data = response.json()
+
+        # ── Usage metering ──────────────────────────────────────────
+        key_info = getattr(request.state, "key_info", None)
+        if key_info is not None:
+            usage = data.get("usage", {})
+            key_store = getattr(request.app.state, "key_store", None)
+            if key_store is not None:
+                import asyncio
+                asyncio.ensure_future(key_store.record_usage(
+                    user_id=key_info.user_id,
+                    api_key_id=key_info.key_id,
+                    model=model_spec.name,
+                    modality="chat",
+                    input_tokens=usage.get("prompt_tokens", 0),
+                    output_tokens=usage.get("completion_tokens", 0),
+                    request_id=request_id or None,
+                ))
+
+        return data
     except CircuitOpenError:
         raise HTTPException(
             status_code=503,

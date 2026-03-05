@@ -57,6 +57,30 @@ class Settings(BaseSettings):
         description="SQLite database file path. Use ':memory:' for ephemeral storage.",
     )
 
+    # ── PostgreSQL (API key store + usage metering) ─────────────
+    database_url: str = Field(
+        default="",
+        description="PostgreSQL connection string for API key validation and usage metering. Empty = disabled.",
+    )
+    key_cache_ttl: float = Field(
+        default=60.0,
+        description="TTL in seconds for API key validation cache.",
+    )
+
+    # ── Stripe billing ───────────────────────────────────────
+    stripe_secret_key: str = Field(
+        default="",
+        description="Stripe API secret key. Empty = usage reporting disabled.",
+    )
+    stripe_meter_id_tokens: str = Field(
+        default="",
+        description="Stripe Meter ID for token usage billing.",
+    )
+    usage_report_interval: float = Field(
+        default=60.0,
+        description="Seconds between Stripe usage report flushes.",
+    )
+
     # ── Tracing (OpenTelemetry) ──────────────────────────────────
     otel_enabled: bool = Field(
         default=True,
@@ -92,7 +116,7 @@ class Settings(BaseSettings):
 
     @property
     def auth_enabled(self) -> bool:
-        return len(self.api_key_set) > 0
+        return len(self.api_key_set) > 0 or bool(self.database_url)
 
 
 @lru_cache(maxsize=1)

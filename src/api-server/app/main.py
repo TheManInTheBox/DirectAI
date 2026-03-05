@@ -81,6 +81,26 @@ async def lifespan(app: FastAPI):
             sample_rate=settings.otel_sample_rate,
         )
 
+    # ── PostgreSQL key store (API key validation + usage metering) ──
+    from app.auth.key_store import PostgresKeyStore
+    key_store = PostgresKeyStore(
+        database_url=settings.database_url,
+        cache_ttl=settings.key_cache_ttl,
+    )
+    await key_store.startup()
+    app.state.key_store = key_store
+
+    # ── Stripe usage reporter ─────────────────────────────────────
+    from app.billing import StripeUsageReporter
+    usage_reporter = StripeUsageReporter(
+        pool=key_store._pool,
+        stripe_secret_key=settings.stripe_secret_key,
+        stripe_meter_id_tokens=settings.stripe_meter_id_tokens,
+        interval_seconds=settings.usage_report_interval,
+    )
+    await usage_reporter.start()
+    app.state.usage_reporter = usage_reporter
+
     # ── Model registry ──────────────────────────────────────────────
     registry = ModelRegistry.from_directory(settings.model_config_dir)
     app.state.model_registry = registry
@@ -109,8 +129,10 @@ async def lifespan(app: FastAPI):
 
     # ── Shutdown ────────────────────────────────────────────────────
     await monitor.stop()
+    await usage_reporter.stop()
     await repository.shutdown()
     await backend.shutdown()
+    await key_store.shutdown()
     shutdown_tracing()
     logger.info("API server shut down.")
 

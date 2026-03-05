@@ -72,7 +72,26 @@ async def create_embedding(
         with track_request(model_spec.name, "embedding"):
             response = await backend.post_json(url, payload, headers=headers)
         _check_backend_response(response, body.model)
-        return response.json()
+        data = response.json()
+
+        # ── Usage metering ──────────────────────────────────────────
+        key_info = getattr(request.state, "key_info", None)
+        if key_info is not None:
+            usage = data.get("usage", {})
+            key_store = getattr(request.app.state, "key_store", None)
+            if key_store is not None:
+                import asyncio
+                asyncio.ensure_future(key_store.record_usage(
+                    user_id=key_info.user_id,
+                    api_key_id=key_info.key_id,
+                    model=model_spec.name,
+                    modality="embedding",
+                    input_tokens=usage.get("total_tokens", usage.get("prompt_tokens", 0)),
+                    output_tokens=0,
+                    request_id=request_id or None,
+                ))
+
+        return data
     except CircuitOpenError:
         raise HTTPException(
             status_code=503,

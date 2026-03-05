@@ -15,7 +15,7 @@ const navItems = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard, exact: true },
   { href: "/dashboard/api-keys", label: "API Keys", icon: Key },
   { href: "/dashboard/billing", label: "Billing", icon: CreditCard },
-  { href: "/dashboard/usage", label: "Usage", icon: BarChart3, disabled: true },
+  { href: "/dashboard/usage", label: "Usage", icon: BarChart3 },
 ];
 
 export function DashboardSidebar() {
@@ -30,19 +30,6 @@ export function DashboardSidebar() {
               ? pathname === item.href
               : pathname.startsWith(item.href);
             const Icon = item.icon;
-
-            if (item.disabled) {
-              return (
-                <div
-                  key={item.href}
-                  className="flex cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-600"
-                >
-                  <Icon className="h-4 w-4" />
-                  {item.label}
-                  <span className="ml-auto text-xs">Soon</span>
-                </div>
-              );
-            }
 
             return (
               <Link
