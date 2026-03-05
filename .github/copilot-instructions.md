@@ -16,9 +16,13 @@ When the user says "it's bulletproof," stop pushing and move on. Until then, kee
 
 ## Project Overview
 
-**DirectAI** is a high-performance AI inference API service. The goal is to serve all AI modalities — LLMs, image generation, transcription/STT, text-to-speech, embeddings, and compound AI pipelines — with production-grade latency, throughput, and reliability.
+**DirectAI** is an open-source AI inference deployment stack purpose-built for Azure-first regulated enterprises. The product deploys production-grade LLM, embedding, and transcription inference *inside the customer's own Azure subscription*. Data never leaves the customer's boundary. The customer pays Azure directly for GPU compute; DirectAI charges a management fee for deployment, monitoring, optimization, and support.
 
-**Reference competitor:** [Baseten](https://www.baseten.co/) — use their capabilities as the bar to meet or beat.
+**Target market:** Healthcare, financial services, and government organizations on Azure where compliance requirements (HIPAA, SOC 2, data residency) disqualify third-party inference APIs like Baseten, Together AI, and Fireworks.
+
+**Competitive positioning:** DirectAI does NOT compete head-to-head with Baseten/Together/Fireworks on price-per-token or model breadth. Instead, DirectAI occupies the gap between "self-managed vLLM on AKS" (6-month project) and "send data to a third-party API" (compliance-disqualified). The product is the only Azure-native, open-source inference platform built for regulated deployment.
+
+**Reference competitor:** [Baseten](https://www.baseten.co/) — use their capabilities as the technical bar, but compete on a completely different axis (Azure-native data sovereignty, customer-subscription deployment, zero vendor lock-in).
 
 ### Phasing
 
@@ -148,29 +152,24 @@ Pre-warmed replicas and true zero-cost idle are **mutually exclusive per model.*
 
 ### Pricing Architecture
 
-**3 tiers. Token-based, per-model pricing.** Self-Hosted is an Enterprise add-on, not a standalone tier.
+**3 tiers. Customer pays Azure for compute, DirectAI charges a management fee.** Self-hosted (open source) is the entry point, not an add-on.
 
-| | Developer (Free) | Pro ($49/mo) | Enterprise (Custom) |
+| | Open Source (Free) | Managed ($3K/mo) | Enterprise (Custom) |
 |---|---|---|---|
-| **Base** | $0/mo | $49/mo platform fee | Custom contract |
-| **Billing unit** | Tokens (LLM), tokens (embed), minutes (STT) | Same | Same |
-| **Included credits** | $5/mo in usage | $50/mo included | N/A |
-| **Rate limit** | 60 RPM, 100K TPM | 600 RPM, 1M TPM | Unlimited |
-| **Models** | Public catalog | Public catalog + fine-tuned | + custom deployment |
-| **Support** | Community | Email, 24hr SLA | Slack, 1hr SLA |
+| **Base** | $0/mo | $3K/mo management fee | Custom contract (starting $10K/mo) |
+| **Compute billing** | Customer pays Azure directly | Customer pays Azure directly | Customer pays Azure directly |
+| **Deployment** | Self-service (Helm + Bicep) | DirectAI deploys into customer's Azure subscription | Dedicated solutions engineering |
+| **Models** | Any OSS model | Any OSS + fine-tuned | + custom model optimization |
+| **Support** | Community (GitHub Issues) | Email, 24hr SLA | Slack + phone, 1hr SLA |
 | **SLA** | Best-effort | 99.9% | 99.99% |
-| **Infrastructure** | Shared GPU pool | Shared pool, priority queue | Dedicated subscription |
+| **Compliance** | Customer's responsibility | Shared responsibility | HIPAA/SOC 2 documentation provided |
+| **Vendor lock-in** | None — Apache 2.0 | None — cancel anytime, stack keeps running | None |
 
-**Per-model token pricing (input / output):**
+**Key principle:** DirectAI never touches GPU costs. The customer pays Azure through their existing EA/MCA. DirectAI charges only for the management/deployment/support layer. Margin is pure software/services.
 
-| Model | Input (per 1M tokens) | Output (per 1M tokens) |
-|---|---|---|
-| Llama 3.1 8B | $0.10 | $0.20 |
-| Llama 3.1 70B | $0.60 | $0.80 |
-| Embeddings (bge-large) | $0.02 | — |
-| Whisper large-v3 | — | $0.10/minute |
+**Target market:** Azure-first regulated enterprises (healthcare, financial services, government) where data cannot leave the customer's Azure subscription. Third-party inference APIs (Baseten, Together AI, Fireworks) are disqualified by compliance requirements.
 
-Prices are competitive with Together AI / Fireworks. Adjust once real GPU cost data is available.
+**Revenue model:** Management fees, not token metering. Stripe billing for Managed/Enterprise management fees only.
 
 ### Authentication Architecture (Entra External ID)
 

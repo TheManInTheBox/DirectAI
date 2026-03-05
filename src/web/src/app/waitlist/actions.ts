@@ -12,6 +12,9 @@ export async function joinWaitlist(
   formData: FormData,
 ): Promise<WaitlistResult> {
   const email = formData.get("email");
+  const company = formData.get("company");
+  const workload = formData.get("workload");
+  const details = formData.get("details");
 
   if (!email || typeof email !== "string") {
     return { success: false, message: "Please enter a valid email address." };
@@ -25,19 +28,31 @@ export async function joinWaitlist(
     return { success: false, message: "Please enter a valid email address." };
   }
 
+  // Log the full inquiry for now — will route to CRM / email later
+  console.log("[inquiry]", {
+    email: trimmed,
+    company: typeof company === "string" ? company.trim() : "",
+    workload: typeof workload === "string" ? workload : "",
+    details: typeof details === "string" ? details.trim() : "",
+    timestamp: new Date().toISOString(),
+  });
+
   try {
     const { alreadyExists } = await addToWaitlist(trimmed);
 
     if (alreadyExists) {
-      return { success: true, message: "You're already on the waitlist! We'll be in touch." };
+      return {
+        success: true,
+        message: "We already have your info — an engineer will follow up shortly.",
+      };
     }
 
     return {
       success: true,
-      message: "You're on the list! We'll reach out when it's your turn.",
+      message: "Got it. An engineer will reach out within one business day.",
     };
   } catch (error) {
-    console.error("[waitlist] Failed to persist signup:", error);
+    console.error("[inquiry] Failed to persist signup:", error);
     return {
       success: false,
       message: "Something went wrong. Please try again.",

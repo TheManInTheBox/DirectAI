@@ -1,68 +1,100 @@
 import Link from "next/link";
 import {
-  Zap,
   Shield,
   Globe,
-  Cpu,
   ArrowRight,
   Terminal,
-  BarChart3,
-  Layers,
+  Server,
+  Lock,
+  Building2,
+  HeartPulse,
+  Landmark,
+  GitBranch,
+  MonitorCheck,
+  KeyRound,
+  CloudCog,
 } from "lucide-react";
 
-const features = [
+const capabilities = [
   {
-    icon: Zap,
-    title: "Sub-100ms Latency",
+    icon: Server,
+    title: "Runs in Your Subscription",
     description:
-      "TensorRT-LLM compiled engines, NVMe-cached weights, and GPU-optimized scheduling deliver inference that's faster than the competition.",
+      "Inference deploys inside your Azure subscription. Your VNet, your node pools, your EA credits. Data never leaves your boundary.",
   },
   {
-    icon: Layers,
-    title: "Every Modality",
+    icon: Lock,
+    title: "Data Sovereignty by Default",
     description:
-      "LLMs, embeddings, transcription, reranking — one platform, one API. OpenAI-compatible, zero code changes.",
+      "Private Link, Azure CNI, network policy enforcement. No traffic traverses the public internet. Your compliance perimeter stays intact.",
   },
   {
     icon: Terminal,
-    title: "OpenAI Drop-In",
+    title: "OpenAI-Compatible API",
     description:
-      "Point your existing SDK at DirectAI. Same /v1/chat/completions, /v1/embeddings, /v1/audio/transcriptions endpoints.",
+      "Same /v1/chat/completions, /v1/embeddings, /v1/audio/transcriptions. Point your existing SDK at your own endpoint. Zero code changes.",
   },
   {
-    icon: BarChart3,
+    icon: MonitorCheck,
+    title: "Azure Monitor Native",
+    description:
+      "Metrics, logs, and traces flow to your existing Azure Monitor and Application Insights. No third-party observability vendor required.",
+  },
+  {
+    icon: KeyRound,
+    title: "Entra ID Integrated",
+    description:
+      "Workload identity for pods, Entra RBAC for clusters, Key Vault for secrets. Fits your existing identity and access management.",
+  },
+  {
+    icon: CloudCog,
     title: "Autoscaling to Zero",
     description:
-      "Pay nothing when idle. KEDA-driven pod scaling with cluster autoscaler drains GPU nodes for true zero-cost idle.",
-  },
-  {
-    icon: Shield,
-    title: "Enterprise Security",
-    description:
-      "Per-customer subscription isolation, RBAC, TLS 1.2+, Key Vault secrets, SOC 2 and HIPAA-ready architecture.",
-  },
-  {
-    icon: Globe,
-    title: "Multi-Cloud Ready",
-    description:
-      "Azure-first with clean provider interfaces. Deploy on GCP or AWS with a config change, not a rewrite.",
+      "KEDA-driven pod scaling with Cluster Autoscaler. GPU nodes drain when idle — true zero-cost when nothing is running. Pay only for what you use.",
   },
 ];
 
-const codeExample = `curl https://api.agilecloud.ai/v1/chat/completions \\
-  -H "Authorization: Bearer $DIRECTAI_API_KEY" \\
+const verticals = [
+  {
+    icon: HeartPulse,
+    name: "Healthcare",
+    description:
+      "HIPAA-ready inference for clinical transcription, medical summarization, and clinical search. Whisper + Llama + embeddings in your Azure boundary.",
+  },
+  {
+    icon: Landmark,
+    name: "Financial Services",
+    description:
+      "Run LLMs for document processing, compliance analysis, and customer interactions on dedicated GPU nodes within your regulated Azure environment.",
+  },
+  {
+    icon: Building2,
+    name: "Government & Public Sector",
+    description:
+      "Deploy open-source models on Azure Government or sovereign cloud regions. Air-gapped option with no external dependencies.",
+  },
+];
+
+const codeExample = `# Deploy to your Azure subscription with Helm
+helm install directai oci://agilecloud.ai/charts/directai \\
+  --namespace directai --create-namespace \\
+  --values values-prod.yaml
+
+# Inference runs inside your AKS cluster
+curl https://inference.internal.yourcompany.com/v1/chat/completions \\
+  -H "Authorization: Bearer $YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
     "model": "llama-3.1-70b-instruct",
-    "messages": [{"role": "user", "content": "Hello!"}],
+    "messages": [{"role": "user", "content": "Summarize this clinical note."}],
     "stream": true
   }'`;
 
-const stats = [
-  { value: "<100ms", label: "P99 Latency" },
-  { value: "99.99%", label: "Uptime Target" },
-  { value: "$0", label: "Idle Cost" },
-  { value: "∞", label: "Scale Ceiling" },
+const trustSignals = [
+  { value: "0", label: "Data leaves your Azure boundary" },
+  { value: "100%", label: "Open-source stack" },
+  { value: "Your EA", label: "Credits pay for compute" },
+  { value: "99.99%", label: "Uptime target" },
 ];
 
 export default function HomePage() {
@@ -75,43 +107,47 @@ export default function HomePage() {
         <div className="relative mx-auto max-w-7xl px-6 py-24 sm:py-32 lg:py-40">
           <div className="mx-auto max-w-3xl text-center">
             <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-4 py-1.5 text-sm text-blue-300">
-              <Cpu className="h-4 w-4" />
-              Now in Early Access
+              <Shield className="h-4 w-4" />
+              Azure-Native · HIPAA-Ready · Open Source
             </div>
             <h1 className="text-4xl font-bold tracking-tight text-white sm:text-6xl lg:text-7xl">
               AI Inference{" "}
               <span className="bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
-                Without Limits
-              </span>
+                Inside Your
+              </span>{" "}
+              Azure
             </h1>
             <p className="mt-6 text-lg leading-8 text-gray-300 sm:text-xl">
-              Deploy any model — LLMs, embeddings, transcription — with
-              production-grade latency, autoscaling to zero, and OpenAI API
-              compatibility. No rewrite required.
+              Production-grade LLM, embedding, and transcription inference that
+              deploys into your Azure subscription. Your data never leaves. Your
+              EA credits pay for compute. Your compliance perimeter stays intact.
             </p>
             <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
               <Link
                 href="/waitlist"
                 className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-500"
               >
-                Join the Waitlist
+                Talk to an Engineer
                 <ArrowRight className="h-4 w-4" />
               </Link>
-              <Link
-                href="/pricing"
+              <a
+                href="https://github.com/TheManInTheBox/DirectAI"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-900/50 px-6 py-3 text-sm font-semibold text-gray-300 transition hover:border-gray-600 hover:text-white"
               >
-                View Pricing
-              </Link>
+                <GitBranch className="h-4 w-4" />
+                View on GitHub
+              </a>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Stats Bar */}
+      {/* Trust Signals Bar */}
       <section className="border-y border-gray-800 bg-gray-950/50">
         <div className="mx-auto grid max-w-7xl grid-cols-2 gap-8 px-6 py-12 sm:grid-cols-4">
-          {stats.map((stat) => (
+          {trustSignals.map((stat) => (
             <div key={stat.label} className="text-center">
               <div className="text-3xl font-bold text-white sm:text-4xl">
                 {stat.value}
@@ -122,32 +158,51 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Features Grid */}
+      {/* Problem Statement */}
       <section className="bg-gray-950 py-24">
+        <div className="mx-auto max-w-3xl px-6 text-center">
+          <h2 className="text-3xl font-bold text-white sm:text-4xl">
+            The Problem
+          </h2>
+          <p className="mt-6 text-lg leading-8 text-gray-400">
+            Your team wants to run open-source AI models in production. But
+            third-party inference APIs send your data outside your Azure
+            boundary. Azure ML managed endpoints are slow and expensive.
+            And setting up vLLM on AKS with GPU autoscaling, TLS, monitoring,
+            and RBAC is a 6-month platform engineering project.
+          </p>
+          <p className="mt-4 text-lg font-medium text-blue-400">
+            DirectAI closes that gap in days, not months.
+          </p>
+        </div>
+      </section>
+
+      {/* Capabilities Grid */}
+      <section className="border-t border-gray-800 bg-gray-950 py-24">
         <div className="mx-auto max-w-7xl px-6">
           <div className="mx-auto max-w-2xl text-center">
             <h2 className="text-3xl font-bold text-white sm:text-4xl">
-              Built for Production
+              Built for Regulated Azure Environments
             </h2>
             <p className="mt-4 text-lg text-gray-400">
-              Not another demo platform. DirectAI is engineered for
-              enterprise-grade workloads from day one.
+              Not a multi-cloud API service. A deployment stack purpose-built
+              for Azure-first enterprises with real compliance requirements.
             </p>
           </div>
           <div className="mt-16 grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
-            {features.map((feature) => (
+            {capabilities.map((cap) => (
               <div
-                key={feature.title}
+                key={cap.title}
                 className="group rounded-xl border border-gray-800 bg-gray-900/50 p-8 transition hover:border-gray-700 hover:bg-gray-900"
               >
                 <div className="mb-4 inline-flex rounded-lg bg-blue-500/10 p-3 text-blue-400 transition group-hover:bg-blue-500/20">
-                  <feature.icon className="h-6 w-6" />
+                  <cap.icon className="h-6 w-6" />
                 </div>
                 <h3 className="text-lg font-semibold text-white">
-                  {feature.title}
+                  {cap.title}
                 </h3>
                 <p className="mt-2 text-sm leading-6 text-gray-400">
-                  {feature.description}
+                  {cap.description}
                 </p>
               </div>
             ))}
@@ -155,25 +210,58 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Code Example */}
+      {/* Industry Verticals */}
+      <section className="border-t border-gray-800 bg-gray-950 py-24">
+        <div className="mx-auto max-w-7xl px-6">
+          <div className="mx-auto max-w-2xl text-center">
+            <h2 className="text-3xl font-bold text-white sm:text-4xl">
+              Purpose-Built for Regulated Industries
+            </h2>
+            <p className="mt-4 text-lg text-gray-400">
+              When your data can&apos;t leave your Azure subscription, third-party
+              inference APIs aren&apos;t an option. DirectAI is.
+            </p>
+          </div>
+          <div className="mt-16 grid gap-8 lg:grid-cols-3">
+            {verticals.map((v) => (
+              <div
+                key={v.name}
+                className="rounded-xl border border-gray-800 bg-gray-900/50 p-8 transition hover:border-gray-700"
+              >
+                <div className="mb-4 inline-flex rounded-lg bg-blue-500/10 p-3 text-blue-400">
+                  <v.icon className="h-6 w-6" />
+                </div>
+                <h3 className="text-lg font-semibold text-white">{v.name}</h3>
+                <p className="mt-2 text-sm leading-6 text-gray-400">
+                  {v.description}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Code / Deploy Example */}
       <section className="border-t border-gray-800 bg-gray-950 py-24">
         <div className="mx-auto max-w-7xl px-6">
           <div className="grid items-center gap-12 lg:grid-cols-2">
             <div>
               <h2 className="text-3xl font-bold text-white sm:text-4xl">
-                One Line to Switch
+                Deploy in Your Cluster,{" "}
+                <span className="text-blue-400">Not Ours</span>
               </h2>
               <p className="mt-4 text-lg text-gray-400">
-                Already using the OpenAI SDK? Change the base URL. That&apos;s
-                it. Same endpoints, same request format, same streaming — just
-                faster and cheaper.
+                DirectAI ships as Helm charts and Bicep templates. It deploys
+                into your existing AKS cluster, uses your Entra ID, and serves
+                inference on your GPU node pools. You own the entire stack.
               </p>
               <ul className="mt-8 space-y-3 text-gray-300">
                 {[
-                  "/v1/chat/completions — LLMs with streaming SSE",
-                  "/v1/embeddings — Text embeddings at batch scale",
-                  "/v1/audio/transcriptions — Whisper STT",
-                  "/v1/models — List all deployed models",
+                  "Helm chart → your AKS namespace",
+                  "Bicep templates → your Azure subscription",
+                  "Model weights → your Azure Blob Storage",
+                  "Secrets → your Azure Key Vault",
+                  "Metrics → your Azure Monitor",
                 ].map((item) => (
                   <li key={item} className="flex items-start gap-3 text-sm">
                     <div className="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-blue-500" />
@@ -197,23 +285,81 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* How It Works */}
+      <section className="border-t border-gray-800 bg-gray-950 py-24">
+        <div className="mx-auto max-w-4xl px-6">
+          <h2 className="text-center text-3xl font-bold text-white sm:text-4xl">
+            How It Works
+          </h2>
+          <div className="mt-16 space-y-12">
+            {[
+              {
+                step: "01",
+                title: "We deploy into your Azure subscription",
+                description:
+                  "Bicep templates provision AKS with GPU node pools, VNet, Key Vault, and managed identities. Everything in your subscription, governed by your Azure Policy.",
+              },
+              {
+                step: "02",
+                title: "Models deploy to your cluster",
+                description:
+                  "Helm charts spin up inference backends — vLLM for LLMs, ONNX Runtime for embeddings, Whisper for transcription. Weights stored in your Blob Storage, served from your GPU pods.",
+              },
+              {
+                step: "03",
+                title: "Your team hits an internal API",
+                description:
+                  "OpenAI-compatible endpoints on your Private Link or internal load balancer. Existing SDKs work unchanged. Autoscaling handles spikes. You see everything in Azure Monitor.",
+              },
+              {
+                step: "04",
+                title: "We manage, you own",
+                description:
+                  "DirectAI handles updates, scaling config, model optimization, and incident response. You own the infrastructure, the data, and the compliance posture. Cancel anytime — the stack keeps running.",
+              },
+            ].map((item) => (
+              <div key={item.step} className="flex gap-6">
+                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-blue-600 text-sm font-bold text-white">
+                  {item.step}
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-white">
+                    {item.title}
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-gray-400">
+                    {item.description}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* CTA */}
       <section className="border-t border-gray-800 bg-gray-950 py-24">
         <div className="mx-auto max-w-3xl px-6 text-center">
-          <h2 className="text-3xl font-bold text-white sm:text-4xl">
-            Ready to Ship Faster?
+          <Globe className="mx-auto h-12 w-12 text-blue-400" />
+          <h2 className="mt-6 text-3xl font-bold text-white sm:text-4xl">
+            Ready to Run AI on Your Terms?
           </h2>
           <p className="mt-4 text-lg text-gray-400">
-            Join the waitlist for early access. Be first in line when we open
-            the gates.
+            Talk to an engineer about deploying production-grade inference
+            inside your Azure subscription. No commitment, no vendor lock-in.
           </p>
-          <div className="mt-8">
+          <div className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Link
               href="/waitlist"
               className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-8 py-3.5 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-500"
             >
-              Join the Waitlist
+              Talk to an Engineer
               <ArrowRight className="h-4 w-4" />
+            </Link>
+            <Link
+              href="/pricing"
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-900/50 px-8 py-3.5 text-sm font-semibold text-gray-300 transition hover:border-gray-600 hover:text-white"
+            >
+              View Pricing
             </Link>
           </div>
         </div>

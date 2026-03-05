@@ -15,8 +15,8 @@ export function Footer() {
               <span className="text-lg font-bold text-white">DirectAI</span>
             </Link>
             <p className="mt-4 text-sm leading-6 text-gray-400">
-              High-performance AI inference for production workloads. Deploy
-              any model with OpenAI API compatibility.
+              Production-grade AI inference that deploys inside your Azure
+              subscription. Open source, HIPAA-ready, zero vendor lock-in.
             </p>
           </div>
 
@@ -26,7 +26,7 @@ export function Footer() {
             <ul className="mt-4 space-y-3">
               {[
                 { href: "/pricing", label: "Pricing" },
-                { href: "/waitlist", label: "Waitlist" },
+                { href: "/waitlist", label: "Talk to an Engineer" },
               ].map((link) => (
                 <li key={link.href}>
                   <Link
@@ -48,6 +48,10 @@ export function Footer() {
                 {
                   href: "https://github.com/TheManInTheBox/DirectAI",
                   label: "GitHub",
+                },
+                {
+                  href: "https://github.com/TheManInTheBox/DirectAI/tree/main/deploy",
+                  label: "Deployment Docs",
                 },
               ].map((link) => (
                 <li key={link.href}>

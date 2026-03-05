@@ -8,7 +8,7 @@ import { Cpu, Menu, X, LogOut, LayoutDashboard } from "lucide-react";
 
 const marketingLinks = [
   { href: "/pricing", label: "Pricing" },
-  { href: "/waitlist", label: "Waitlist" },
+  { href: "https://github.com/TheManInTheBox/DirectAI", label: "Open Source", external: true },
 ];
 
 export function Navbar() {
@@ -48,15 +48,27 @@ export function Navbar() {
         {/* Desktop */}
         <div className="hidden items-center gap-6 md:flex">
           {!isDashboard &&
-            marketingLinks.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className="text-sm text-gray-400 transition hover:text-white"
-              >
-                {link.label}
-              </Link>
-            ))}
+            marketingLinks.map((link) =>
+              'external' in link && link.external ? (
+                <a
+                  key={link.href}
+                  href={link.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-gray-400 transition hover:text-white"
+                >
+                  {link.label}
+                </a>
+              ) : (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className="text-sm text-gray-400 transition hover:text-white"
+                >
+                  {link.label}
+                </Link>
+              )
+            )}
 
           {status === "loading" ? (
             <div className="h-8 w-20 animate-pulse rounded-lg bg-gray-800" />

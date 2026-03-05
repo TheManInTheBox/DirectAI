@@ -18,34 +18,36 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "DirectAI — AI Inference Without Limits",
+    default: "DirectAI — AI Inference Inside Your Azure",
     template: "%s | DirectAI",
   },
   description:
-    "Deploy any AI model with production-grade latency, autoscaling to zero, and OpenAI API compatibility. LLMs, embeddings, transcription — one platform.",
+    "Production-grade AI inference that deploys inside your Azure subscription. HIPAA-ready, Entra ID integrated, open source. Your data never leaves your boundary.",
   keywords: [
-    "AI inference",
-    "LLM API",
-    "embeddings",
-    "transcription",
-    "OpenAI compatible",
-    "GPU autoscaling",
-    "TensorRT-LLM",
-    "model deployment",
+    "Azure AI inference",
+    "LLM deployment Azure",
+    "HIPAA AI inference",
+    "AKS GPU inference",
+    "vLLM Azure",
+    "OpenAI compatible API",
+    "enterprise AI infrastructure",
+    "self-hosted inference",
+    "Azure Kubernetes GPU",
+    "regulated AI deployment",
   ],
   openGraph: {
-    title: "DirectAI — AI Inference Without Limits",
+    title: "DirectAI — AI Inference Inside Your Azure",
     description:
-      "Deploy any AI model with production-grade latency, autoscaling to zero, and OpenAI API compatibility.",
+      "Production-grade AI inference that deploys inside your Azure subscription. HIPAA-ready, open source, zero vendor lock-in.",
     url: "https://agilecloud.ai",
     siteName: "DirectAI",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "DirectAI — AI Inference Without Limits",
+    title: "DirectAI — AI Inference Inside Your Azure",
     description:
-      "Deploy any AI model with production-grade latency, autoscaling to zero, and OpenAI API compatibility.",
+      "Production-grade AI inference that deploys inside your Azure subscription. HIPAA-ready, open source, zero vendor lock-in.",
   },
   robots: { index: true, follow: true },
 };
