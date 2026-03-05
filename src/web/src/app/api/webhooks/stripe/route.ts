@@ -149,13 +149,13 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
     return;
   }
 
-  // Downgrade to free tier
+  // Downgrade to open-source (free) tier
   await db
     .update(users)
-    .set({ tier: "developer", updatedAt: new Date() })
+    .set({ tier: "open-source", updatedAt: new Date() })
     .where(eq(users.id, user.id));
 
-  console.log(`[stripe-webhook] User ${user.id} downgraded to developer (subscription deleted)`);
+  console.log(`[stripe-webhook] User ${user.id} downgraded to open-source (subscription deleted)`);
 }
 
 async function handlePaymentFailed(invoice: Stripe.Invoice) {
@@ -177,12 +177,17 @@ async function getTierFromSubscription(subscriptionId: string): Promise<string> 
 /**
  * Map a Stripe Price ID to a DirectAI tier name.
  * Configure these in environment variables once Stripe products are created.
+ *
+ * Tiers:
+ *   open-source  — Free forever (no Stripe subscription)
+ *   managed      — $3,000/mo management fee
+ *   enterprise   — Custom contract ($10K+/mo)
  */
 function mapPriceToTier(priceId?: string): string {
-  const proPriceId = process.env.STRIPE_PRO_PRICE_ID;
+  const managedPriceId = process.env.STRIPE_MANAGED_PRICE_ID;
   const enterprisePriceId = process.env.STRIPE_ENTERPRISE_PRICE_ID;
 
-  if (priceId === proPriceId) return "pro";
+  if (priceId === managedPriceId) return "managed";
   if (priceId === enterprisePriceId) return "enterprise";
-  return "developer";
+  return "open-source";
 }

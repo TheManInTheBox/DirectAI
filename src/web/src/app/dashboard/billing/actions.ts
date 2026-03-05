@@ -1,7 +1,7 @@
 /**
  * Billing Server Actions
  *
- * Upgrade to Pro via Stripe Checkout, or manage existing subscription
+ * Upgrade to Managed via Stripe Checkout, or manage existing subscription
  * via Stripe Customer Portal. Both redirect the browser.
  */
 "use server";
@@ -21,18 +21,18 @@ async function getBaseUrl(): Promise<string> {
   return `${proto}://${host}`;
 }
 
-export async function upgradeToProAction() {
+export async function upgradeToManagedAction() {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Unauthorized");
 
-  const proPriceId = process.env.STRIPE_PRO_PRICE_ID;
-  if (!proPriceId) throw new Error("Stripe Pro price not configured");
+  const managedPriceId = process.env.STRIPE_MANAGED_PRICE_ID;
+  if (!managedPriceId) throw new Error("Stripe Managed price not configured");
 
   const baseUrl = await getBaseUrl();
 
   const checkoutSession = await createCheckoutSession(
     session.user.id,
-    proPriceId,
+    managedPriceId,
     `${baseUrl}/dashboard/billing?upgraded=true`,
     `${baseUrl}/dashboard/billing`,
   );

@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { getDb } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { Check, Zap, Shield } from "lucide-react";
+import { Check, Zap, Shield, ExternalLink } from "lucide-react";
 import { BillingActions } from "./billing-actions";
 
 export const metadata: Metadata = {
@@ -19,41 +19,50 @@ const tierDetails: Record<
     price: string;
     description: string;
     features: string[];
+    badge: string;
   }
 > = {
-  developer: {
-    name: "Developer",
+  "open-source": {
+    name: "Open Source",
     price: "Free",
-    description: "$5/month in free credits. Shared GPU pool.",
+    description: "Self-managed deployment via Helm + Bicep. Apache 2.0 licensed.",
+    badge: "Free Forever",
     features: [
-      "60 RPM / 100K TPM",
-      "$5/mo free credits",
-      "Community support",
+      "Full inference stack (vLLM, ONNX Runtime, TRT-LLM)",
+      "Helm chart + Bicep IaC",
+      "Community support (GitHub Issues)",
       "Best-effort SLA",
+      "No vendor lock-in — Apache 2.0",
     ],
   },
-  pro: {
-    name: "Pro",
-    price: "$49/mo",
-    description: "$50/month included credits. Priority GPU access.",
+  managed: {
+    name: "Managed",
+    price: "$3,000/mo",
+    description:
+      "DirectAI deploys and manages inference inside your Azure subscription. You pay Azure for compute.",
+    badge: "Current Plan",
     features: [
-      "600 RPM / 1M TPM",
-      "$50/mo included credits",
+      "Deployed into your Azure subscription",
+      "Data never leaves your boundary",
+      "All open-source models + fine-tuned",
       "Email support (24hr SLA)",
-      "99.9% SLA",
-      "Fine-tuned models",
+      "99.9% uptime SLA",
+      "Azure Monitor + Entra ID integrated",
     ],
   },
   enterprise: {
     name: "Enterprise",
     price: "Custom",
-    description: "Dedicated infrastructure. Full isolation.",
+    description: "Dedicated solutions engineering. HIPAA/SOC 2 documentation provided.",
+    badge: "Current Plan",
     features: [
-      "Unlimited RPM",
-      "Dedicated GPU pools",
+      "Everything in Managed",
+      "Dedicated solutions engineer",
+      "Custom model optimization",
       "Slack + phone support (1hr SLA)",
-      "99.99% SLA",
-      "Custom models",
+      "99.99% uptime SLA",
+      "HIPAA BAA + SOC 2 documentation",
+      "Multi-region deployment",
     ],
   },
 };
@@ -72,8 +81,8 @@ export default async function BillingPage() {
     .where(eq(users.id, session.user.id))
     .limit(1);
 
-  const currentTier = user?.tier ?? "developer";
-  const details = tierDetails[currentTier] ?? tierDetails.developer;
+  const currentTier = user?.tier ?? "open-source";
+  const details = tierDetails[currentTier] ?? tierDetails["open-source"];
   const hasStripeCustomer = !!user?.stripeCustomerId;
 
   return (
@@ -94,7 +103,7 @@ export default async function BillingPage() {
                 {details.name}
               </h2>
               <span className="rounded-full bg-blue-600/20 px-2.5 py-0.5 text-xs font-medium text-blue-400">
-                Current Plan
+                {details.badge}
               </span>
             </div>
             <p className="mt-1 text-2xl font-bold text-white">
@@ -130,20 +139,35 @@ export default async function BillingPage() {
         hasStripeCustomer={hasStripeCustomer}
       />
 
-      {/* Pro upsell */}
-      {currentTier === "developer" && (
+      {/* Managed upsell for open-source users */}
+      {currentTier === "open-source" && (
         <div className="rounded-xl border border-blue-500/30 bg-blue-950/10 p-6">
-          <h3 className="font-semibold text-white">Why upgrade to Pro?</h3>
+          <h3 className="font-semibold text-white">Why upgrade to Managed?</h3>
+          <p className="mt-2 text-sm text-gray-400">
+            Stop spending engineering time on GPU infrastructure. We deploy and
+            manage the full inference stack inside your Azure subscription.
+          </p>
           <ul className="mt-3 space-y-2 text-sm text-gray-300">
-            <li>• 10× higher rate limits (600 RPM / 1M TPM)</li>
-            <li>• $50/month in included credits (vs $5)</li>
-            <li>• Priority GPU queue — lower latency under load</li>
-            <li>• Deploy fine-tuned models</li>
-            <li>• 99.9% SLA guarantee</li>
+            <li>• DirectAI deploys into your Azure subscription — zero data egress</li>
+            <li>• Production-grade autoscaling, monitoring, and alerting</li>
+            <li>• Azure Monitor + Entra ID integrated out of the box</li>
             <li>• Email support with 24hr response SLA</li>
+            <li>• 99.9% uptime SLA guarantee</li>
+            <li>• You pay Azure for GPU compute — we charge $3K/mo management fee only</li>
           </ul>
         </div>
       )}
+
+      {/* Azure compute note */}
+      <div className="rounded-lg border border-gray-800 bg-gray-900/30 px-5 py-4 text-sm text-gray-400">
+        <p>
+          <strong className="text-gray-300">How billing works:</strong>{" "}
+          DirectAI charges a flat management fee for deployment, monitoring, and
+          support. GPU compute costs are billed directly by Azure through your
+          existing Enterprise Agreement or MCA. DirectAI never touches your
+          compute bill.
+        </p>
+      </div>
     </div>
   );
 }

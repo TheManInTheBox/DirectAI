@@ -42,11 +42,11 @@ class Settings(BaseSettings):
     # ── Rate limiting ───────────────────────────────────────────────
     rate_limit_rpm: int = Field(
         default=60,
-        description="Default requests per minute per API key (Developer tier). Tier-aware limits override this.",
+        description="Default requests per minute per API key (Open Source tier). Tier-aware limits override this.",
     )
     rate_limit_tpm: int = Field(
         default=100_000,
-        description="Default tokens per minute per API key (Developer tier). Tier-aware limits override this.",
+        description="Default tokens per minute per API key (Open Source tier). Tier-aware limits override this.",
     )
     rate_limit_max_buckets: int = Field(
         default=50_000,
@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     # ── Spending limits ──────────────────────────────────────
     developer_monthly_credit_cents: int = Field(
         default=500,
-        description="Developer tier monthly credit cap in cents ($5.00 = 500).",
+        description="Open Source tier monthly credit cap in cents ($5.00 = 500).",
     )
     spend_cache_ttl: float = Field(
         default=30.0,
@@ -79,18 +79,21 @@ class Settings(BaseSettings):
         description="TTL in seconds for API key validation cache.",
     )
 
-    # ── Stripe billing ───────────────────────────────────────
+    # ── Stripe (legacy — kept for reference, no longer used) ──────
+    # Token-based metering has been removed. DirectAI uses flat management
+    # fees ($3K/mo Managed, custom Enterprise). These fields are retained
+    # so existing env vars don't cause startup errors, but nothing reads them.
     stripe_secret_key: str = Field(
         default="",
-        description="Stripe API secret key. Empty = usage reporting disabled.",
+        description="(Unused) Stripe API secret key — token metering removed.",
     )
     stripe_meter_id_tokens: str = Field(
         default="",
-        description="Stripe Meter ID for token usage billing.",
+        description="(Unused) Stripe Meter ID — token metering removed.",
     )
     usage_report_interval: float = Field(
         default=60.0,
-        description="Seconds between Stripe usage report flushes.",
+        description="(Unused) Seconds between usage report flushes — token metering removed.",
     )
 
     # ── Tracing (OpenTelemetry) ──────────────────────────────────

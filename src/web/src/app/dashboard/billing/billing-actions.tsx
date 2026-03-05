@@ -1,7 +1,8 @@
 "use client";
 
 import { useTransition, useState } from "react";
-import { upgradeToProAction, manageSubscriptionAction } from "./actions";
+import { upgradeToManagedAction, manageSubscriptionAction } from "./actions";
+import { ExternalLink } from "lucide-react";
 
 export function BillingActions({
   currentTier,
@@ -17,7 +18,7 @@ export function BillingActions({
     setError(null);
     startTransition(async () => {
       try {
-        await upgradeToProAction();
+        await upgradeToManagedAction();
       } catch (e) {
         // redirect() throws a NEXT_REDIRECT error — don't catch it
         if (e instanceof Error && e.message === "NEXT_REDIRECT") throw e;
@@ -49,17 +50,27 @@ export function BillingActions({
       )}
 
       <div className="flex flex-wrap gap-3">
-        {currentTier === "developer" && (
+        {currentTier === "open-source" && (
           <button
             onClick={handleUpgrade}
             disabled={isPending}
             className="rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:opacity-50"
           >
-            {isPending ? "Redirecting..." : "Upgrade to Pro — $49/mo"}
+            {isPending ? "Redirecting..." : "Upgrade to Managed — $3,000/mo"}
           </button>
         )}
 
-        {currentTier !== "developer" && hasStripeCustomer && (
+        {currentTier === "managed" && (
+          <a
+            href="/waitlist"
+            className="inline-flex items-center gap-2 rounded-lg border border-blue-600 px-6 py-2.5 text-sm font-semibold text-blue-400 transition hover:bg-blue-600/10"
+          >
+            Contact Sales for Enterprise
+            <ExternalLink className="h-3.5 w-3.5" />
+          </a>
+        )}
+
+        {hasStripeCustomer && currentTier !== "open-source" && (
           <button
             onClick={handleManage}
             disabled={isPending}

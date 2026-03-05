@@ -6,16 +6,16 @@ Each API key (or client IP if unauthenticated) gets a pair of limiters:
   2. **TPM** — sliding-window counter capping tokens per minute.
 
 Tier limits (configured via ``TIER_LIMITS``):
-  Developer  — 60 RPM,  100 000 TPM
-  Pro        — 600 RPM, 1 000 000 TPM
+  Open Source — 60 RPM,  100 000 TPM
+  Managed    — 600 RPM, 1 000 000 TPM
   Enterprise — unlimited (placeholder, enforce at gateway)
 
 When no tier can be resolved (auth disabled / env-var keys), the
-**Developer** tier limits are applied as a safe default.
+**Open Source** tier limits are applied as a safe default.
 
 Configuration via environment variables:
-  DIRECTAI_RATE_LIMIT_RPM:         override Developer RPM (default: 60)
-  DIRECTAI_RATE_LIMIT_TPM:         override Developer TPM (default: 100000)
+  DIRECTAI_RATE_LIMIT_RPM:         override Open Source RPM (default: 60)
+  DIRECTAI_RATE_LIMIT_TPM:         override Open Source TPM (default: 100000)
   DIRECTAI_RATE_LIMIT_MAX_BUCKETS: max tracked keys before eviction (default: 50000)
 """
 
@@ -47,12 +47,15 @@ class TierLimits:
 
 
 TIER_LIMITS: dict[str, TierLimits] = {
+    "open-source": TierLimits(rpm=60, tpm=100_000),
+    "managed": TierLimits(rpm=600, tpm=1_000_000),
+    "enterprise": TierLimits(rpm=10_000, tpm=100_000_000),  # effectively unlimited
+    # Legacy aliases — map old DB values to new tiers during migration
     "developer": TierLimits(rpm=60, tpm=100_000),
     "pro": TierLimits(rpm=600, tpm=1_000_000),
-    "enterprise": TierLimits(rpm=10_000, tpm=100_000_000),  # effectively unlimited
 }
 
-DEFAULT_TIER = "developer"
+DEFAULT_TIER = "open-source"
 
 # Buckets older than this (seconds since last access) are eligible for eviction.
 _BUCKET_TTL = 600  # 10 minutes
@@ -346,9 +349,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                                     "error": {
                                         "message": (
                                             f"Monthly credit limit exceeded. "
-                                            f"Developer tier includes ${cap_cents / 100:.2f}/month in credits. "
+                                            f"Open Source tier includes ${cap_cents / 100:.2f}/month in credits. "
                                             f"Current spend: ${spend_cents / 100:.2f}. "
-                                            f"Upgrade to Pro for higher limits."
+                                            f"Upgrade to Managed for higher limits."
                                         ),
                                         "type": "spending_limit_error",
                                         "code": "monthly_credit_exceeded",

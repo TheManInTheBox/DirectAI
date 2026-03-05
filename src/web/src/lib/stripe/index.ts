@@ -5,7 +5,7 @@
  *   import { stripe, createStripeCustomer, createCheckoutSession } from "@/lib/stripe";
  */
 
-export { stripe, STRIPE_METERS } from "./client";
+export { stripe } from "./client";
 export {
   createStripeCustomer,
   createCheckoutSession,

@@ -36,11 +36,3 @@ export const stripe = new Proxy({} as Stripe, {
     return (getStripe() as unknown as Record<string | symbol, unknown>)[prop];
   },
 });
-
-/**
- * Stripe Meter event names — must match meters configured in Stripe Dashboard.
- */
-export const STRIPE_METERS = {
-  /** Token usage for LLM/embedding/STT inference. */
-  TOKENS: process.env.STRIPE_METER_ID_TOKENS ?? "directai_token_usage",
-} as const;

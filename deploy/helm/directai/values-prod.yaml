@@ -63,10 +63,6 @@ apiServer:
     secrets:
       - objectName: database-url
         secretKey: DIRECTAI_DATABASE_URL
-      - objectName: stripe-secret-key
-        secretKey: DIRECTAI_STRIPE_SECRET_KEY
-      - objectName: stripe-meter-id-tokens
-        secretKey: DIRECTAI_STRIPE_METER_ID_TOKENS
       - objectName: appinsights-connection-string
         secretKey: DIRECTAI_APPINSIGHTS_CONNECTION_STRING
 

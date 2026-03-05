@@ -69,10 +69,8 @@ web:
         secretKey: STRIPE_SECRET_KEY
       - objectName: stripe-webhook-secret
         secretKey: STRIPE_WEBHOOK_SECRET
-      - objectName: stripe-pro-price-id
-        secretKey: STRIPE_PRO_PRICE_ID
-      - objectName: stripe-meter-id-tokens
-        secretKey: STRIPE_METER_ID_TOKENS
+      - objectName: stripe-managed-price-id
+        secretKey: STRIPE_MANAGED_PRICE_ID
 
   ingress:
     enabled: true
