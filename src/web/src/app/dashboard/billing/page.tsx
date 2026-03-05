@@ -7,6 +7,8 @@ import { eq } from "drizzle-orm";
 import { Check, Zap, Shield } from "lucide-react";
 import { BillingActions } from "./billing-actions";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Billing",
   description: "Manage your DirectAI subscription and billing.",

@@ -5,6 +5,8 @@ import { getUsageSummary, getUsageByModel, getDailyUsage } from "./actions";
 import { UsageCharts } from "./usage-charts";
 import { Activity, ArrowUpRight, ArrowDownRight, Hash } from "lucide-react";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Usage — DirectAI",
   description: "Monitor your API token consumption and request volume.",

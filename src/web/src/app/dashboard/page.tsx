@@ -7,6 +7,8 @@ import { apiKeys, users, usageRecords } from "@/lib/db/schema";
 import { eq, and, isNull, gte, sql } from "drizzle-orm";
 import { Key, CreditCard, Zap } from "lucide-react";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Dashboard",
   description: "Manage your DirectAI API keys, usage, and billing.",
