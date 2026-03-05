@@ -1,0 +1,192 @@
+# ============================================================================
+# DirectAI — Functional Tests (Reusable Workflow)
+# Runs the pytest functional test suite against live deployed endpoints.
+#
+# Called by other workflows after a successful deployment:
+#   - build-api-server.yml → after API server Helm deploy
+#   - build-web.yml        → after web Helm deploy
+#   - deploy-model.yml     → after model backend deploy
+#
+# Can also be triggered manually (workflow_dispatch) or on a schedule.
+#
+# Requirements:
+#   - FUNC_TEST_API_KEY secret set on the calling environment
+#   - Target endpoints must be reachable from GitHub-hosted runners
+#
+# SECURITY: Pin third-party actions to commit SHAs before going to production.
+# ============================================================================
+
+name: Functional Tests
+
+on:
+  # ── Reusable workflow (called by other workflows) ──────────────
+  workflow_call:
+    inputs:
+      api_base_url:
+        description: "API server base URL"
+        required: false
+        type: string
+        default: "https://api.agilecloud.ai"
+      web_base_url:
+        description: "Web frontend base URL"
+        required: false
+        type: string
+        default: "https://agilecloud.ai"
+      test_scope:
+        description: "Which test modules to run: 'all', 'api', or 'web'"
+        required: false
+        type: string
+        default: "all"
+      inter_test_delay:
+        description: "Seconds between API requests (rate-limit pacer)"
+        required: false
+        type: string
+        default: "1.5"
+      environment:
+        description: "GitHub environment to pull secrets from"
+        required: false
+        type: string
+        default: "platform"
+    secrets:
+      FUNC_TEST_API_KEY:
+        description: "Bearer token for authenticated API tests"
+        required: false
+
+  # ── Manual trigger ─────────────────────────────────────────────
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: "API server base URL"
+        required: false
+        type: string
+        default: "https://api.agilecloud.ai"
+      web_base_url:
+        description: "Web frontend base URL"
+        required: false
+        type: string
+        default: "https://agilecloud.ai"
+      test_scope:
+        description: "Which test modules to run"
+        required: false
+        type: choice
+        options:
+          - all
+          - api
+          - web
+        default: "all"
+      inter_test_delay:
+        description: "Seconds between API requests (rate-limit pacer)"
+        required: false
+        type: string
+        default: "1.5"
+
+  # ── Nightly regression ─────────────────────────────────────────
+  schedule:
+    - cron: "0 6 * * *"  # 06:00 UTC daily
+
+permissions:
+  contents: read
+
+jobs:
+  functional-tests:
+    name: Functional Tests (${{ inputs.test_scope || 'all' }})
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'platform' }}
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: pip install --no-cache-dir httpx pytest
+
+      - name: Resolve test scope
+        id: scope
+        shell: bash
+        run: |
+          SCOPE="${{ inputs.test_scope || 'all' }}"
+          case "$SCOPE" in
+            api)
+              # API-only: auth, models, embeddings, chat, health (skip web)
+              PATHS="tests/functional/test_auth.py tests/functional/test_models.py tests/functional/test_embeddings.py tests/functional/test_chat.py tests/functional/test_health.py"
+              ;;
+            web)
+              # Web-only
+              PATHS="tests/functional/test_web.py"
+              ;;
+            *)
+              # All tests
+              PATHS="tests/functional/"
+              ;;
+          esac
+          echo "paths=${PATHS}" >> "$GITHUB_OUTPUT"
+          echo "Running: ${PATHS}"
+
+      - name: Run functional tests
+        env:
+          DIRECTAI_FUNC_TEST_BASE_URL: ${{ inputs.api_base_url || 'https://api.agilecloud.ai' }}
+          DIRECTAI_FUNC_TEST_WEB_URL: ${{ inputs.web_base_url || 'https://agilecloud.ai' }}
+          DIRECTAI_FUNC_TEST_KEY: ${{ secrets.FUNC_TEST_API_KEY }}
+          DIRECTAI_FUNC_TEST_DELAY: ${{ inputs.inter_test_delay || '1.5' }}
+        run: |
+          python -m pytest ${{ steps.scope.outputs.paths }} \
+            -v --tb=short --junitxml=test-results.xml \
+            2>&1 | tee test-output.txt
+
+          # Capture exit code from pytest (pipefail not needed — tee preserves it)
+          EXIT_CODE=${PIPESTATUS[0]}
+          echo "pytest_exit_code=${EXIT_CODE}" >> "$GITHUB_ENV"
+          exit $EXIT_CODE
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: functional-test-results
+          path: |
+            test-results.xml
+            test-output.txt
+          retention-days: 30
+
+      - name: Test summary
+        if: always()
+        shell: bash
+        run: |
+          echo "## 🧪 Functional Test Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -f test-results.xml ]; then
+            TESTS=$(grep -oP 'tests="\K[^"]+' test-results.xml || echo "?")
+            FAILURES=$(grep -oP 'failures="\K[^"]+' test-results.xml || echo "?")
+            ERRORS=$(grep -oP 'errors="\K[^"]+' test-results.xml || echo "?")
+            SKIPPED=$(grep -oP 'skipped="\K[^"]+' test-results.xml || echo "0")
+            TIME=$(grep -oP 'time="\K[^"]+' test-results.xml || echo "?")
+
+            echo "| Metric | Value |" >> "$GITHUB_STEP_SUMMARY"
+            echo "|--------|-------|" >> "$GITHUB_STEP_SUMMARY"
+            echo "| **Total** | ${TESTS} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| **Passed** | $((TESTS - FAILURES - ERRORS - SKIPPED)) |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| **Failed** | ${FAILURES} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| **Errors** | ${ERRORS} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| **Skipped** | ${SKIPPED} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| **Duration** | ${TIME}s |" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Setting | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **API URL** | \`${{ inputs.api_base_url || 'https://api.agilecloud.ai' }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Web URL** | \`${{ inputs.web_base_url || 'https://agilecloud.ai' }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Scope** | \`${{ inputs.test_scope || 'all' }}\` |" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${{ env.pytest_exit_code }}" != "0" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "### ❌ Failures" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            grep -E "^FAILED|^ERROR" test-output.txt | head -20 >> "$GITHUB_STEP_SUMMARY" || true
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi

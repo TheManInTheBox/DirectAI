@@ -167,3 +167,16 @@ jobs:
           echo "| **Cluster** | \`aks-dai-platform-${{ env.PLATFORM_ENV }}-${{ env.PLATFORM_REGION }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| **Namespace** | \`directai\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| **URL** | https://agilecloud.ai |" >> "$GITHUB_STEP_SUMMARY"
+
+  # ── Functional Tests (post-deploy) ──────────────────────────────────────
+  functional-tests:
+    name: Functional Tests
+    needs: deploy
+    uses: ./.github/workflows/functional-tests.yml
+    with:
+      api_base_url: "https://api.agilecloud.ai"
+      web_base_url: "https://agilecloud.ai"
+      test_scope: web
+      environment: platform
+    secrets:
+      FUNC_TEST_API_KEY: ${{ secrets.FUNC_TEST_API_KEY }}

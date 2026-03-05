@@ -237,3 +237,17 @@ jobs:
             curl -sf http://directai-api-server:8000/healthz
 
           echo "✓ Smoke test passed"
+
+  # ── Functional Tests (post-deploy) ─────────────────────────────
+  functional-tests:
+    name: Functional Tests
+    needs: deploy
+    if: inputs.deploy == true
+    uses: ./.github/workflows/functional-tests.yml
+    with:
+      api_base_url: "https://api.agilecloud.ai"
+      web_base_url: "https://agilecloud.ai"
+      test_scope: api
+      environment: platform
+    secrets:
+      FUNC_TEST_API_KEY: ${{ secrets.FUNC_TEST_API_KEY }}
