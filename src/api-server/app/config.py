@@ -107,6 +107,48 @@ class Settings(BaseSettings):
         description="Stripe Meter event name for transcription (centiseconds).",
     )
 
+    # ── Audit logging ────────────────────────────────────────────
+    audit_enabled: bool = Field(
+        default=False,
+        description="Enable audit logging of all inference requests.",
+    )
+    audit_pg_enabled: bool = Field(
+        default=True,
+        description="Write audit records to PostgreSQL (queryable, 90-day retention).",
+    )
+    audit_pg_retention_days: int = Field(
+        default=90,
+        description="Auto-prune PG audit records older than this (days).",
+    )
+    audit_blob_enabled: bool = Field(
+        default=False,
+        description="Write audit records to Azure Immutable Blob Storage (long-term archival).",
+    )
+    audit_storage_account: str = Field(
+        default="",
+        description="Azure Storage Account name for audit blob writes.",
+    )
+    audit_storage_container: str = Field(
+        default="audit-logs",
+        description="Blob container name for audit records.",
+    )
+    audit_retention_days: int = Field(
+        default=365,
+        description="Blob retention period in days (Azure immutability policy).",
+    )
+    audit_queue_size: int = Field(
+        default=50_000,
+        description="Max audit records in async write queue.",
+    )
+    audit_flush_interval: float = Field(
+        default=5.0,
+        description="Seconds between audit writer flush cycles.",
+    )
+    audit_batch_size: int = Field(
+        default=100,
+        description="Max audit records per flush batch.",
+    )
+
     # ── Tracing (OpenTelemetry) ──────────────────────────────────
     otel_enabled: bool = Field(
         default=True,

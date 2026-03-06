@@ -16,6 +16,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
+from app.audit import AuditMiddleware
 from app.config import get_settings
 from app.metrics import metrics_content_type, metrics_response_body
 from app.middleware import CorrelationIdMiddleware, RateLimitMiddleware, RequestLoggingMiddleware
@@ -91,6 +92,28 @@ async def lifespan(app: FastAPI):
     await key_store.startup()
     app.state.key_store = key_store
 
+    # ── Audit writer (compliance logging) ───────────────────────
+    from app.audit.config import AuditConfig
+    from app.audit.writer import AuditWriter
+    audit_config = AuditConfig(
+        enabled=settings.audit_enabled,
+        pg_enabled=settings.audit_pg_enabled,
+        pg_retention_days=settings.audit_pg_retention_days,
+        blob_enabled=settings.audit_blob_enabled,
+        storage_account=settings.audit_storage_account,
+        storage_container=settings.audit_storage_container,
+        retention_days=settings.audit_retention_days,
+        queue_size=settings.audit_queue_size,
+        flush_interval=settings.audit_flush_interval,
+        batch_size=settings.audit_batch_size,
+    )
+    audit_writer = AuditWriter(
+        config=audit_config,
+        pg_pool=key_store._pool if key_store.enabled else None,
+    )
+    await audit_writer.start()
+    app.state.audit_writer = audit_writer
+
     # ── Stripe usage reporter (hybrid billing — metered per-token) ──
     from app.billing import StripeUsageReporter
     usage_reporter = StripeUsageReporter(
@@ -128,6 +151,7 @@ async def lifespan(app: FastAPI):
 
     # ── Shutdown ────────────────────────────────────────────────────
     await monitor.stop()
+    await audit_writer.stop()
     await usage_reporter.stop()
     await repository.shutdown()
     await backend.shutdown()
@@ -144,7 +168,12 @@ app = FastAPI(
 )
 
 # ── Middleware (order matters: outermost first) ─────────────────────
+# Stack (outermost → innermost):
+#   CorrelationIdMiddleware → RateLimitMiddleware → AuditMiddleware → RequestLoggingMiddleware
+# Audit sits inside rate-limiting so rejected requests aren't audited,
+# but outside logging so audit has the final status code.
 app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(AuditMiddleware)
 _settings = get_settings()
 app.add_middleware(
     RateLimitMiddleware,
