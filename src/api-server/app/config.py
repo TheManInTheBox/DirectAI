@@ -112,6 +112,38 @@ class Settings(BaseSettings):
         default=False,
         description="Enable audit logging of all inference requests.",
     )
+
+    # ── Content safety (guardrails) ─────────────────────────────
+    content_safety_enabled: bool = Field(
+        default=False,
+        description="Enable Azure AI Content Safety filtering on inference requests.",
+    )
+    content_safety_endpoint: str = Field(
+        default="",
+        description="Azure AI Content Safety endpoint URL. Empty = stub mode.",
+    )
+    content_safety_key: str = Field(
+        default="",
+        description="Azure AI Content Safety API key (Ocp-Apim-Subscription-Key).",
+    )
+    content_safety_threshold: int = Field(
+        default=4,
+        ge=0,
+        le=6,
+        description="Block if any category severity >= this value (0-6).",
+    )
+    content_safety_check_output: bool = Field(
+        default=True,
+        description="Also check LLM output (response) for safety violations.",
+    )
+    content_safety_stream_check_chars: int = Field(
+        default=2000,
+        description="Streaming: chars to accumulate between safety checks.",
+    )
+    content_safety_timeout: float = Field(
+        default=2.0,
+        description="Timeout in seconds for Content Safety API calls.",
+    )
     audit_pg_enabled: bool = Field(
         default=True,
         description="Write audit records to PostgreSQL (queryable, 90-day retention).",

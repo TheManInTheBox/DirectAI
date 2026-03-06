@@ -18,6 +18,7 @@ from starlette.responses import Response
 
 from app.audit import AuditMiddleware
 from app.config import get_settings
+from app.guardrails import ContentSafetyMiddleware
 from app.metrics import metrics_content_type, metrics_response_body
 from app.middleware import CorrelationIdMiddleware, RateLimitMiddleware, RequestLoggingMiddleware
 from app.models import ModelRepository
@@ -114,6 +115,23 @@ async def lifespan(app: FastAPI):
     await audit_writer.start()
     app.state.audit_writer = audit_writer
 
+    # ── Content safety client (guardrails) ──────────────────────
+    from app.guardrails.config import GuardrailsConfig
+    from app.guardrails.content_safety import ContentSafetyClient
+    guardrails_config = GuardrailsConfig(
+        enabled=settings.content_safety_enabled,
+        endpoint=settings.content_safety_endpoint,
+        api_key=settings.content_safety_key,
+        threshold=settings.content_safety_threshold,
+        check_output=settings.content_safety_check_output,
+        stream_check_interval_chars=settings.content_safety_stream_check_chars,
+        timeout=settings.content_safety_timeout,
+    )
+    app.state.guardrails_config = guardrails_config
+    safety_client = ContentSafetyClient(guardrails_config)
+    await safety_client.startup()
+    app.state.content_safety_client = safety_client
+
     # ── Stripe usage reporter (hybrid billing — metered per-token) ──
     from app.billing import StripeUsageReporter
     usage_reporter = StripeUsageReporter(
@@ -151,6 +169,7 @@ async def lifespan(app: FastAPI):
 
     # ── Shutdown ────────────────────────────────────────────────────
     await monitor.stop()
+    await safety_client.shutdown()
     await audit_writer.stop()
     await usage_reporter.stop()
     await repository.shutdown()
@@ -169,10 +188,12 @@ app = FastAPI(
 
 # ── Middleware (order matters: outermost first) ─────────────────────
 # Stack (outermost → innermost):
-#   CorrelationIdMiddleware → RateLimitMiddleware → AuditMiddleware → RequestLoggingMiddleware
-# Audit sits inside rate-limiting so rejected requests aren't audited,
-# but outside logging so audit has the final status code.
+#   CorrelationId → RateLimit → Audit → ContentSafety → RequestLogging
+# RateLimit stashes key_info on request.state (for bypass checks).
+# Audit wraps ContentSafety so safety results are captured in audit records.
+# ContentSafety wraps RequestLogging so blocked requests still get logged.
 app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(ContentSafetyMiddleware)
 app.add_middleware(AuditMiddleware)
 _settings = get_settings()
 app.add_middleware(
