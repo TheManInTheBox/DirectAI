@@ -187,7 +187,12 @@ backends:
       # which mismatches the host kernel driver 580.95.05 → CUDA Error 803.
       LD_LIBRARY_PATH: "/lib/x86_64-linux-gnu"
     scaling:
-      enabled: false
+      enabled: true
+      minReplicas: 1                # always-warm — LLM cold start is ~2min
+      maxReplicas: 2
+      targetConcurrency: 4          # LLMs handle much less concurrency than embeddings
+      cooldownPeriod: 180           # 3 min idle before scale-down (dev)
+      stabilizationWindowSeconds: 120  # wait 2 min before removing pods
     tolerations:
       - key: "nvidia.com/gpu"
         operator: "Equal"
