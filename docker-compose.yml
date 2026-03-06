@@ -2,8 +2,10 @@
 # DirectAI — Local Development Stack
 #
 # Usage:
-#   docker compose up              # Start all services
-#   docker compose up api-server   # Start only the API server
+#   docker compose up                          # Core stack (API server + Ollama)
+#   docker compose --profile embeddings up     # + ONNX embeddings engine (CPU)
+#   docker compose --profile web up            # + Next.js web app
+#   docker compose --profile all up            # Everything
 #
 # The API server proxies to Ollama (local LLM) and the embeddings engine.
 # GPU support requires nvidia-container-toolkit on the host.
@@ -56,28 +58,59 @@ services:
       timeout: 3s
       retries: 5
 
-  # ── Embeddings Engine (ONNX Runtime) ──────────────────────────────
-  # Only useful if you have a local ONNX model exported.
-  # embeddings-engine:
-  #   build:
-  #     context: src/embeddings-engine
-  #     dockerfile: Dockerfile
-  #     args:
-  #       BAKE_MODEL: "0"
-  #   ports:
-  #     - "8001:8001"
-  #   environment:
-  #     EMBED_MODEL_PATH: "/models/model.onnx"
-  #     EMBED_TOKENIZER_PATH: "/models"
-  #     EMBED_EXECUTION_PROVIDER: "CPUExecutionProvider"
-  #     EMBED_LOG_LEVEL: "debug"
-  #   volumes:
-  #     - ./local-models/embeddings:/models:ro
-  #   healthcheck:
-  #     test: ["CMD", "curl", "-f", "http://localhost:8001/healthz"]
-  #     interval: 10s
-  #     timeout: 3s
-  #     retries: 5
+  # ── Embeddings Engine (ONNX Runtime — CPU mode) ───────────────────
+  # Bakes the BGE-large model at build time (~1.3 GB download).
+  # First build takes ~5 min; subsequent builds use Docker cache.
+  # Activate with:  docker compose --profile embeddings up
+  embeddings-engine:
+    profiles: ["embeddings", "all"]
+    build:
+      context: src/embeddings-engine
+      dockerfile: Dockerfile
+      args:
+        BAKE_MODEL: "1"
+        MODEL_ID: "BAAI/bge-large-en-v1.5"
+    ports:
+      - "8001:8001"
+    environment:
+      EMBED_EXECUTION_PROVIDER: "CPUExecutionProvider"
+      EMBED_LOG_LEVEL: "debug"
+      EMBED_MAX_BATCH_SIZE: "32"      # Lower for CPU
+      EMBED_BATCH_TIMEOUT_MS: "50"    # Higher latency tolerance on CPU
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── Web App (Next.js) ─────────────────────────────────────────────
+  # Marketing site + dashboard. Requires env vars for auth/billing
+  # to be fully functional — runs in degraded mode without them.
+  # Activate with:  docker compose --profile web up
+  web:
+    profiles: ["web", "all"]
+    build:
+      context: src/web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: "development"
+      HOSTNAME: "0.0.0.0"
+      PORT: "3000"
+      # Auth + billing disabled by default for local dev.
+      # Copy src/web/.env.example to src/web/.env.local and fill in
+      # secrets to enable dashboard auth and Stripe billing.
+    env_file:
+      - path: src/web/.env.local
+        required: false
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
 
 volumes:
   ollama-data:

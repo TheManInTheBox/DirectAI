@@ -126,7 +126,10 @@ DIRECTAI_MODEL_CONFIG_DIR=../../deploy/models/local python -m uvicorn app.main:a
 Or use Docker Compose (starts API server + Ollama):
 
 ```bash
-docker compose up
+docker compose up                          # Core: API server + Ollama
+docker compose --profile embeddings up     # + ONNX embeddings engine (CPU)
+docker compose --profile web up            # + Next.js web app
+docker compose --profile all up            # Everything
 ```
 
 ### 3. Send a request
@@ -149,7 +152,7 @@ curl http://localhost:8000/v1/models
 ## Running Tests
 
 ```bash
-# API server (unit + integration — 192 tests)
+# API server (unit + integration — 216 tests)
 cd src/api-server && python -m pytest tests/ -v
 
 # TRT-LLM engine (runs in stub mode — no GPU needed)
@@ -215,15 +218,29 @@ See `.env.example` for the full list.
 
 ## Pricing
 
-| | Open Source (Free) | Managed ($3K/mo) | Enterprise (Custom) |
-|---|---|---|---|
-| **Compute** | Customer pays Azure directly | Customer pays Azure directly | Customer pays Azure directly |
-| **Deployment** | Self-service (Helm + Bicep) | DirectAI deploys into your subscription | Dedicated solutions engineering |
-| **Support** | Community (GitHub Issues) | Email, 24hr SLA | Slack + phone, 1hr SLA |
-| **SLA** | Best-effort | 99.9% | 99.99% |
-| **Lock-in** | None — Apache 2.0 | None — cancel anytime, stack keeps running | None |
+4 tiers — hybrid billing (base fee + metered per-token usage).
 
-DirectAI never touches GPU costs. You pay Azure through your existing EA/MCA.
+| | Free | Pro ($50/mo + usage) | Managed ($3,500/mo + usage) | Enterprise (Custom) |
+|---|---|---|---|---|
+| **Base** | $0/mo (self-hosted) or $5 one-time credit (shared API) | $50/mo + per-token usage | $3,500/mo + per-token usage | Custom flat fee (starting $10K/mo) |
+| **Compute** | Customer pays Azure directly (self-hosted) | Included in per-token rates | Included in per-token rates | Customer pays Azure directly |
+| **Deployment** | Self-service (Helm + Bicep) | Shared DirectAI cluster | Isolated DirectAI-owned subscription | Customer's own subscription |
+| **Models** | Any OSS model | Curated (Qwen, Llama, BGE, Whisper) | Any OSS + fine-tuned | + custom model optimization |
+| **Rate limits** | 20 RPM / 40K TPM | 300 RPM / 500K TPM | 1,000 RPM / 5M TPM | Custom |
+| **Support** | Community (GitHub Issues) | Email, 48hr SLA | Email, 24hr SLA | Slack + phone, 1hr SLA |
+| **SLA** | Best-effort | 99.5% | 99.9% | 99.99% |
+| **Lock-in** | None — Apache 2.0 | None | None | None |
+
+### Per-Token Usage Rates
+
+| Modality | Metric | Pro | Managed (2×) |
+|---|---|---|---|
+| Chat — input | per 1M tokens | $1.00 | $2.00 |
+| Chat — output | per 1M tokens | $2.00 | $4.00 |
+| Embeddings | per 1M tokens | $0.10 | $0.20 |
+| Transcription | per minute | $0.10 | $0.20 |
+
+Free/Pro targets developers and startups. Managed targets teams needing isolated infrastructure without managing it. Enterprise targets regulated enterprises (healthcare, financial services, government) where data must stay in the customer's own Azure subscription.
 
 ## Contributing
 

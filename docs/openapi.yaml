@@ -1,0 +1,1698 @@
+openapi: 3.1.0
+info:
+  title: DirectAI
+  description: "High-performance AI inference API \u2014 OpenAI-compatible."
+  version: 0.1.0
+paths:
+  /v1/chat/completions:
+    post:
+      summary: Create Chat Completion
+      operationId: create_chat_completion_v1_chat_completions_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCompletionRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionResponse'
+        '404':
+          description: Model not found
+        '502':
+          description: Backend error
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /v1/embeddings:
+    post:
+      summary: Create Embedding
+      operationId: create_embedding_v1_embeddings_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmbeddingRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmbeddingResponse'
+        '404':
+          description: Model not found
+        '502':
+          description: Backend error
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /v1/audio/transcriptions:
+    post:
+      summary: Create Transcription
+      operationId: create_transcription_v1_audio_transcriptions_post
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_create_transcription_v1_audio_transcriptions_post'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TranscriptionResponse'
+        '404':
+          description: Model not found
+        '502':
+          description: Backend error
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /v1/models:
+    get:
+      summary: List Models
+      operationId: list_models_v1_models_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/app__schemas__models__ModelListResponse'
+      security:
+      - HTTPBearer: []
+  /api/v1/models:
+    post:
+      tags:
+      - models-native
+      summary: Register Model
+      description: "Register a new model version.\n\nReturns 409 if (name, version)\
+        \ already exists \u2014 versions are\nimmutable, create a new version instead."
+      operationId: register_model_api_v1_models_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterModelRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - models-native
+      summary: List Models
+      description: List all registered models with optional filters.
+      operationId: list_models_api_v1_models_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - $ref: '#/components/schemas/ModelStatus'
+          - type: 'null'
+          title: Status
+      - name: architecture
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Architecture
+      - name: modality
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - $ref: '#/components/schemas/Modality'
+          - type: 'null'
+          title: Modality
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/app__schemas__native__ModelListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/models/{model_id}:
+    get:
+      tags:
+      - models-native
+      summary: Get Model
+      description: Get a model by ID.
+      operationId: get_model_api_v1_models__model_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: model_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Model Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+      - models-native
+      summary: Update Model
+      description: "Update model status or engine artifacts (build pipeline callback).\n\
+        \nOnly ``status`` and ``engine_artifacts`` are mutable \u2014 all other\n\
+        fields are frozen once registered."
+      operationId: update_model_api_v1_models__model_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: model_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Model Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateModelRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - models-native
+      summary: Delete Model
+      description: Deregister a model.  Fails if active deployments exist.
+      operationId: delete_model_api_v1_models__model_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: model_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Model Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/deployments:
+    post:
+      tags:
+      - deployments-native
+      summary: Create Deployment
+      description: "Create a new deployment for a registered model.\n\nThe deployment\
+        \ starts in ``pending`` status.  The deploy workflow\n(or operator) should\
+        \ PATCH status through provisioning \u2192 running."
+      operationId: create_deployment_api_v1_deployments_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDeploymentRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - deployments-native
+      summary: List Deployments
+      description: List deployments with optional filters.
+      operationId: list_deployments_api_v1_deployments_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - $ref: '#/components/schemas/DeploymentStatus'
+          - type: 'null'
+          title: Status
+      - name: model_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/deployments/{deployment_id}:
+    get:
+      tags:
+      - deployments-native
+      summary: Get Deployment
+      description: Get deployment details.
+      operationId: get_deployment_api_v1_deployments__deployment_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: deployment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Deployment Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+      - deployments-native
+      summary: Update Deployment
+      description: "Update deployment scaling config or status.\n\nStatus transitions\
+        \ are used by the deploy workflow to report\nprogress: ``pending \u2192 provisioning\
+        \ \u2192 running`` or ``\u2192 failed``.\n\nWhen status transitions to ``running``\
+        \ **and** ``endpoint_url`` is\nprovided, the model is added to the inference\
+        \ routing table."
+      operationId: update_deployment_api_v1_deployments__deployment_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: deployment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Deployment Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDeploymentRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - deployments-native
+      summary: Delete Deployment
+      description: Terminate a deployment and remove from routing.
+      operationId: delete_deployment_api_v1_deployments__deployment_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: deployment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Deployment Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/engine-cache:
+    post:
+      tags:
+      - engine-cache
+      summary: Register Engine
+      description: Register a compiled engine in the cache (upsert by cache key).
+      operationId: register_engine_api_v1_engine_cache_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterEngineCacheRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EngineCacheEntry'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - engine-cache
+      summary: List Engine Cache
+      description: List cached engines with optional filters.
+      operationId: list_engine_cache_api_v1_engine_cache_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: architecture
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Architecture
+      - name: gpu_sku
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Gpu Sku
+      - name: trtllm_version
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Trtllm Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EngineCacheListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/engine-cache/lookup:
+    get:
+      tags:
+      - engine-cache
+      summary: Lookup Engine
+      description: 'Look up a cached engine by its component fields.
+
+
+        Returns cache_hit=true with the entry if found, or cache_hit=false
+
+        with entry=null if not.  A version mismatch is treated as a miss
+
+        (lazy invalidation).'
+      operationId: lookup_engine_api_v1_engine_cache_lookup_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: architecture
+        in: query
+        required: true
+        schema:
+          type: string
+          description: Model architecture
+          title: Architecture
+        description: Model architecture
+      - name: parameter_count
+        in: query
+        required: true
+        schema:
+          type: string
+          description: Parameter count label
+          title: Parameter Count
+        description: Parameter count label
+      - name: quantization
+        in: query
+        required: false
+        schema:
+          type: string
+          description: Quantization
+          default: float16
+          title: Quantization
+        description: Quantization
+      - name: tp_degree
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 8
+          minimum: 1
+          description: TP degree
+          default: 1
+          title: Tp Degree
+        description: TP degree
+      - name: gpu_sku
+        in: query
+        required: true
+        schema:
+          type: string
+          description: Target GPU SKU
+          title: Gpu Sku
+        description: Target GPU SKU
+      - name: trtllm_version
+        in: query
+        required: true
+        schema:
+          type: string
+          description: TRT-LLM version
+          title: Trtllm Version
+        description: TRT-LLM version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EngineCacheLookupResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/engine-cache/{entry_id}:
+    get:
+      tags:
+      - engine-cache
+      summary: Get Engine Cache Entry
+      description: Get a specific engine cache entry.
+      operationId: get_engine_cache_entry_api_v1_engine_cache__entry_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: entry_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Entry Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EngineCacheEntry'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - engine-cache
+      summary: Delete Engine Cache Entry
+      description: Delete a specific engine cache entry.
+      operationId: delete_engine_cache_entry_api_v1_engine_cache__entry_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: entry_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Entry Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EngineCacheEntry'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/engine-cache/version/{trtllm_version}:
+    delete:
+      tags:
+      - engine-cache
+      summary: Invalidate By Version
+      description: 'Invalidate all cached engines for a specific TRT-LLM version.
+
+
+        Use this for proactive cache busting when the engine cache exceeds
+
+        ~20 entries and lazy invalidation becomes too slow.'
+      operationId: invalidate_by_version_api_v1_engine_cache_version__trtllm_version__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: trtllm_version
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Trtllm Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/health:
+    get:
+      tags:
+      - system-native
+      summary: Health
+      description: "Versioned service health \u2014 model counts, deployment counts,\
+        \ uptime."
+      operationId: health_api_v1_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+      security:
+      - HTTPBearer: []
+  /api/v1/gpu-pools:
+    get:
+      tags:
+      - system-native
+      summary: Gpu Pools
+      description: 'GPU pool capacity summary.
+
+
+        Aggregates GPU SKU requirements from registered models and
+
+        active deployments to show what pools exist and their utilisation.'
+      operationId: gpu_pools_api_v1_gpu_pools_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GpuPoolListResponse'
+      security:
+      - HTTPBearer: []
+components:
+  schemas:
+    Body_create_transcription_v1_audio_transcriptions_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+        model:
+          type: string
+          title: Model
+        language:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Language
+        prompt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Prompt
+        response_format:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Response Format
+          default: json
+        temperature:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Temperature
+      type: object
+      required:
+      - file
+      - model
+      title: Body_create_transcription_v1_audio_transcriptions_post
+    ChatCompletionChoice:
+      properties:
+        index:
+          type: integer
+          title: Index
+        message:
+          $ref: '#/components/schemas/ChatMessage'
+        finish_reason:
+          anyOf:
+          - type: string
+            enum:
+            - stop
+            - length
+            - tool_calls
+            - content_filter
+          - type: 'null'
+          title: Finish Reason
+      type: object
+      required:
+      - index
+      - message
+      title: ChatCompletionChoice
+    ChatCompletionRequest:
+      properties:
+        model:
+          type: string
+          title: Model
+        messages:
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+          type: array
+          minItems: 1
+          title: Messages
+        temperature:
+          anyOf:
+          - type: number
+            maximum: 2.0
+            minimum: 0.0
+          - type: 'null'
+          title: Temperature
+        top_p:
+          anyOf:
+          - type: number
+            maximum: 1.0
+            minimum: 0.0
+          - type: 'null'
+          title: Top P
+        n:
+          anyOf:
+          - type: integer
+            minimum: 1.0
+          - type: 'null'
+          title: N
+          default: 1
+        stream:
+          type: boolean
+          title: Stream
+          default: false
+        stop:
+          anyOf:
+          - type: string
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Stop
+        max_tokens:
+          anyOf:
+          - type: integer
+            minimum: 1.0
+          - type: 'null'
+          title: Max Tokens
+        presence_penalty:
+          anyOf:
+          - type: number
+            maximum: 2.0
+            minimum: -2.0
+          - type: 'null'
+          title: Presence Penalty
+        frequency_penalty:
+          anyOf:
+          - type: number
+            maximum: 2.0
+            minimum: -2.0
+          - type: 'null'
+          title: Frequency Penalty
+        user:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: User
+      type: object
+      required:
+      - model
+      - messages
+      title: ChatCompletionRequest
+    ChatCompletionResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        object:
+          type: string
+          const: chat.completion
+          title: Object
+          default: chat.completion
+        created:
+          type: integer
+          title: Created
+        model:
+          type: string
+          title: Model
+        choices:
+          items:
+            $ref: '#/components/schemas/ChatCompletionChoice'
+          type: array
+          title: Choices
+        usage:
+          anyOf:
+          - $ref: '#/components/schemas/Usage'
+          - type: 'null'
+      type: object
+      required:
+      - model
+      - choices
+      title: ChatCompletionResponse
+    ChatMessage:
+      properties:
+        role:
+          type: string
+          enum:
+          - system
+          - user
+          - assistant
+          - tool
+          title: Role
+        content:
+          anyOf:
+          - type: string
+          - items: {}
+            type: array
+          - type: 'null'
+          title: Content
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+        tool_call_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tool Call Id
+        tool_calls:
+          anyOf:
+          - items: {}
+            type: array
+          - type: 'null'
+          title: Tool Calls
+      type: object
+      required:
+      - role
+      title: ChatMessage
+    CreateDeploymentRequest:
+      properties:
+        model_id:
+          type: string
+          title: Model Id
+          description: ID of the model to deploy.
+        scaling_tier:
+          $ref: '#/components/schemas/ScalingTier'
+          description: Autoscaling tier.
+          default: always-warm
+        min_replicas:
+          type: integer
+          minimum: 0.0
+          title: Min Replicas
+          description: Minimum replicas (0 for scale-to-zero).
+          default: 1
+        max_replicas:
+          type: integer
+          minimum: 1.0
+          title: Max Replicas
+          description: Maximum replicas.
+          default: 4
+        target_concurrency:
+          type: integer
+          minimum: 1.0
+          title: Target Concurrency
+          description: Target in-flight requests per replica.
+          default: 8
+      type: object
+      required:
+      - model_id
+      title: CreateDeploymentRequest
+      description: "POST /api/v1/deployments \u2014 create a new deployment."
+    DeploymentListResponse:
+      properties:
+        data:
+          items:
+            $ref: '#/components/schemas/DeploymentResponse'
+          type: array
+          title: Data
+        count:
+          type: integer
+          title: Count
+      type: object
+      required:
+      - data
+      - count
+      title: DeploymentListResponse
+      description: GET /api/v1/deployments response.
+    DeploymentResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        model_id:
+          type: string
+          title: Model Id
+        scaling_tier:
+          type: string
+          title: Scaling Tier
+        min_replicas:
+          type: integer
+          title: Min Replicas
+        max_replicas:
+          type: integer
+          title: Max Replicas
+        target_concurrency:
+          type: integer
+          title: Target Concurrency
+        status:
+          $ref: '#/components/schemas/DeploymentStatus'
+        endpoint_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Endpoint Url
+        created_at:
+          type: string
+          title: Created At
+        updated_at:
+          type: string
+          title: Updated At
+        status_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status Url
+          description: Pollable URL for tracking deployment status.
+      type: object
+      required:
+      - id
+      - model_id
+      - scaling_tier
+      - min_replicas
+      - max_replicas
+      - target_concurrency
+      - status
+      - endpoint_url
+      - created_at
+      - updated_at
+      title: DeploymentResponse
+      description: Deployment record returned by all deployment endpoints.
+    DeploymentStatus:
+      type: string
+      enum:
+      - pending
+      - provisioning
+      - running
+      - failed
+      - terminated
+      title: DeploymentStatus
+      description: Deployment lifecycle status.
+    EmbeddingData:
+      properties:
+        object:
+          type: string
+          const: embedding
+          title: Object
+          default: embedding
+        index:
+          type: integer
+          title: Index
+        embedding:
+          items:
+            type: number
+          type: array
+          title: Embedding
+      type: object
+      required:
+      - index
+      - embedding
+      title: EmbeddingData
+    EmbeddingRequest:
+      properties:
+        model:
+          type: string
+          title: Model
+        input:
+          anyOf:
+          - type: string
+          - items:
+              type: string
+            type: array
+          title: Input
+        encoding_format:
+          anyOf:
+          - type: string
+            enum:
+            - float
+            - base64
+          - type: 'null'
+          title: Encoding Format
+          default: float
+        dimensions:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Dimensions
+        user:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: User
+      type: object
+      required:
+      - model
+      - input
+      title: EmbeddingRequest
+    EmbeddingResponse:
+      properties:
+        object:
+          type: string
+          const: list
+          title: Object
+          default: list
+        data:
+          items:
+            $ref: '#/components/schemas/EmbeddingData'
+          type: array
+          title: Data
+        model:
+          type: string
+          title: Model
+        usage:
+          $ref: '#/components/schemas/EmbeddingUsage'
+      type: object
+      required:
+      - data
+      - model
+      - usage
+      title: EmbeddingResponse
+    EmbeddingUsage:
+      properties:
+        prompt_tokens:
+          type: integer
+          title: Prompt Tokens
+        total_tokens:
+          type: integer
+          title: Total Tokens
+      type: object
+      required:
+      - prompt_tokens
+      - total_tokens
+      title: EmbeddingUsage
+    EngineCacheEntry:
+      properties:
+        id:
+          type: string
+          title: Id
+        cache_key:
+          type: string
+          title: Cache Key
+        architecture:
+          type: string
+          title: Architecture
+        parameter_count:
+          type: string
+          title: Parameter Count
+        quantization:
+          type: string
+          title: Quantization
+        tp_degree:
+          type: integer
+          title: Tp Degree
+        gpu_sku:
+          type: string
+          title: Gpu Sku
+        trtllm_version:
+          type: string
+          title: Trtllm Version
+        engine_uri:
+          type: string
+          title: Engine Uri
+        created_at:
+          type: string
+          title: Created At
+        updated_at:
+          type: string
+          title: Updated At
+      type: object
+      required:
+      - id
+      - cache_key
+      - architecture
+      - parameter_count
+      - quantization
+      - tp_degree
+      - gpu_sku
+      - trtllm_version
+      - engine_uri
+      - created_at
+      - updated_at
+      title: EngineCacheEntry
+      description: Single cached engine entry.
+    EngineCacheListResponse:
+      properties:
+        data:
+          items:
+            $ref: '#/components/schemas/EngineCacheEntry'
+          type: array
+          title: Data
+        count:
+          type: integer
+          title: Count
+      type: object
+      required:
+      - data
+      - count
+      title: EngineCacheListResponse
+      description: GET /api/v1/engine-cache response.
+    EngineCacheLookupResponse:
+      properties:
+        cache_hit:
+          type: boolean
+          title: Cache Hit
+          description: True if a matching engine was found.
+        cache_key:
+          type: string
+          title: Cache Key
+          description: The computed cache key for the query.
+        entry:
+          anyOf:
+          - $ref: '#/components/schemas/EngineCacheEntry'
+          - type: 'null'
+          description: The cached engine entry, or null on miss.
+      type: object
+      required:
+      - cache_hit
+      - cache_key
+      title: EngineCacheLookupResponse
+      description: GET /api/v1/engine-cache/lookup response.
+    GpuPoolInfo:
+      properties:
+        gpu_sku:
+          type: string
+          title: Gpu Sku
+          description: Azure VM SKU (e.g., Standard_ND96asr_v4).
+        models_registered:
+          type: integer
+          title: Models Registered
+          description: Models registered for this SKU.
+        deployments_running:
+          type: integer
+          title: Deployments Running
+          description: Running deployments on this SKU.
+        total_gpu_allocated:
+          type: integer
+          title: Total Gpu Allocated
+          description: "Estimated GPUs allocated (running replicas \xD7 TP degree)."
+        min_replicas_sum:
+          type: integer
+          title: Min Replicas Sum
+          description: Sum of min_replicas across all deployments.
+        max_replicas_sum:
+          type: integer
+          title: Max Replicas Sum
+          description: Sum of max_replicas across all deployments.
+      type: object
+      required:
+      - gpu_sku
+      - models_registered
+      - deployments_running
+      - total_gpu_allocated
+      - min_replicas_sum
+      - max_replicas_sum
+      title: GpuPoolInfo
+      description: GPU pool capacity summary for a single SKU.
+    GpuPoolListResponse:
+      properties:
+        data:
+          items:
+            $ref: '#/components/schemas/GpuPoolInfo'
+          type: array
+          title: Data
+        count:
+          type: integer
+          title: Count
+      type: object
+      required:
+      - data
+      - count
+      title: GpuPoolListResponse
+      description: GET /api/v1/gpu-pools response.
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    HealthResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+          description: '''healthy'' or ''degraded''.'
+        version:
+          type: string
+          title: Version
+          description: API server version string.
+        uptime_seconds:
+          type: number
+          title: Uptime Seconds
+          description: Seconds since startup.
+        models_registered:
+          type: integer
+          title: Models Registered
+          description: Total models in registry (native API).
+        models_routable:
+          type: integer
+          title: Models Routable
+          description: Models available for inference.
+        deployments_total:
+          type: integer
+          title: Deployments Total
+          description: All deployments (any status).
+        deployments_running:
+          type: integer
+          title: Deployments Running
+          description: Deployments in 'running' status.
+        backends:
+          additionalProperties: true
+          type: object
+          title: Backends
+          description: Backend health summary from health monitor.
+      type: object
+      required:
+      - status
+      - version
+      - uptime_seconds
+      - models_registered
+      - models_routable
+      - deployments_total
+      - deployments_running
+      title: HealthResponse
+      description: "GET /api/v1/health \u2014 service health snapshot."
+    Modality:
+      type: string
+      enum:
+      - chat
+      - embedding
+      - transcription
+      title: Modality
+      description: Inference modality.
+    ModelObject:
+      properties:
+        id:
+          type: string
+          title: Id
+        object:
+          type: string
+          const: model
+          title: Object
+          default: model
+        created:
+          type: integer
+          title: Created
+        owned_by:
+          type: string
+          title: Owned By
+      type: object
+      required:
+      - id
+      - owned_by
+      title: ModelObject
+    ModelResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        name:
+          type: string
+          title: Name
+        version:
+          type: string
+          title: Version
+        architecture:
+          type: string
+          title: Architecture
+        parameter_count:
+          type: integer
+          title: Parameter Count
+        quantization:
+          type: string
+          title: Quantization
+        format:
+          type: string
+          title: Format
+        modality:
+          type: string
+          title: Modality
+        weight_uri:
+          type: string
+          title: Weight Uri
+        required_gpu_sku:
+          type: string
+          title: Required Gpu Sku
+        tp_degree:
+          type: integer
+          title: Tp Degree
+        status:
+          $ref: '#/components/schemas/ModelStatus'
+        engine_artifacts:
+          additionalProperties:
+            type: string
+          type: object
+          title: Engine Artifacts
+        created_at:
+          type: string
+          title: Created At
+        updated_at:
+          type: string
+          title: Updated At
+      type: object
+      required:
+      - id
+      - name
+      - version
+      - architecture
+      - parameter_count
+      - quantization
+      - format
+      - modality
+      - weight_uri
+      - required_gpu_sku
+      - tp_degree
+      - status
+      - engine_artifacts
+      - created_at
+      - updated_at
+      title: ModelResponse
+      description: Model record returned by all model endpoints.
+    ModelStatus:
+      type: string
+      enum:
+      - registered
+      - building
+      - ready
+      - deployed
+      - failed
+      - archived
+      title: ModelStatus
+      description: Model lifecycle status.
+    RegisterEngineCacheRequest:
+      properties:
+        architecture:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Architecture
+          description: Model architecture (e.g., 'llama', 'qwen', 'whisper').
+        parameter_count:
+          type: string
+          maxLength: 32
+          minLength: 1
+          title: Parameter Count
+          description: Parameter count label (e.g., '7b', '70b', 'large-v3').
+        quantization:
+          type: string
+          title: Quantization
+          description: Quantization / dtype (float16, bfloat16, int8, int4_awq).
+          default: float16
+        tp_degree:
+          type: integer
+          maximum: 8.0
+          minimum: 1.0
+          title: Tp Degree
+          description: Tensor parallelism degree the engine was compiled for.
+          default: 1
+        gpu_sku:
+          type: string
+          minLength: 1
+          title: Gpu Sku
+          description: Azure VM SKU (e.g., 'Standard_ND96asr_v4').
+        trtllm_version:
+          type: string
+          minLength: 1
+          title: Trtllm Version
+          description: TRT-LLM version used for compilation (e.g., '0.16.0').
+        engine_uri:
+          type: string
+          minLength: 1
+          title: Engine Uri
+          description: Full Blob URI of compiled engine artifacts.
+      type: object
+      required:
+      - architecture
+      - parameter_count
+      - gpu_sku
+      - trtllm_version
+      - engine_uri
+      title: RegisterEngineCacheRequest
+      description: "POST /api/v1/engine-cache \u2014 register a compiled engine."
+    RegisterModelRequest:
+      properties:
+        name:
+          type: string
+          maxLength: 256
+          minLength: 1
+          title: Name
+          description: Model name (e.g., 'llama-3.1-70b-instruct').
+        version:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Version
+          description: Version string (e.g., '1.0', 'v2024.03'). Immutable once registered.
+        architecture:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Architecture
+          description: Model architecture (e.g., 'llama', 'qwen', 'whisper', 'bert').
+        parameter_count:
+          type: integer
+          minimum: 0.0
+          title: Parameter Count
+          description: Number of parameters (e.g., 70000000000 for 70B).
+          default: 0
+        quantization:
+          type: string
+          title: Quantization
+          description: Quantization format (fp16, int8, int4, etc.).
+          default: fp16
+        format:
+          type: string
+          title: Format
+          description: Weight format (safetensors, onnx, checkpoint).
+          default: safetensors
+        modality:
+          $ref: '#/components/schemas/Modality'
+        weight_uri:
+          type: string
+          minLength: 1
+          title: Weight Uri
+          description: URI to model weights (az://, hf://, s3://).
+        required_gpu_sku:
+          type: string
+          minLength: 1
+          title: Required Gpu Sku
+          description: Azure VM SKU (e.g., 'Standard_ND96asr_v4').
+        tp_degree:
+          type: integer
+          maximum: 8.0
+          minimum: 1.0
+          title: Tp Degree
+          description: Tensor parallelism degree (1 = single GPU).
+          default: 1
+      type: object
+      required:
+      - name
+      - version
+      - architecture
+      - modality
+      - weight_uri
+      - required_gpu_sku
+      title: RegisterModelRequest
+      description: "POST /api/v1/models \u2014 register a new model version."
+    ScalingTier:
+      type: string
+      enum:
+      - always-warm
+      - scale-to-zero
+      title: ScalingTier
+      description: Autoscaling tier for a deployment.
+    TranscriptionResponse:
+      properties:
+        text:
+          type: string
+          title: Text
+      type: object
+      required:
+      - text
+      title: TranscriptionResponse
+    UpdateDeploymentRequest:
+      properties:
+        scaling_tier:
+          anyOf:
+          - $ref: '#/components/schemas/ScalingTier'
+          - type: 'null'
+        min_replicas:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: Min Replicas
+        max_replicas:
+          anyOf:
+          - type: integer
+            minimum: 1.0
+          - type: 'null'
+          title: Max Replicas
+        target_concurrency:
+          anyOf:
+          - type: integer
+            minimum: 1.0
+          - type: 'null'
+          title: Target Concurrency
+        status:
+          anyOf:
+          - $ref: '#/components/schemas/DeploymentStatus'
+          - type: 'null'
+          description: New deployment status (used by workflow callbacks).
+        endpoint_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Endpoint Url
+          description: "Backend URL \u2014 set when deployment reaches 'running'."
+      type: object
+      title: UpdateDeploymentRequest
+      description: "PATCH /api/v1/deployments/{id} \u2014 update scaling config or\
+        \ status.\n\nStatus updates are used by the deploy workflow to report progress:\n\
+        ``pending \u2192 provisioning \u2192 running`` or ``\u2192 failed``.\n\nWhen\
+        \ transitioning to ``running``, also set ``endpoint_url`` so the\nmodel can\
+        \ be registered in the routing table for inference traffic."
+    UpdateModelRequest:
+      properties:
+        status:
+          anyOf:
+          - $ref: '#/components/schemas/ModelStatus'
+          - type: 'null'
+          description: New lifecycle status.
+        engine_artifacts:
+          anyOf:
+          - additionalProperties:
+              type: string
+            type: object
+          - type: 'null'
+          title: Engine Artifacts
+          description: "Map of GPU SKU \u2192 compiled engine blob URI."
+      type: object
+      title: UpdateModelRequest
+      description: "PATCH /api/v1/models/{id} \u2014 update model status (build pipeline\
+        \ callback).\n\nOnly ``status`` and ``engine_artifacts`` are mutable.  Everything\n\
+        else is immutable once registered \u2014 create a new version instead."
+    Usage:
+      properties:
+        prompt_tokens:
+          type: integer
+          title: Prompt Tokens
+        completion_tokens:
+          type: integer
+          title: Completion Tokens
+        total_tokens:
+          type: integer
+          title: Total Tokens
+      type: object
+      required:
+      - prompt_tokens
+      - completion_tokens
+      - total_tokens
+      title: Usage
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+    app__schemas__models__ModelListResponse:
+      properties:
+        object:
+          type: string
+          const: list
+          title: Object
+          default: list
+        data:
+          items:
+            $ref: '#/components/schemas/ModelObject'
+          type: array
+          title: Data
+      type: object
+      required:
+      - data
+      title: ModelListResponse
+    app__schemas__native__ModelListResponse:
+      properties:
+        data:
+          items:
+            $ref: '#/components/schemas/ModelResponse'
+          type: array
+          title: Data
+        count:
+          type: integer
+          title: Count
+      type: object
+      required:
+      - data
+      - count
+      title: ModelListResponse
+      description: GET /api/v1/models response.
+  securitySchemes:
+    HTTPBearer:
+      type: http
+      scheme: bearer
