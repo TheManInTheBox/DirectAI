@@ -36,30 +36,23 @@ RUN if [ "$BAKE_MODEL" = "1" ]; then \
              --no-fp16 \
         && echo "Export complete"; \
     else \
-        mkdir -p /export && echo 'Skipping model export — mount weights at /models'; \
+        mkdir -p /export && echo 'Skipping model export - mount weights at /models'; \
     fi
 
 
 # ── Stage 2: Runtime ────────────────────────────────────────────────────
+# Uses python:3.11-slim instead of nvidia/cuda base image.
+# onnxruntime-gpu bundles CUDA/cuDNN runtime libraries via pip.
+# The host NVIDIA driver (libcuda.so) is mounted by the NVIDIA device plugin on AKS.
 
-FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 AS runtime
+FROM python:3.11-slim AS runtime
 
 ARG MODEL_NAME=bge-large-en-v1.5
 ARG BAKE_MODEL=0
 
-# System deps: Python 3.11 (via deadsnakes PPA — Ubuntu 22.04 ships 3.10) + ONNX Runtime GPU needs
+# libgomp1 is required by ONNX Runtime for OpenMP parallel execution
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        software-properties-common \
-    && add-apt-repository -y ppa:deadsnakes/ppa \
-    && apt-get update && apt-get install -y --no-install-recommends \
-        python3.11 \
-        python3.11-venv \
-        python3.11-distutils \
         libgomp1 \
-    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
-    && update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 \
-    && python3.11 -m ensurepip --upgrade \
-    && python3.11 -m pip install --no-cache-dir --upgrade pip \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -67,7 +60,7 @@ WORKDIR /app
 # Install Python deps + application code
 COPY pyproject.toml .
 COPY engine/ engine/
-RUN pip3 install --no-cache-dir . \
+RUN pip install --no-cache-dir . \
     && rm -rf /root/.cache/pip
 
 # Copy baked model (if exported)
@@ -97,7 +90,7 @@ RUN adduser --system --no-create-home appuser \
 USER appuser
 
 # Run with single worker for GPU-bound workload
-CMD ["python3", "-m", "uvicorn", "engine.main:app", \
+CMD ["python", "-m", "uvicorn", "engine.main:app", \
      "--host", "0.0.0.0", "--port", "8001", \
      "--workers", "1", \
      "--log-level", "info"]
