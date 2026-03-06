@@ -221,6 +221,8 @@ keda:
   enabled: true
   pollingInterval: 15
   cooldownPeriod: 300
+  # How long the HPA waits before removing pods after metric drops
+  stabilizationWindowSeconds: 300
   prometheusServerAddress: http://prometheus-server.monitoring.svc.cluster.local
 # ── Model Config Files ─────────────────────────────────────────────
 # ModelDeployment YAML files to mount into the API server.

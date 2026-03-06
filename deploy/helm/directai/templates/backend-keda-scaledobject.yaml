@@ -1,11 +1,20 @@
 {{/*
 Creates a KEDA ScaledObject for each backend that has scaling.enabled = true.
 Scales on HTTP inflight requests (concurrency) measured by the API server's
-Prometheus metrics endpoint. Falls back to CPU if no KEDA metrics are available.
+Prometheus metrics endpoint.  Falls back to CPU if Prometheus is unreachable.
+
+Per-model overrides (all optional, set under backends.<name>.scaling):
+  cooldownPeriod            — seconds before scaling down  (default: global keda.cooldownPeriod)
+  stabilizationWindowSeconds — HPA stabilisation window     (default: keda.stabilizationWindowSeconds)
+  scaleDownPercent          — max % of pods removed per 60s (default: 100 = unrestricted)
+  targetConcurrency         — inflight requests / replica   (default: 8)
 */}}
 {{- if .Values.keda.enabled }}
 {{- range $name, $backend := .Values.backends }}
 {{- if and $backend.scaling $backend.scaling.enabled }}
+{{- $cooldown    := int ($backend.scaling.cooldownPeriod | default ($.Values.keda.cooldownPeriod | default 300)) }}
+{{- $stabilize   := int ($backend.scaling.stabilizationWindowSeconds | default ($.Values.keda.stabilizationWindowSeconds | default 300)) }}
+{{- $scaleDownPct := int ($backend.scaling.scaleDownPercent | default 100) }}
 ---
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
@@ -20,12 +29,34 @@ spec:
   scaleTargetRef:
     name: {{ $name }}
   pollingInterval: {{ $.Values.keda.pollingInterval | default 15 }}
-  cooldownPeriod: {{ $.Values.keda.cooldownPeriod | default 300 }}
+  cooldownPeriod: {{ $cooldown }}
   minReplicaCount: {{ $backend.scaling.minReplicas | default 0 }}
   maxReplicaCount: {{ $backend.scaling.maxReplicas | default 4 }}
+  # ── Scale-down behaviour ──────────────────────────────────────────
+  # stabilizationWindowSeconds prevents flapping — KEDA waits this long
+  # after the last scale-down recommendation before actually removing pods.
+  # scaleDown.percent caps how many pods can be removed per 60s window.
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: {{ $stabilize }}
+          policies:
+            - type: Percent
+              value: {{ $scaleDownPct }}
+              periodSeconds: 60
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+            - type: Percent
+              value: 100
+              periodSeconds: 15
+            - type: Pods
+              value: 4
+              periodSeconds: 15
+          selectPolicy: Max
   triggers:
-    # Scale on inflight request concurrency per replica.
-    # Requires Prometheus scraping the API server's metrics.
+    # Primary: scale on inflight request concurrency per replica.
     - type: prometheus
       metadata:
         serverAddress: {{ $.Values.keda.prometheusServerAddress | default "http://prometheus-server.monitoring.svc.cluster.local" }}
@@ -33,8 +64,13 @@ spec:
         query: |
           sum(directai_backend_inflight_requests{model="{{ $name }}"})
         threshold: {{ $backend.scaling.targetConcurrency | default 8 | quote }}
+    # Fallback: scale on CPU if Prometheus is unavailable.
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: "70"
   {{- if eq (int ($backend.scaling.minReplicas | default 0)) 0 }}
-  # Scale-to-zero behaviour
+  # Scale-to-zero: KEDA removes all pods when no triggers fire.
   idleReplicaCount: 0
   {{- end }}
 {{- end }}

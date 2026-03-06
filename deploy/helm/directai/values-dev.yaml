@@ -118,7 +118,12 @@ backends:
       EMBED_MAX_BATCH_SIZE: "256"
       EMBED_EXECUTION_PROVIDER: "CUDAExecutionProvider"
     scaling:
-      enabled: false                # single replica for dev
+      enabled: true
+      minReplicas: 1                # always-warm — keep at least 1 replica
+      maxReplicas: 3
+      targetConcurrency: 16         # embeddings handle high concurrency
+      cooldownPeriod: 120           # scale down after 2 min idle (dev)
+      stabilizationWindowSeconds: 60  # wait 60s before removing pods
     tolerations:
       - key: "nvidia.com/gpu"
         operator: "Equal"
