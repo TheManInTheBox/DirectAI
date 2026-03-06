@@ -679,15 +679,11 @@ module platformDb 'br/public:avm/res/db-for-postgre-sql/flexible-server:0.14.0' 
     ]
 
     // High availability — disabled for dev (Burstable doesn't support HA)
-    highAvailability: {
-      mode: 'Disabled'
-    }
+    highAvailability: 'Disabled'
 
-    // Backup — 7 days, no geo for dev
-    backup: {
-      geoRedundantBackup: 'Disabled'
-      backupRetentionDays: environment == 'prod' ? 35 : 7
-    }
+    // Backup — 7 days for dev, 35 for prod; no geo-redundancy for dev
+    backupRetentionDays: environment == 'prod' ? 35 : 7
+    geoRedundantBackup: 'Disabled'
 
     // Diagnostics → Log Analytics
     diagnosticSettings: [
@@ -853,7 +849,9 @@ resource frontDoorCustomDomain 'Microsoft.Cdn/profiles/customDomains@2024-09-01'
       certificateType: 'ManagedCertificate'
       minimumTlsVersion: 'TLS12'
     }
-    azureDnsZoneResourceId: dnsZone!.id
+    azureDnsZone: {
+      id: dnsZone.id
+    }
   }
 }
 
@@ -905,12 +903,12 @@ resource frontDoorSecurityPolicy 'Microsoft.Cdn/profiles/securityPolicies@2024-0
 //    IMPORTANT: Delete the existing A record manually before first deploy.
 
 resource dnsRecordApiFrontDoor 'Microsoft.Network/dnsZones/CNAME@2023-07-01-preview' = if (enableDnsZone && enableFrontDoor) {
-  parent: dnsZone!
+  parent: dnsZone
   name: 'api'
   properties: {
     TTL: 300
     CNAMERecord: {
-      cname: frontDoorEndpoint!.properties.hostName
+      cname: frontDoorEndpoint.properties.hostName
     }
   }
 }
