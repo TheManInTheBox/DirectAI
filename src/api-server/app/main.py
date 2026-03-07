@@ -32,6 +32,7 @@ from app.routes import (
     native_models_router,
     native_system_router,
 )
+from app.router import router_api as routes_router
 from app.routing import BackendClient, BackendHealthMonitor, ModelRegistry
 from app.telemetry import configure_tracing, shutdown_tracing
 
@@ -150,6 +151,18 @@ async def lifespan(app: FastAPI):
     await repository.startup()
     app.state.model_repository = repository
     logger.info("Model repository ready (%s)", settings.database_path)
+    # ── Route repository + routing engine ──────────────────
+    from app.router.engine import RoutingEngine
+    from app.router.fallback import FallbackExecutor
+    from app.router.repository import RouteRepository
+    route_repo = RouteRepository(settings.database_path)
+    await route_repo.startup()
+    app.state.route_repository = route_repo
+    routing_engine = RoutingEngine(route_repo, model_registry=registry)
+    app.state.routing_engine = routing_engine
+    fallback_executor = FallbackExecutor()
+    app.state.fallback_executor = fallback_executor
+    logger.info("Route repository and routing engine ready")
     # ── Backend HTTP client ─────────────────────────────────────────
     backend = BackendClient()
     await backend.startup()
@@ -173,6 +186,7 @@ async def lifespan(app: FastAPI):
     await audit_writer.stop()
     await usage_reporter.stop()
     await repository.shutdown()
+    await route_repo.shutdown()
     await backend.shutdown()
     await key_store.shutdown()
     shutdown_tracing()
@@ -213,6 +227,7 @@ app.include_router(native_models_router)
 app.include_router(native_deployments_router)
 app.include_router(native_engine_cache_router)
 app.include_router(native_system_router)
+app.include_router(routes_router)
 
 
 # ── Health probes ───────────────────────────────────────────────────
