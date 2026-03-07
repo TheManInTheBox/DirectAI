@@ -73,6 +73,8 @@ web:
         secretKey: STRIPE_PRO_PRICE_ID
       - objectName: stripe-managed-price-id
         secretKey: STRIPE_MANAGED_PRICE_ID
+      - objectName: appinsights-connection-string
+        secretKey: APPLICATIONINSIGHTS_CONNECTION_STRING
 
   ingress:
     enabled: true

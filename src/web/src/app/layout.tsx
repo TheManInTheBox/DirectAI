@@ -5,6 +5,7 @@ import "./globals.css";
 import { Navbar } from "@/components/navbar";
 import { ConditionalFooter } from "@/components/conditional-footer";
 import { SessionProvider } from "@/components/session-provider";
+import { AppInsightsProvider } from "@/components/app-insights-provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -90,9 +91,11 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-background font-sans text-foreground antialiased`}
       >
         <SessionProvider>
-          <Navbar />
-          <main>{children}</main>
-          <ConditionalFooter />
+          <AppInsightsProvider>
+            <Navbar />
+            <main>{children}</main>
+            <ConditionalFooter />
+          </AppInsightsProvider>
         </SessionProvider>
       </body>
     </html>
