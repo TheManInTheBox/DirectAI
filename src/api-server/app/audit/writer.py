@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from app.audit.config import AuditConfig
+from app.audit.redaction import redact_blob_dict
 from app.audit.schemas import AuditRecord
 
 logger = logging.getLogger("directai.audit")
@@ -101,6 +102,7 @@ class AuditWriter:
         self._running = False
         self._records_written = 0
         self._records_dropped = 0
+        self._blob_container_client: object | None = None  # ContainerClient (async)
 
     @property
     def records_written(self) -> int:
@@ -131,12 +133,33 @@ class AuditWriter:
             except Exception:
                 logger.exception("Failed to create audit_logs table — PG writes will fail")
 
+        # Initialise Azure Blob Storage async client
+        if self._config.blob_enabled and self._config.storage_connection_string:
+            try:
+                from azure.storage.blob.aio import BlobServiceClient
+                blob_service = BlobServiceClient.from_connection_string(
+                    self._config.storage_connection_string,
+                )
+                self._blob_container_client = blob_service.get_container_client(
+                    self._config.storage_container,
+                )
+                logger.info(
+                    "Audit blob client ready (account=%s, container=%s, redact=%s)",
+                    self._config.storage_account,
+                    self._config.storage_container,
+                    self._config.redact_pii,
+                )
+            except Exception:
+                logger.exception("Failed to init audit blob client — blob writes will fail")
+                self._blob_container_client = None
+
         self._running = True
         self._task = asyncio.create_task(self._writer_loop(), name="audit-writer")
         logger.info(
-            "Audit writer started (pg=%s, blob=%s, batch=%d, flush=%.1fs)",
+            "Audit writer started (pg=%s, blob=%s, redact=%s, batch=%d, flush=%.1fs)",
             self._config.pg_enabled and self._pg_pool is not None,
-            self._config.blob_enabled,
+            self._config.blob_enabled and self._blob_container_client is not None,
+            self._config.redact_pii,
             self._config.batch_size,
             self._config.flush_interval,
         )
@@ -153,6 +176,15 @@ class AuditWriter:
             except asyncio.CancelledError:
                 pass
             self._task = None
+
+        # Close blob client (releases underlying aiohttp session)
+        if self._blob_container_client is not None:
+            try:
+                await self._blob_container_client.close()
+            except Exception:
+                logger.debug("Error closing blob container client", exc_info=True)
+            self._blob_container_client = None
+
         logger.info(
             "Audit writer stopped (written=%d, dropped=%d)",
             self._records_written,
@@ -276,18 +308,24 @@ class AuditWriter:
 
         Blob path: audit-logs/{user_id}/{year}/{month}/{day}/{hour}/{request_id}.json.gz
 
-        NOTE: Azure Blob Storage integration is Phase 2 (Issue #63).
-        This method is a structured placeholder that logs what WOULD be
-        written. The actual azure-storage-blob SDK call will be wired in
-        when the Bicep infra (immutable storage account) is deployed.
+        Each record becomes one blob.  Records are gzip-compressed before
+        upload for cost efficiency (~10× smaller).  When ``redact_pii``
+        is enabled, PII fields are scrubbed before serialisation.
         """
-        if not self._config.blob_enabled or not self._config.storage_account:
+        if not self._config.blob_enabled:
+            return False
+        if self._blob_container_client is None:
             return False
 
         written = 0
         for record in batch:
             try:
                 blob_dict = record.to_blob_dict()
+
+                # Apply PII redaction if configured (Issue #65)
+                if self._config.redact_pii:
+                    blob_dict = redact_blob_dict(blob_dict)
+
                 blob_json = json.dumps(blob_dict, default=str, ensure_ascii=False)
                 compressed = gzip.compress(blob_json.encode("utf-8"))
 
@@ -299,23 +337,20 @@ class AuditWriter:
                     f"{ts.hour:02d}/{record.request_id}.json.gz"
                 )
 
-                # TODO (Issue #63): Replace with azure.storage.blob.aio upload
-                # For now, log the blob path and size so we can validate the
-                # pipeline before infra is provisioned.
-                logger.debug(
-                    "Audit blob [dry-run]: %s/%s (%d bytes compressed)",
-                    self._config.storage_container,
-                    blob_path,
-                    len(compressed),
+                blob_client = self._blob_container_client.get_blob_client(blob_path)
+                await blob_client.upload_blob(
+                    compressed,
+                    overwrite=False,
+                    content_settings={"content_type": "application/gzip"},
                 )
                 written += 1
             except Exception:
                 logger.exception(
-                    "Failed to prepare audit blob for %s", record.request_id,
+                    "Failed to upload audit blob for %s", record.request_id,
                 )
 
         if written > 0:
-            logger.debug("Audit blob batch: %d/%d records prepared", written, len(batch))
+            logger.debug("Audit blob batch: %d/%d records uploaded", written, len(batch))
         return written > 0
 
     def _log_fallback(self, record: AuditRecord) -> None:

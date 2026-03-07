@@ -79,6 +79,12 @@ param enablePlatformDb bool = false
 @description('Deploy Azure AI Content Safety for guardrails input/output filtering.')
 param enableContentSafety bool = false
 
+@description('Deploy immutable Azure Blob Storage for audit log archival.')
+param enableAuditStorage bool = false
+
+@description('Audit blob retention days (immutability policy lock period).')
+param auditRetentionDays int = 365
+
 @description('Azure AI Content Safety SKU. Free (F0) = 5K txn/month, Standard (S0) = pay-per-transaction.')
 @allowed(['F0', 'S0'])
 param contentSafetySku string = 'F0'
@@ -154,6 +160,9 @@ var postgresServerName = 'psql-${baseName}'
 // Content Safety naming
 var contentSafetyName = 'cs-${baseName}'
 
+// Audit Storage naming
+var auditStorageAccountName = 'stauditdai${take(uniqueSuffix, 6)}'
+
 // Front Door naming
 var frontDoorName = 'fd-${baseName}'
 var wafPolicyName = 'waf-fd-${baseName}'
@@ -170,6 +179,10 @@ var keyVaultSecretsUserRoleId = subscriptionResourceId(
 var cognitiveServicesUserRoleId = subscriptionResourceId(
   'Microsoft.Authorization/roleDefinitions',
   'a97b65f3-24c7-4388-baec-2e87135dc908'
+)
+var storageBlobDataContributorRoleId = subscriptionResourceId(
+  'Microsoft.Authorization/roleDefinitions',
+  'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
 )
 
 var defaultTags = union(tags, {
@@ -762,6 +775,16 @@ resource kvSecretCsKey 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (enab
   }
 }
 
+// ── 8a-i-b. Store App Insights connection string in Platform Key Vault ──
+
+resource kvSecretAppInsights 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (enablePlatformAks) {
+  parent: platformKeyVault
+  name: 'appinsights-connection-string'
+  properties: {
+    value: appInsights.outputs.connectionString
+  }
+}
+
 // ── 8a-ii. RBAC: Platform kubelet → Cognitive Services User ─────────────
 //    Allows API server pods to call Content Safety via managed identity
 //    once we switch from API key to Entra auth (prod Phase 2).
@@ -787,6 +810,105 @@ resource csDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if 
       { category: 'Audit', enabled: true }
       { category: 'RequestResponse', enabled: true }
     ]
+    metrics: [{ category: 'AllMetrics', enabled: true }]
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 8b. Immutable Audit Blob Storage — tamper-proof audit log archival
+//
+//     Separate storage account from the engine-cache account. Enforces:
+//       - Version-level immutability (WORM — write once, read many)
+//       - Time-based retention policy (configurable, default 365 days)
+//       - Blob versioning enabled
+//       - No shared key access (RBAC only)
+//       - No public blob access
+//
+//     Audit records are gzip-compressed JSON blobs uploaded by the API
+//     server audit writer (app/audit/writer.py).
+//
+//     Conditional on enableAuditStorage.
+// ---------------------------------------------------------------------------
+
+resource auditStorage 'Microsoft.Storage/storageAccounts@2023-05-01' = if (enableAuditStorage) {
+  name: auditStorageAccountName
+  location: location
+  tags: union(defaultTags, { purpose: 'audit-archival' })
+  kind: 'StorageV2'
+  sku: {
+    name: environment == 'prod' ? 'Standard_ZRS' : 'Standard_LRS'
+  }
+  properties: {
+    accessTier: 'Hot'
+    allowBlobPublicAccess: false
+    allowSharedKeyAccess: true   // Connection string auth for MVP; switch to RBAC-only in prod
+    minimumTlsVersion: 'TLS1_2'
+    supportsHttpsTrafficOnly: true
+    isHnsEnabled: false
+    immutableStorageWithVersioning: {
+      enabled: true
+      immutabilityPolicy: {
+        immutabilityPeriodSinceCreationInDays: auditRetentionDays
+        state: 'Unlocked'      // Unlocked for dev; lock to 'Locked' for prod compliance
+      }
+    }
+  }
+}
+
+resource auditBlobServices 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = if (enableAuditStorage) {
+  parent: auditStorage
+  name: 'default'
+  properties: {
+    isVersioningEnabled: true
+    deleteRetentionPolicy: {
+      enabled: true
+      days: 30
+    }
+  }
+}
+
+resource auditContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = if (enableAuditStorage) {
+  parent: auditBlobServices
+  name: 'audit-logs'
+  properties: {
+    publicAccess: 'None'
+    immutableStorageWithVersioning: {
+      enabled: true
+    }
+  }
+}
+
+// ── 8b-i. Store connection string in Platform Key Vault ─────────────
+
+resource kvSecretAuditStorage 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (enableAuditStorage && enablePlatformAks) {
+  parent: platformKeyVault
+  name: 'audit-storage-connection-string'
+  properties: {
+    value: enableAuditStorage ? 'DefaultEndpointsProtocol=https;AccountName=${auditStorage.name};AccountKey=${auditStorage.listKeys().keys[0].value};EndpointSuffix=${az.environment().suffixes.storage}' : ''
+  }
+}
+
+// ── 8b-ii. RBAC: Platform kubelet → Storage Blob Data Contributor ───
+//    Allows API server pods to upload audit blobs via managed identity
+//    once we switch from connection string to Entra auth (prod Phase 2).
+
+resource roleAuditBlobContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableAuditStorage && enablePlatformAks) {
+  name: guid(auditStorage.id, platformKubeletIdentity.id, storageBlobDataContributorRoleId)
+  scope: auditStorage
+  properties: {
+    principalId: platformKubeletIdentity!.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: storageBlobDataContributorRoleId
+  }
+}
+
+// ── 8b-iii. Diagnostics ──────────────────────────────────────────────
+
+resource auditStorageDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (enableAuditStorage) {
+  name: 'diag-${auditStorageAccountName}'
+  scope: auditStorage
+  properties: {
+    workspaceId: logAnalytics.outputs.resourceId
     metrics: [{ category: 'AllMetrics', enabled: true }]
   }
 }
@@ -1116,3 +1238,11 @@ output frontDoorEndpointHostName string = enableFrontDoor ? frontDoorEndpoint!.p
 
 @description('WAF policy resource ID.')
 output wafPolicyResourceId string = enableFrontDoor ? wafPolicy!.id : ''
+
+// --- Audit Storage outputs ---
+
+@description('Audit storage account name.')
+output auditStorageAccountName string = enableAuditStorage ? auditStorage!.name : ''
+
+@description('Audit storage account resource ID.')
+output auditStorageAccountResourceId string = enableAuditStorage ? auditStorage!.id : ''

@@ -24,8 +24,12 @@ class AuditConfig:
     # Azure Blob Storage
     blob_enabled: bool = False
     storage_account: str = ""
+    storage_connection_string: str = ""   # Azure Storage connection string (from Key Vault)
     storage_container: str = "audit-logs"
     retention_days: int = 365
+
+    # Redacted logging mode (Issue #65)
+    redact_pii: bool = False  # When True, scrub PII from blob records before upload
 
     # Writer tuning
     queue_size: int = 50_000

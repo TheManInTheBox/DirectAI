@@ -160,6 +160,10 @@ class Settings(BaseSettings):
         default="",
         description="Azure Storage Account name for audit blob writes.",
     )
+    audit_storage_connection_string: str = Field(
+        default="",
+        description="Azure Storage connection string for audit blob writes. Takes precedence over account name.",
+    )
     audit_storage_container: str = Field(
         default="audit-logs",
         description="Blob container name for audit records.",
@@ -167,6 +171,10 @@ class Settings(BaseSettings):
     audit_retention_days: int = Field(
         default=365,
         description="Blob retention period in days (Azure immutability policy).",
+    )
+    audit_redact_pii: bool = Field(
+        default=False,
+        description="Redact PII (IP addresses, request/response bodies) from blob audit records before upload.",
     )
     audit_queue_size: int = Field(
         default=50_000,

@@ -35,6 +35,11 @@ apiServer:
     DIRECTAI_CONTENT_SAFETY_ENABLED: "true"
     DIRECTAI_CONTENT_SAFETY_THRESHOLD: "4"
     DIRECTAI_CONTENT_SAFETY_CHECK_OUTPUT: "true"
+    DIRECTAI_AUDIT_ENABLED: "true"
+    DIRECTAI_AUDIT_PG_ENABLED: "true"
+    DIRECTAI_AUDIT_BLOB_ENABLED: "true"
+    DIRECTAI_AUDIT_STORAGE_CONTAINER: "audit-logs"
+    DIRECTAI_AUDIT_REDACT_PII: "false"
 
   secretStore:
     enabled: true
@@ -47,6 +52,8 @@ apiServer:
         secretKey: DIRECTAI_CONTENT_SAFETY_ENDPOINT
       - objectName: content-safety-key
         secretKey: DIRECTAI_CONTENT_SAFETY_KEY
+      - objectName: audit-storage-connection-string
+        secretKey: DIRECTAI_AUDIT_STORAGE_CONNECTION_STRING
 
   modelConfigDir: /app/models
 

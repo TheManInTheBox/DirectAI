@@ -23,6 +23,7 @@ dependencies = [
     "opentelemetry-instrumentation-fastapi>=0.48b0,<1",
     "opentelemetry-instrumentation-httpx>=0.48b0,<1",
     "azure-monitor-opentelemetry-exporter>=1.0.0b30,<2",
+    "azure-storage-blob>=12.20,<13",
     "asyncpg>=0.29,<1",
 ]
 
