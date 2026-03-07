@@ -32,6 +32,9 @@ apiServer:
     DIRECTAI_BACKEND_TIMEOUT: "300"
     DIRECTAI_BACKEND_CONNECT_TIMEOUT: "10"
     DIRECTAI_OTEL_ENABLED: "false"
+    DIRECTAI_CONTENT_SAFETY_ENABLED: "true"
+    DIRECTAI_CONTENT_SAFETY_THRESHOLD: "4"
+    DIRECTAI_CONTENT_SAFETY_CHECK_OUTPUT: "true"
 
   secretStore:
     enabled: true
@@ -40,6 +43,10 @@ apiServer:
     secrets:
       - objectName: database-url
         secretKey: DIRECTAI_DATABASE_URL
+      - objectName: content-safety-endpoint
+        secretKey: DIRECTAI_CONTENT_SAFETY_ENDPOINT
+      - objectName: content-safety-key
+        secretKey: DIRECTAI_CONTENT_SAFETY_KEY
 
   modelConfigDir: /app/models
 

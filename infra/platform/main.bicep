@@ -74,6 +74,15 @@ param enablePlatformAks bool = false
 @description('Deploy the Platform PostgreSQL Flexible Server for user, billing, and session data.')
 param enablePlatformDb bool = false
 
+// --- Azure AI Content Safety ---
+
+@description('Deploy Azure AI Content Safety for guardrails input/output filtering.')
+param enableContentSafety bool = false
+
+@description('Azure AI Content Safety SKU. Free (F0) = 5K txn/month, Standard (S0) = pay-per-transaction.')
+@allowed(['F0', 'S0'])
+param contentSafetySku string = 'F0'
+
 @description('PostgreSQL administrator login name.')
 param postgresAdminLogin string = 'directaiadmin'
 
@@ -142,6 +151,9 @@ var platformKeyVaultName = 'kvplatdai${take(uniqueSuffix, 6)}'
 // Platform PostgreSQL naming
 var postgresServerName = 'psql-${baseName}'
 
+// Content Safety naming
+var contentSafetyName = 'cs-${baseName}'
+
 // Front Door naming
 var frontDoorName = 'fd-${baseName}'
 var wafPolicyName = 'waf-fd-${baseName}'
@@ -154,6 +166,10 @@ var managedIdentityOperatorRoleId = subscriptionResourceId(
 var keyVaultSecretsUserRoleId = subscriptionResourceId(
   'Microsoft.Authorization/roleDefinitions',
   '4633458b-17de-408a-b874-0445c86b69e6'
+)
+var cognitiveServicesUserRoleId = subscriptionResourceId(
+  'Microsoft.Authorization/roleDefinitions',
+  'a97b65f3-24c7-4388-baec-2e87135dc908'
 )
 
 var defaultTags = union(tags, {
@@ -700,6 +716,82 @@ module platformDb 'br/public:avm/res/db-for-postgre-sql/flexible-server:0.14.0' 
 }
 
 // ---------------------------------------------------------------------------
+// 8a. Azure AI Content Safety — Guardrails input/output filtering
+//
+//     Provides text content classification for hate, violence, self-harm,
+//     and sexual content. Used by the ContentSafetyMiddleware in the API server.
+//
+//     Conditional on enableContentSafety.
+//     Dev: Free F0 (5K transactions/month, public endpoint)
+//     Prod: Standard S0 (pay-per-transaction, private endpoint — Phase 2)
+// ---------------------------------------------------------------------------
+
+resource contentSafety 'Microsoft.CognitiveServices/accounts@2024-10-01' = if (enableContentSafety) {
+  name: contentSafetyName
+  location: location
+  tags: defaultTags
+  kind: 'ContentSafety'
+  sku: {
+    name: contentSafetySku
+  }
+  properties: {
+    customSubDomainName: contentSafetyName
+    publicNetworkAccess: 'Enabled'          // Private endpoint in prod (Phase 2)
+    disableLocalAuth: false                  // API key auth for dev; managed identity for prod
+    networkAcls: {
+      defaultAction: 'Allow'
+    }
+  }
+}
+
+// ── 8a-i. Store Content Safety endpoint + key in Platform Key Vault ─────
+
+resource kvSecretCsEndpoint 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (enableContentSafety && enablePlatformAks) {
+  parent: platformKeyVault
+  name: 'content-safety-endpoint'
+  properties: {
+    value: enableContentSafety ? contentSafety!.properties.endpoint : ''
+  }
+}
+
+resource kvSecretCsKey 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (enableContentSafety && enablePlatformAks) {
+  parent: platformKeyVault
+  name: 'content-safety-key'
+  properties: {
+    value: enableContentSafety ? contentSafety!.listKeys().key1 : ''
+  }
+}
+
+// ── 8a-ii. RBAC: Platform kubelet → Cognitive Services User ─────────────
+//    Allows API server pods to call Content Safety via managed identity
+//    once we switch from API key to Entra auth (prod Phase 2).
+
+resource roleCsUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableContentSafety && enablePlatformAks) {
+  name: guid(contentSafety.id, platformKubeletIdentity.id, cognitiveServicesUserRoleId)
+  scope: contentSafety
+  properties: {
+    principalId: platformKubeletIdentity!.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: cognitiveServicesUserRoleId
+  }
+}
+
+// ── 8a-iii. Diagnostics ─────────────────────────────────────────────────
+
+resource csDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (enableContentSafety) {
+  name: 'diag-${contentSafetyName}'
+  scope: contentSafety
+  properties: {
+    workspaceId: logAnalytics.outputs.resourceId
+    logs: [
+      { category: 'Audit', enabled: true }
+      { category: 'RequestResponse', enabled: true }
+    ]
+    metrics: [{ category: 'AllMetrics', enabled: true }]
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 9. Azure Front Door Premium — Latency-Based Inference API Routing
 //
 //    Routes api.agilecloud.ai traffic to the closest healthy inference region
@@ -999,6 +1091,17 @@ output platformDbName string = enablePlatformDb ? platformDb.outputs.name : ''
 
 @description('Platform PostgreSQL server resource ID.')
 output platformDbResourceId string = enablePlatformDb ? platformDb.outputs.resourceId : ''
+
+// --- Content Safety outputs ---
+
+@description('Azure AI Content Safety endpoint URL.')
+output contentSafetyEndpoint string = enableContentSafety ? contentSafety!.properties.endpoint : ''
+
+@description('Azure AI Content Safety resource name.')
+output contentSafetyName string = enableContentSafety ? contentSafety!.name : ''
+
+@description('Azure AI Content Safety resource ID.')
+output contentSafetyResourceId string = enableContentSafety ? contentSafety!.id : ''
 
 // --- Front Door outputs ---
 
